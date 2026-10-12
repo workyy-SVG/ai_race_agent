@@ -343,6 +343,14 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
         do_fetch = st.button("🔍 获取数据", use_container_width=True, key=f"{key_prefix}_fetch")
 
     if do_fetch and kw.strip():
+        # 取数之前先把该面板对应的旧研报/旧分析/旧 PDF 文本清掉，
+        # 避免"切到新公司后研报还显示上一家"的问题
+        st.session_state[f"{key_prefix}_pdftext"] = ""
+        st.session_state[f"{key_prefix}_reports"] = []
+        if key_prefix == "single":
+            st.session_state.pop("report", None)
+            st.session_state.pop("analysis", None)
+            st.session_state["messages"] = []
         with st.spinner("正在联网获取数据……"):
             hits = ds.search_stock(kw.strip())
             if not hits:
@@ -362,6 +370,9 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
                     gi = ds.guess_industry(name)
                     if gi:
                         st.session_state[f"{key_prefix}_auto_industry"] = gi
+                        # 同步切换到顶部的行业 radio（仅单公司面板）
+                        if key_prefix == "single" and gi in INDUSTRY_KB:
+                            st.session_state["industry"] = gi
 
     text = st.session_state.get(f"{key_prefix}_online", "")
     name = st.session_state.get(f"{key_prefix}_online_name", "")
@@ -377,8 +388,9 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
         with st.expander("查看获取到的原始数据", expanded=False):
             st.markdown(text)
 
-        # 年报 PDF 一键获取
-        with st.expander("📄 一键获取并在云端解析年报 PDF（可选，数据更全）", expanded=False):
+        # 年报 PDF 一键获取：默认展开，且解析成功后保持展开
+        pdf_done = bool(st.session_state.get(f"{key_prefix}_pdftext"))
+        with st.expander("📄 一键获取并在云端解析年报 PDF（可选，数据更全）", expanded=not pdf_done):
             rtype = st.radio("报告类型", ["年报", "半年报", "一季报", "三季报"], horizontal=True, key=f"{key_prefix}_rtype")
             if st.button("获取报告列表", key=f"{key_prefix}_listbtn"):
                 reports = ds.list_reports(code, org, rtype, limit=8)
@@ -448,13 +460,25 @@ with st.sidebar:
 
 # ---- 行业知识库：主界面横向按钮（不再藏在侧边栏下拉框里） ----
 st.markdown("##### 📚 行业知识库 —— 请选择待分析公司所属行业（将自动注入该行业的分析框架与经验法则）")
+# 默认索引：以「通用」为默认，避免每次刷新都跳到第一个非通用行业
+_default_idx = list(INDUSTRY_KB.keys()).index(
+    st.session_state.get("industry", "通用")
+    if st.session_state.get("industry", "通用") in INDUSTRY_KB
+    else "通用"
+)
 industry = st.radio(
     "行业",
     list(INDUSTRY_KB.keys()),
+    index=_default_idx,
     horizontal=True,
     label_visibility="collapsed",
+    key="industry",
 )
-st.caption(f"当前行业：**{industry}** · " + INDUSTRY_KB[industry].splitlines()[0].replace("【", "").replace("】", "·").strip(" -"))
+# 如果是自动匹配过来的，提示一下
+if st.session_state.get("single_auto_industry") and st.session_state.get("industry") == st.session_state.get("single_auto_industry"):
+    st.caption(f"🤖 已根据在线取数结果自动匹配行业：**{industry}**（如需切换，点击上方按钮即可）")
+else:
+    st.caption(f"当前行业：**{industry}** · " + INDUSTRY_KB[industry].splitlines()[0].replace("【", "").replace("】", "·").strip(" -"))
 
 def system_prompt_with_kb():
     return BASE_SYSTEM_PROMPT + "\n\n" + INDUSTRY_KB[industry]
@@ -514,6 +538,11 @@ with tab1:
 
     if online_name:
         st.caption(f"当前分析对象：**{online_name}**")
+        # 记录当前分析对象，用于"是否需要清空旧结果"的判断
+        st.session_state["current_target"] = online_name
+    elif st.text_input is not None and not online_name:
+        # 手动模式时不强提示
+        pass
 
     c1, c2 = st.columns(2)
     with c1:
@@ -527,6 +556,17 @@ with tab1:
         st.error("系统未配置 DEEPSEEK_API_KEY，请联系管理员。")
 
     # ---- 结构化分析（评分 + 图表 + 风险） ----
+    # 安全网：如果旧的 analysis 对应的公司与当前 raw_data 推断的公司不一致，
+    # 自动丢弃旧 analysis 并清空旧报告，避免"分析已切换但研报还显示旧公司"
+    _current_target = (online_name or "").strip()
+    _analysis = st.session_state.get("analysis") or {}
+    if _analysis and _current_target and _analysis.get("company", "") != _current_target:
+        st.session_state.pop("analysis", None)
+        st.session_state.pop("report", None)
+        st.session_state["messages"] = []
+        _analysis = None
+        st.info(f"🔄 检测到分析对象已切换为 **{_current_target}**，旧的研报已清空，请重新点击「🚀 开始结构化分析」。")
+
     if run_btn and raw_data and DEEPSEEK_API_KEY:
         with st.spinner("正在提取关键指标并评分……（约 10-30 秒）"):
             try:
@@ -558,8 +598,9 @@ with tab1:
                 analysis = parse_json_loose(raw_json)
                 st.session_state["analysis"] = analysis
                 st.session_state["analysis_data"] = raw_data
-                # 每次重新分析时清空旧的追问记录，避免上下文串台
+                # 每次重新分析时清空旧的追问记录与旧的研报，避免上下文/报告串台
                 st.session_state["messages"] = []
+                st.session_state.pop("report", None)
             except Exception as e:
                 st.error(f"结构化分析失败：{e}。可重试，或检查数据是否完整。")
 
