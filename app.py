@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-金融智能投研 Agent v2 —— 增强版（Streamlit Cloud 部署）
+金融智能投研 Agent v3 —— 增强版 + 金融主题界面
 
 功能清单：
   1. PDF / txt / md 财报上传解析 + 手动粘贴
@@ -8,7 +8,7 @@
   3. 财务指标柱状图
   4. 一键生成完整研报并支持下载
   5. 双公司横向对比模式
-  6. 内置行业知识库（分析时自动注入行业框架）
+  6. 内置行业知识库（主界面横向按钮选择，分析时自动注入行业框架）
 
 密钥说明：所有敏感信息从 Streamlit Secrets / 环境变量读取，代码中不含任何 key。
 """
@@ -39,35 +39,35 @@ MAX_CHARS = 12000  # 送入大模型的财报文本最大长度（控制费用�
 
 # ============ 行业知识库（内置静态知识，分析时自动注入） ============
 INDUSTRY_KB = {
-    "通用框架": """【行业知识库 · 通用框架】
+    "通用": """【行业知识库 · 通用框架】
 - 分析重点：盈利能力（毛利率/净利率/ROE）、成长性（营收与净利润增速）、偿债能力（资产负债率/流动比率）、经营质量（经营现金流/净利润比）。
 - 常见风险信号：应收账款增速远超营收、存货异常堆积、有息负债率高、经营现金流持续为负、毛利率异常高于同行。
 - 经验法则：ROE 长期 >15% 属优秀；资产负债率 >70% 需警惕（金融/地产行业除外）；经营现金流/净利润 长期 <0.5 说明利润质量存疑。""",
 
-    "消费 / 白酒 / 食品饮料": """【行业知识库 · 消费/白酒/食品饮料】
+    "消费": """【行业知识库 · 消费/白酒/食品饮料】
 - 商业模式核心：品牌溢价决定毛利率（高端白酒毛利率可达 80%+，普通食品约 20-40%）。
 - 关键指标：预收账款/合同负债（反映渠道信心）、存货中的基酒（白酒越陈越值钱，不算减值风险）、大单品占比。
 - 风险信号：渠道压货（应收+存货双高）、提价失灵、消费税政策变化、年轻群体消费习惯迁移。""",
 
-    "银行 / 保险 / 金融": """【行业知识库 · 银行/保险/金融】
+    "金融": """【行业知识库 · 银行/保险/金融】
 - 银行不看毛利率，核心看：净息差（NIM）、不良贷款率、拨备覆盖率、资本充足率、ROA。
 - 经验区间：不良率 <1.5% 较健康；拨备覆盖率 >150% 属审慎；净息差 2% 左右为行业常态。
 - 风险信号：不良率连续上行、房地产/城投敞口过大、核心一级资本充足率逼近监管红线。
 - 保险公司关注：新业务价值(NBV)增速、内涵价值(EV)、综合成本率（财险 <100% 才盈利）。""",
 
-    "新能源 / 制造业": """【行业知识库 · 新能源/制造业】
+    "新能源": """【行业知识库 · 新能源/制造业】
 - 商业模式核心：技术迭代快、重资产、周期性强（产能扩张→价格战→出清）。
 - 关键指标：产能利用率、单位成本下降曲线、在手订单、资本开支/折旧比、市占率变化。
 - 风险信号：产品价格年降幅 >15%、应收账款回款期拉长、扩产周期撞上行业价格战、技术路线切换（如固态电池替代液态）。
 - 光伏/锂电特别关注：硅料/碳酸锂价格周期、欧美贸易政策。""",
 
-    "医药生物": """【行业知识库 · 医药生物】
+    "医药": """【行业知识库 · 医药生物】
 - 商业模式核心：研发管线决定长期价值，销售能力决定当期业绩。
 - 关键指标：研发费用率（创新药企 15-30%）、核心产品收入占比、集采风险敞口、在研管线进度（I/II/III期）。
 - 风险信号：单一产品收入占比 >80%、核心品种纳入集采、研发管线多年无进展、销售费用率畸高（合规风险）。
 - 经验法则：创新药看管线估值，仿制药看成本与规模，器械看渠道与集采。""",
 
-    "互联网 / 科技": """【行业知识库 · 互联网/科技】
+    "互联网": """【行业知识库 · 互联网/科技】
 - 商业模式核心：网络效应与规模经济，用户数据是核心资产。
 - 关键指标：MAU/DAU 增长与留存、ARPU（单用户价值）、获客成本(CAC)/用户终身价值(LTV)比、云业务增速与利润率。
 - 风险信号：用户增长停滞但获客成本飙升、监管反垄断处罚、数据合规风险、研发资本化比例异常。
@@ -89,16 +89,132 @@ BASE_SYSTEM_PROMPT = """你是一名专业、严谨的金融投研分析师。�
 - 语言专业但通俗易懂，使用 markdown 小标题组织内容。
 - 结合下方行业知识库中的经验法则进行分析。"""
 
+# ============ 全局样式（金融主题：深藏青 + 金色） ============
+CUSTOM_CSS = """
+<style>
+  /* ===== 顶栏横幅 ===== */
+  .hero {
+    background: linear-gradient(120deg, #0A1F44 0%, #123A6B 60%, #0A1F44 100%);
+    border-radius: 14px;
+    padding: 22px 28px 18px 28px;
+    margin-bottom: 6px;
+    color: #ffffff;
+  }
+  .hero h1 {
+    color: #ffffff;
+    font-size: 30px;
+    font-weight: 800;
+    margin: 0 0 4px 0;
+    letter-spacing: 1px;
+  }
+  .hero .gold { color: #E8B84B; font-weight: 700; }
+  .hero p { color: #C9D6E8; font-size: 14px; margin: 0; }
+  .hero .tagline { color: #8FA6C6; font-size: 12px; margin-top: 6px; }
+
+  /* ===== 通用卡片 ===== */
+  div[data-testid="stMetric"] {
+    background: #F6F8FC;
+    border: 1px solid #E2E8F2;
+    border-radius: 12px;
+    padding: 12px 14px 6px 14px;
+  }
+  div[data-testid="stMetric"] label {
+    color: #5A6B84;
+    font-weight: 600;
+  }
+  div[data-testid="stMetric"] div {
+    color: #0A1F44;
+    font-weight: 800;
+  }
+
+  /* ===== 按钮 ===== */
+  .stButton > button[kind="primary"] {
+    background: linear-gradient(90deg, #0A1F44, #17417E);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-weight: 600;
+  }
+  .stButton > button[kind="primary"]:hover {
+    background: linear-gradient(90deg, #17417E, #2A5AA8);
+    color: #E8B84B;
+  }
+
+  /* ===== 标签页 ===== */
+  .stTabs [data-baseweb="tab-list"] { gap: 8px; }
+  .stTabs [data-baseweb="tab"] {
+    background-color: #F1F4F9;
+    border-radius: 10px 10px 0 0;
+    padding: 8px 20px;
+    font-weight: 600;
+    color: #5A6B84;
+  }
+  .stTabs [aria-selected="true"] {
+    background-color: #0A1F44 !important;
+    color: #E8B84B !important;
+  }
+
+  /* ===== 侧边栏 ===== */
+  section[data-testid="stSidebar"] {
+    background-color: #0A1F44;
+  }
+  section[data-testid="stSidebar"] * {
+    color: #D7E1F0 !important;
+  }
+  section[data-testid="stSidebar"] .stButton > button {
+    background: transparent;
+    border: 1px solid #3D5A85;
+    color: #D7E1F0;
+    border-radius: 8px;
+  }
+
+  /* ===== 提示条 ===== */
+  div[data-testid="stSuccess"] {
+    background-color: #EAF3EA;
+    border-left: 4px solid #2E7D32;
+  }
+  div[data-testid="stWarning"] {
+    border-left: 4px solid #E8B84B;
+  }
+  div[data-testid="stError"] {
+    border-left: 4px solid #C0392B;
+  }
+
+  /* ===== 页脚 ===== */
+  .footer-note {
+    text-align: center;
+    color: #8A98AC;
+    font-size: 12px;
+    padding: 8px;
+  }
+  .footer-note b { color: #0A1F44; }
+
+  /* ===== 区块小标题 ===== */
+  h3, h4, h5 { color: #0A1F44 !important; font-weight: 700 !important; }
+
+  /* ===== 分割线 ===== */
+  hr { border: none; border-top: 1px dashed #C9D6E8; }
+</style>
+"""
+
 # ============ 页面与登录 ============
 st.set_page_config(page_title="金融智能投研 Agent", layout="wide")
+st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 def check_login():
     if st.session_state.get("authenticated", False):
         return True
-    st.markdown("## 🔒 金融智能投研 Agent")
-    st.caption("请输入访问账号和密码后进入系统")
+    st.markdown(
+        """
+        <div class="hero" style="text-align:center; max-width:560px; margin:40px auto 10px auto;">
+            <h1>📈 金融智能投研 <span class="gold">Agent</span></h1>
+            <p>AI 驱动的财报深度分析 · 结构化评分 · 双公司对比 · 行业知识库</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     with st.form("login_form", clear_on_submit=False):
-        user = st.text_input("账号", placeholder="请输入账号")
+        user = st.text_input("账号", placeholder="请输入访问账号")
         pw = st.text_input("密码", type="password", placeholder="请输入访问密码")
         submitted = st.form_submit_button("进入系统", use_container_width=True)
         if submitted:
@@ -107,6 +223,7 @@ def check_login():
                 st.rerun()
             else:
                 st.error("账号或密码错误，请重试")
+    st.caption("🔒 本系统仅供大赛评审访问 · 分析结果仅供参考，不构成投资建议")
     return False
 
 if not check_login():
@@ -117,14 +234,12 @@ def make_client():
     return OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
 
 def llm_once(messages, temperature=0.2):
-    """非流式调用，用于结构化 JSON 输出"""
     resp = make_client().chat.completions.create(
         model=DEEPSEEK_MODEL, messages=messages, temperature=temperature, stream=False
     )
     return resp.choices[0].message.content or ""
 
 def llm_stream(messages, placeholder, temperature=0.3):
-    """流式调用，用于长文本生成"""
     resp = make_client().chat.completions.create(
         model=DEEPSEEK_MODEL, messages=messages, temperature=temperature, stream=True
     )
@@ -152,7 +267,6 @@ def extract_pdf_text(file):
         return None
 
 def read_upload(up):
-    """读取上传文件，返回 (文本, 错误信息)"""
     if up is None:
         return "", None
     name = (up.name or "").lower()
@@ -166,7 +280,6 @@ def read_upload(up):
     return up.getvalue().decode("utf-8", errors="ignore"), None
 
 def parse_json_loose(text):
-    """容错解析模型返回的 JSON（去掉 markdown 代码围栏等）"""
     text = (text or "").strip()
     if text.startswith("```"):
         text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
@@ -177,29 +290,62 @@ def parse_json_loose(text):
         text = text[start:end + 1]
     return json.loads(text)
 
-def score_color(v):
-    if v is None:
-        return "—"
-    return str(v)
-
 def render_score_card(label, value):
-    col = st.columns(1)[0]
     if value is None:
         st.metric(label, "数据不足")
     else:
         st.metric(label, f"{value} / 10")
         st.progress(min(max(value / 10.0, 0.0), 1.0))
 
-# ============ 主界面 ============
-st.title("📈 金融智能投研 Agent")
-st.caption("上传 PDF/文本财报 → 自动结构化分析、评分、图表 → 支持追问、双公司对比与研报导出")
+# ============ 顶部横幅 + 侧边栏 ============
+st.markdown(
+    """
+    <div class="hero">
+        <h1>📈 金融智能投研 <span class="gold">Agent</span></h1>
+        <p>上传 PDF / 文本财报，自动完成结构化分析、四维评分、指标图表与研报生成</p>
+        <p class="tagline">支持双公司对比 · 内置六大行业知识库 · 可追问、可下载</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 with st.sidebar:
-    st.success(f"已登录 · 账号：{APP_USER}")
-    industry = st.selectbox("📚 行业知识库（自动注入分析框架）", list(INDUSTRY_KB.keys()), index=0)
-    if st.button("退出登录"):
+    st.markdown("### 🧭 导航")
+    st.markdown(
+        """
+        **快速上手**
+        1. 下方选择行业知识库
+        2. 粘贴 / 上传财报
+        3. 点击「开始结构化分析」
+
+        **当前版本能力**
+        - PDF 财报解析
+        - 四维评分 + 总分
+        - 指标图表与明细
+        - 一键研报导出
+        - 双公司对比
+        - 六大行业知识库
+        """
+    )
+    st.markdown("---")
+    st.markdown(f"👤 当前登录：**{APP_USER}**")
+    if st.button("退出登录", use_container_width=True):
         st.session_state["authenticated"] = False
         st.rerun()
+    st.markdown(
+        '<p class="footer-note">金融智能投研 Agent · 大赛参赛作品</p>',
+        unsafe_allow_html=True,
+    )
+
+# ---- 行业知识库：主界面横向按钮（不再藏在侧边栏下拉框里） ----
+st.markdown("##### 📚 行业知识库 —— 请选择待分析公司所属行业（将自动注入该行业的分析框架与经验法则）")
+industry = st.radio(
+    "行业",
+    list(INDUSTRY_KB.keys()),
+    horizontal=True,
+    label_visibility="collapsed",
+)
+st.caption(f"当前行业：**{industry}** · " + INDUSTRY_KB[industry].splitlines()[0].replace("【", "").replace("】", "·").strip(" -"))
 
 def system_prompt_with_kb():
     return BASE_SYSTEM_PROMPT + "\n\n" + INDUSTRY_KB[industry]
@@ -225,9 +371,9 @@ with tab1:
 
     raw_data = (data_text + "\n" + uploaded_text).strip()
 
-    c1, c2, c3 = st.columns([1, 1, 2])
+    c1, c2 = st.columns(2)
     with c1:
-        run_btn = st.button("🚀 开始结构化分析", disabled=not raw_data, use_container_width=True)
+        run_btn = st.button("🚀 开始结构化分析", disabled=not raw_data, use_container_width=True, type="primary")
     with c2:
         report_btn = st.button("📝 生成完整研报", disabled=not raw_data, use_container_width=True)
 
@@ -276,7 +422,6 @@ with tab1:
         if analysis.get("summary"):
             st.caption(analysis["summary"])
 
-        # 评分卡片
         scores = analysis.get("scores", {}) or {}
         total = analysis.get("total_score")
         sc1, sc2, sc3, sc4, sc5 = st.columns(5)
@@ -293,10 +438,10 @@ with tab1:
                 st.metric("综合评分", "数据不足")
             else:
                 st.metric("综合评分", f"{total} / 10")
+                st.progress(min(max(total / 10.0, 0.0), 1.0))
 
         left, right = st.columns(2)
         with left:
-            # 指标图表
             chart_data = analysis.get("chart_data") or []
             chart_data = [d for d in chart_data if isinstance(d.get("value"), (int, float))]
             if chart_data:
@@ -306,7 +451,6 @@ with tab1:
             else:
                 st.info("图表数据不足（缺少可画图的金额类指标）。")
         with right:
-            # 指标明细表
             metrics = analysis.get("metrics") or []
             if metrics:
                 st.markdown("##### 指标明细")
@@ -434,7 +578,7 @@ with tab2:
             st.warning(err_b)
         data_b = (text_b + "\n" + file_b).strip()
 
-    cmp_btn = st.button("⚖️ 开始对比分析", disabled=not (data_a and data_b))
+    cmp_btn = st.button("⚖️ 开始对比分析", disabled=not (data_a and data_b), use_container_width=True, type="primary")
 
     if cmp_btn and data_a and data_b:
         if not DEEPSEEK_API_KEY:
@@ -496,7 +640,7 @@ with tab3:
 | 研报导出 | 各页的下载按钮 | 分析结果可保存为 Markdown 报告 |
 
 **行业知识库：**
-左侧边栏可选择行业（消费、银行金融、新能源制造、医药、互联网科技等）。
+页面顶部横向按钮可选择行业（通用、消费、金融、新能源、医药、互联网）。
 系统会自动将该行业的分析框架、关键指标、经验法则与风险信号注入分析过程，
 使结论更贴合行业特性，而不是泛泛而谈。
 
@@ -513,4 +657,7 @@ with tab3:
     )
 
 st.divider()
-st.caption("💡 金融智能投研 Agent · 第二届全国人工智能应用创新大赛参赛作品 · 分析结果仅供参考，不构成投资建议")
+st.markdown(
+    '<p class="footer-note">💡 <b>金融智能投研 Agent</b> · 第二届全国人工智能应用创新大赛参赛作品 · 分析结果仅供参考，不构成投资建议</p>',
+    unsafe_allow_html=True,
+)

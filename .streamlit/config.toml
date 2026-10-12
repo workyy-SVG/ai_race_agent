@@ -9,8 +9,8 @@ headless = true
 gatherUsageStats = false
 
 [theme]
-# Streamlit 主题色（可选）
-primaryColor = "#534AB7"
+# 金融主题：深藏青 + 金色点缀
+primaryColor = "#0A1F44"
 backgroundColor = "#FFFFFF"
-secondaryBackgroundColor = "#F1EFE8"
-textColor = "#2C2C2A"
+secondaryBackgroundColor = "#F6F8FC"
+textColor = "#1A2B44"
