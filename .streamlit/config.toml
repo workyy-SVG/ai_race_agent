@@ -1,0 +1,16 @@
+[server]
+# 在 Streamlit Cloud 上保持默认 headless 模式即可
+headless = true
+# 如需更改端口（一般默认即可）
+# port = 8501
+
+[browser]
+# 部署时通常不需要自动收集 telemetry
+gatherUsageStats = false
+
+[theme]
+# Streamlit 主题色（可选）
+primaryColor = "#534AB7"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F1EFE8"
+textColor = "#2C2C2A"
