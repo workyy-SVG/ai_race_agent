@@ -107,7 +107,10 @@ CUSTOM_CSS = """
     margin: 0 0 4px 0;
     letter-spacing: 1px;
   }
-  .hero .gold { color: #E8B84B; font-weight: 700; }
+  .hero h1 .gold {
+    color: #E8B84B !important;
+    font-weight: 800;
+  }
   .hero p { color: #C9D6E8; font-size: 14px; margin: 0; }
   .hero .tagline { color: #8FA6C6; font-size: 12px; margin-top: 6px; }
 
