@@ -1,14 +1,17 @@
 # -*- coding: utf-8 -*-
 """
-金融智能投研 Agent v3 —— 增强版 + 金融主题界面
+金融智能投研 Agent v4 —— 在线取数 + 结构化分析 + 金融主题界面
 
 功能清单：
+  0. 【新】在线自动取数：输入股票代码/名称，自动从巨潮资讯网 + 东方财富拉取
+     行情、多期财务指标、年报 PDF，一键生成分析文本（无需自己找财报）
   1. PDF / txt / md 财报上传解析 + 手动粘贴
   2. 结构化分析：四维评分卡片 + 总分
-  3. 财务指标柱状图
+  3. 财务指标柱状图 + 多年趋势图
   4. 一键生成完整研报并支持下载
-  5. 双公司横向对比模式
+  5. 双公司横向对比模式（支持在线取数）
   6. 内置行业知识库（主界面横向按钮选择，分析时自动注入行业框架）
+  7. 【修】追问对话：上下文实时刷新、可连续多轮提问
 
 密钥说明：所有敏感信息从 Streamlit Secrets / 环境变量读取，代码中不含任何 key。
 """
@@ -16,9 +19,12 @@
 import os
 import re
 import json
+import io
 import streamlit as st
 import pandas as pd
 from openai import OpenAI
+
+import data_source as ds
 
 # ============ 配置：优先从 Secrets 读取，其次从环境变量 ============
 def _get_secret(key, default=None):
@@ -269,6 +275,18 @@ def extract_pdf_text(file):
     except Exception:
         return None
 
+
+def extract_pdf_bytes(data: bytes):
+    """从 bytes 解析 PDF 文本（用于在线下载的年报）。"""
+    try:
+        import pypdf
+    except ImportError:
+        return None
+    try:
+        return "\n".join((p.extract_text() or "") for p in pypdf.PdfReader(io.BytesIO(data)).pages)
+    except Exception:
+        return None
+
 def read_upload(up):
     if up is None:
         return "", None
@@ -300,13 +318,98 @@ def render_score_card(label, value):
         st.metric(label, f"{value} / 10")
         st.progress(min(max(value / 10.0, 0.0), 1.0))
 
+
+# ============ 在线取数：UI 组件（可复用） ============
+def online_fetch_panel(key_prefix: str, default_name: str = ""):
+    """
+    渲染「在线取数」面板，返回 (summary_text, company_name, extra_info)。
+    - 输入股票代码/名称 → 自动拉取行情 + 多期财务指标 → 生成分析文本
+    - 可从报告列表一键下载年报 PDF 并解析
+    结果存入 session_state[key_prefix + "_online"], 避免与手动输入冲突。
+    """
+    st.markdown("##### 🌐 在线取数（自动从巨潮资讯网 + 东方财富获取）")
+    c1, c2, c3 = st.columns([2, 1, 1])
+    with c1:
+        kw = st.text_input(
+            "股票代码或名称",
+            placeholder="例如：600519 或 贵州茅台",
+            key=f"{key_prefix}_kw",
+        )
+    with c2:
+        periods = st.selectbox("报告期数", [1, 2, 3, 4, 6, 8], index=2, key=f"{key_prefix}_periods")
+    with c3:
+        st.write("")
+        st.write("")
+        do_fetch = st.button("🔍 获取数据", use_container_width=True, key=f"{key_prefix}_fetch")
+
+    if do_fetch and kw.strip():
+        with st.spinner("正在联网获取数据……"):
+            hits = ds.search_stock(kw.strip())
+            if not hits:
+                st.error("未找到该股票，请检查代码或名称（支持 A 股 6 位代码）。")
+            else:
+                code = hits[0]["code"]
+                name = hits[0]["name"]
+                text = ds.build_summary_text(code, name=name, periods=periods)
+                if not text:
+                    st.error("数据获取失败（可能是网络受限或该股票无公开数据），可改用手动粘贴。")
+                else:
+                    st.session_state[f"{key_prefix}_online"] = text
+                    st.session_state[f"{key_prefix}_online_name"] = name
+                    st.session_state[f"{key_prefix}_online_code"] = code
+                    st.session_state[f"{key_prefix}_online_org"] = hits[0].get("orgId", "")
+                    # 自动匹配行业知识库
+                    gi = ds.guess_industry(name)
+                    if gi:
+                        st.session_state[f"{key_prefix}_auto_industry"] = gi
+
+    text = st.session_state.get(f"{key_prefix}_online", "")
+    name = st.session_state.get(f"{key_prefix}_online_name", "")
+    code = st.session_state.get(f"{key_prefix}_online_code", "")
+    org = st.session_state.get(f"{key_prefix}_online_org", "")
+
+    if text:
+        auto_ind = st.session_state.get(f"{key_prefix}_auto_industry")
+        tip = f"✅ 已获取 **{name}（{code}）** 数据，共 {len(text)} 字"
+        if auto_ind:
+            tip += f" · 建议行业：**{auto_ind}**"
+        st.success(tip)
+        with st.expander("查看获取到的原始数据", expanded=False):
+            st.markdown(text)
+
+        # 年报 PDF 一键获取
+        with st.expander("📄 一键获取并在云端解析年报 PDF（可选，数据更全）", expanded=False):
+            rtype = st.radio("报告类型", ["年报", "半年报", "一季报", "三季报"], horizontal=True, key=f"{key_prefix}_rtype")
+            if st.button("获取报告列表", key=f"{key_prefix}_listbtn"):
+                reports = ds.list_reports(code, org, rtype, limit=8)
+                st.session_state[f"{key_prefix}_reports"] = reports
+            reports = st.session_state.get(f"{key_prefix}_reports", [])
+            if reports:
+                opts = [f"{r['date']} {r['title']}" for r in reports]
+                idx = st.selectbox("选择报告", range(len(opts)), format_func=lambda i: opts[i], key=f"{key_prefix}_rsel")
+                if st.button("下载并解析该报告", key=f"{key_prefix}_dlbtn"):
+                    with st.spinner("正在下载并解析 PDF（大文件可能需要 10-30 秒）……"):
+                        pdf = ds.download_pdf(reports[idx]["url"])
+                        if not pdf:
+                            st.error("PDF 下载失败，请稍后重试或改用手动上传。")
+                        else:
+                            ptxt = extract_pdf_bytes(pdf)
+                            if not ptxt or len(ptxt) < 200:
+                                st.warning("该 PDF 提取不到文字（可能是扫描件），请改用手动粘贴。")
+                            else:
+                                st.session_state[f"{key_prefix}_pdftext"] = ptxt
+                                st.success(f"✅ 已解析《{reports[idx]['title']}》，提取 {len(ptxt)} 字。")
+
+    pdftext = st.session_state.get(f"{key_prefix}_pdftext", "")
+    return text, name, pdftext
+
 # ============ 顶部横幅 + 侧边栏 ============
 st.markdown(
     """
     <div class="hero">
         <h1>📈 金融智能投研 <span class="gold">Agent</span></h1>
-        <p>上传 PDF / 文本财报，自动完成结构化分析、四维评分、指标图表与研报生成</p>
-        <p class="tagline">支持双公司对比 · 内置六大行业知识库 · 可追问、可下载</p>
+        <p>输入股票代码即可自动取数，一键完成结构化分析、四维评分、趋势图表与研报生成</p>
+        <p class="tagline">在线取数（巨潮+东财）· 年报 PDF 解析 · 双公司对比 · 六大行业知识库 · 多轮追问</p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -318,16 +421,19 @@ with st.sidebar:
         """
         **快速上手**
         1. 下方选择行业知识库
-        2. 粘贴 / 上传财报
-        3. 点击「开始结构化分析」
+        2. 输入股票代码（如 600519）
+        3. 点「🔍 获取数据」自动取数
+        4. 点「🚀 开始结构化分析」
 
         **当前版本能力**
-        - PDF 财报解析
+        - 🌐 在线自动取数（巨潮+东财）
+        - 📄 年报 PDF 云端解析
         - 四维评分 + 总分
-        - 指标图表与明细
+        - 指标柱状图 + 多年趋势
         - 一键研报导出
         - 双公司对比
         - 六大行业知识库
+        - 多轮追问对话
         """
     )
     st.markdown("---")
@@ -359,20 +465,55 @@ tab1, tab2, tab3 = st.tabs(["🏢 单公司深度分析", "⚖️ 双公司对�
 # Tab 1：单公司深度分析
 # ---------------------------------------------------------------
 with tab1:
-    col1, col2 = st.columns(2)
-    with col1:
+    # ---- 数据来源选择 ----
+    src_mode = st.radio(
+        "数据来源",
+        ["🌐 在线自动取数（推荐）", "✍️ 手动粘贴 / 上传"],
+        horizontal=True,
+        label_visibility="collapsed",
+        key="single_src",
+    )
+
+    online_text, online_name, online_pdftext = "", "", ""
+    uploaded_text = ""
+    data_text = ""
+
+    if src_mode.startswith("🌐"):
+        online_text, online_name, online_pdftext = online_fetch_panel("single")
+        st.markdown("##### ✍️ 或追加手动输入（可选）")
         data_text = st.text_area(
-            "① 粘贴财报摘要（营收、净利润、毛利率、负债等）",
-            height=200,
+            "粘贴补充的财报摘要（可留空）",
+            height=120,
             key="single_text",
         )
-    with col2:
-        up = st.file_uploader("② 或上传财报文件（支持 PDF / txt / md）", type=["pdf", "txt", "md"], key="single_upload")
-        uploaded_text, upload_err = read_upload(up)
-        if upload_err:
-            st.warning(upload_err)
+    else:
+        col1, col2 = st.columns(2)
+        with col1:
+            data_text = st.text_area(
+                "① 粘贴财报摘要（营收、净利润、毛利率、负债等）",
+                height=200,
+                key="single_text",
+            )
+        with col2:
+            up = st.file_uploader("② 或上传财报文件（支持 PDF / txt / md）", type=["pdf", "txt", "md"], key="single_upload")
+            uploaded_text, upload_err = read_upload(up)
+            if upload_err:
+                st.warning(upload_err)
 
-    raw_data = (data_text + "\n" + uploaded_text).strip()
+    # 合并所有数据源
+    parts = []
+    if online_text:
+        parts.append(online_text)
+    if online_pdftext:
+        parts.append("【年报原文摘录】\n" + online_pdftext[:6000])
+    if data_text and data_text.strip():
+        parts.append(data_text.strip())
+    if uploaded_text:
+        parts.append(uploaded_text.strip())
+    raw_data = "\n\n".join(parts).strip()
+
+    if online_name:
+        st.caption(f"当前分析对象：**{online_name}**")
 
     c1, c2 = st.columns(2)
     with c1:
@@ -381,7 +522,7 @@ with tab1:
         report_btn = st.button("📝 生成完整研报", disabled=not raw_data, use_container_width=True)
 
     if not raw_data:
-        st.info("请先粘贴或上传财务数据，再开始分析。")
+        st.info("请先通过「在线自动取数」获取数据，或手动粘贴 / 上传财报，再开始分析。")
     elif not DEEPSEEK_API_KEY and (run_btn or report_btn):
         st.error("系统未配置 DEEPSEEK_API_KEY，请联系管理员。")
 
@@ -396,13 +537,15 @@ with tab1:
                     '  "summary": "一句话公司概况",\n'
                     '  "metrics": [{"item": "指标名", "value": 数值, "unit": "单位", "comment": "一句话解读"}],\n'
                     '  "chart_data": [{"item": "指标名", "value": 数值}],\n'
+                    '  "trend": [{"period": "2021年报", "revenue": 数值, "net_profit": 数值}],\n'
                     '  "scores": {"盈利能力": 1到10的整数, "成长性": 1到10的整数, "偿债能力": 1到10的整数, "现金流质量": 1到10的整数},\n'
                     '  "total_score": 1到10的整数,\n'
                     '  "risks": ["风险1", "风险2", "风险3"],\n'
                     '  "highlights": ["亮点1", "亮点2"]\n'
                     "}\n"
                     "要求：metrics 提取 4-8 个关键财务指标；chart_data 最多 6 项且单位统一为亿元，"
-                    "用于画柱状图（不要放比率类指标）；数据不足的维度填 null；分数基于行业经验法则。\n\n"
+                    "用于画柱状图（不要放比率类指标）；trend 为多年（若数据中含多个报告期）营收与净利润，"
+                    "单位统一为亿元，没有多年数据则填空数组 []；数据不足的维度填 null；分数基于行业经验法则。\n\n"
                     f"行业：{industry}\n\n财务数据：\n"
                 )
                 raw_json = llm_once(
@@ -415,6 +558,8 @@ with tab1:
                 analysis = parse_json_loose(raw_json)
                 st.session_state["analysis"] = analysis
                 st.session_state["analysis_data"] = raw_data
+                # 每次重新分析时清空旧的追问记录，避免上下文串台
+                st.session_state["messages"] = []
             except Exception as e:
                 st.error(f"结构化分析失败：{e}。可重试，或检查数据是否完整。")
 
@@ -470,6 +615,18 @@ with tab1:
                 )
                 st.dataframe(mdf, use_container_width=True, hide_index=True)
 
+        # ---- 多年趋势图 ----
+        trend = analysis.get("trend") or []
+        trend = [t for t in trend if isinstance(t.get("revenue"), (int, float)) or isinstance(t.get("net_profit"), (int, float))]
+        if len(trend) >= 2:
+            st.markdown("##### 📈 多年营收与净利润趋势（单位：亿元）")
+            tdf = pd.DataFrame(trend)
+            if "period" in tdf.columns:
+                tdf = tdf.set_index("period")
+            keep = [c for c in ["revenue", "net_profit"] if c in tdf.columns]
+            if keep:
+                st.line_chart(tdf[keep], height=280)
+
         colr, colh = st.columns(2)
         with colr:
             risks = analysis.get("risks") or []
@@ -520,39 +677,57 @@ with tab1:
             use_container_width=True,
         )
 
-    # ---- 追问对话 ----
+    # ---- 追问对话（多轮，上下文实时更新） ----
     st.divider()
     st.markdown("##### 💬 继续追问")
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-    for m in st.session_state.messages:
-        st.chat_message(m["role"]).write(m["content"])
+    st.caption("基于当前财务数据与已生成的分析继续提问，支持连续多轮对话。")
 
-    question = st.chat_input("例如：这家公司的毛利率在同行业处于什么水平？")
+    if "messages" not in st.session_state:
+        st.session_state["messages"] = []
+
+    # 渲染历史消息
+    for m in st.session_state["messages"]:
+        with st.chat_message(m["role"]):
+            st.markdown(m["content"])
+
+    # 清空对话按钮
+    if st.session_state["messages"]:
+        if st.button("🗑️ 清空对话", key="clear_chat"):
+            st.session_state["messages"] = []
+            st.rerun()
+
+    question = st.chat_input("例如：这家公司的毛利率在同行业处于什么水平？", key="chat_q")
     if question:
         if not raw_data:
-            st.warning("请先粘贴/上传财务数据，再提问。")
+            st.warning("请先获取或粘贴财务数据，再提问。")
         elif not DEEPSEEK_API_KEY:
             st.error("系统未配置 DEEPSEEK_API_KEY，请联系管理员。")
         else:
-            st.chat_message("user").write(question)
-            st.session_state.messages.append({"role": "user", "content": question})
-            context = f"行业：{industry}\n\n财务数据：\n{raw_data[:MAX_CHARS]}"
+            # 1) 追加用户消息并立即回显
+            st.session_state["messages"].append({"role": "user", "content": question})
+            with st.chat_message("user"):
+                st.markdown(question)
+
+            # 2) 组装上下文：数据 + 结构化评分 + 历史对话
+            base_context = f"【行业】{industry}\n\n【财务数据】\n{raw_data[:MAX_CHARS]}"
             if analysis:
-                context += f"\n\n已生成的结构化评分：{json.dumps(analysis, ensure_ascii=False)}"
-            user_content = context + f"\n\n请回答：{question}"
+                base_context += f"\n\n【已生成的结构化评分与结论】\n{json.dumps(analysis, ensure_ascii=False)[:2000]}"
+
+            history = st.session_state["messages"][:-1]  # 不含刚追加的这条
+            history = history[-6:]  # 最多保留最近 3 轮
+            msgs = [{"role": "system", "content": system_prompt_with_kb()}]
+            msgs.append({"role": "user", "content": base_context + "\n\n以上是背景资料，请基于它回答后续问题。"})
+            msgs.append({"role": "assistant", "content": "好的，我已了解该公司的财务数据与行业背景，请提问。"})
+            msgs.extend(history)
+            msgs.append({"role": "user", "content": question})
+
+            # 3) 流式生成回答
             try:
                 with st.chat_message("assistant"):
                     box = st.empty()
                     with st.spinner("正在分析……"):
-                        answer = llm_stream(
-                            [
-                                {"role": "system", "content": system_prompt_with_kb()},
-                                {"role": "user", "content": user_content},
-                            ],
-                            box,
-                        )
-                st.session_state.messages.append({"role": "assistant", "content": answer})
+                        answer = llm_stream(msgs, box)
+                st.session_state["messages"].append({"role": "assistant", "content": answer})
             except Exception as e:
                 st.error(f"调用失败：{e}")
 
@@ -560,26 +735,38 @@ with tab1:
 # Tab 2：双公司对比
 # ---------------------------------------------------------------
 with tab2:
-    st.markdown("输入两家公司的财务数据，生成横向对比分析与结论。")
+    st.markdown("输入两家公司的财务数据（支持在线自动取数），生成横向对比分析与结论。")
     ca, cb = st.columns(2)
     with ca:
         st.markdown("##### 🏢 公司 A")
-        name_a = st.text_input("公司名称 A", value="公司A", key="name_a")
-        text_a = st.text_area("粘贴财报数据 A", height=160, key="text_a")
-        up_a = st.file_uploader("或上传文件 A（PDF / txt / md）", type=["pdf", "txt", "md"], key="up_a")
-        file_a, err_a = read_upload(up_a)
-        if err_a:
-            st.warning(err_a)
-        data_a = (text_a + "\n" + file_a).strip()
+        use_online_a = st.checkbox("🌐 在线自动取数", key="online_a", value=True)
+        if use_online_a:
+            ot_a, on_a, op_a = online_fetch_panel("cmp_a")
+            name_a = on_a or st.text_input("公司名称 A（可选）", value="公司A", key="name_a")
+            data_a = "\n\n".join([x for x in [ot_a, op_a[:4000] if op_a else ""] if x]).strip()
+        else:
+            name_a = st.text_input("公司名称 A", value="公司A", key="name_a")
+            text_a = st.text_area("粘贴财报数据 A", height=160, key="text_a")
+            up_a = st.file_uploader("或上传文件 A（PDF / txt / md）", type=["pdf", "txt", "md"], key="up_a")
+            file_a, err_a = read_upload(up_a)
+            if err_a:
+                st.warning(err_a)
+            data_a = (text_a + "\n" + file_a).strip()
     with cb:
         st.markdown("##### 🏢 公司 B")
-        name_b = st.text_input("公司名称 B", value="公司B", key="name_b")
-        text_b = st.text_area("粘贴财报数据 B", height=160, key="text_b")
-        up_b = st.file_uploader("或上传文件 B（PDF / txt / md）", type=["pdf", "txt", "md"], key="up_b")
-        file_b, err_b = read_upload(up_b)
-        if err_b:
-            st.warning(err_b)
-        data_b = (text_b + "\n" + file_b).strip()
+        use_online_b = st.checkbox("🌐 在线自动取数", key="online_b", value=True)
+        if use_online_b:
+            ot_b, on_b, op_b = online_fetch_panel("cmp_b")
+            name_b = on_b or st.text_input("公司名称 B（可选）", value="公司B", key="name_b")
+            data_b = "\n\n".join([x for x in [ot_b, op_b[:4000] if op_b else ""] if x]).strip()
+        else:
+            name_b = st.text_input("公司名称 B", value="公司B", key="name_b")
+            text_b = st.text_area("粘贴财报数据 B", height=160, key="text_b")
+            up_b = st.file_uploader("或上传文件 B（PDF / txt / md）", type=["pdf", "txt", "md"], key="up_b")
+            file_b, err_b = read_upload(up_b)
+            if err_b:
+                st.warning(err_b)
+            data_b = (text_b + "\n" + file_b).strip()
 
     cmp_btn = st.button("⚖️ 开始对比分析", disabled=not (data_a and data_b), use_container_width=True, type="primary")
 
@@ -633,27 +820,34 @@ with tab3:
         """
 ### 📖 使用说明
 
-**本智能体提供四大能力：**
+**本智能体提供六大能力：**
 
 | 功能 | 入口 | 说明 |
 |---|---|---|
-| 单公司深度分析 | 「单公司深度分析」页 | 粘贴或上传财报（支持 PDF），一键得到四维评分、指标图表、风险与亮点 |
-| 追问对话 | 「单公司深度分析」页底部 | 基于已输入数据继续追问，如行业对标、估值讨论 |
-| 双公司对比 | 「双公司对比」页 | 输入两家公司数据，生成对比表与综合结论 |
-| 研报导出 | 各页的下载按钮 | 分析结果可保存为 Markdown 报告 |
+| 🌐 在线自动取数 | 「单公司深度分析」页顶部 | 输入股票代码/名称，自动从巨潮资讯网与东方财富获取行情、多期财务指标、年报 PDF，无需自己找财报 |
+| 📄 年报 PDF 云端解析 | 取数面板内 | 一键下载并解析上市公司年报 PDF |
+| 单公司深度分析 | 「单公司深度分析」页 | 一键得到四维评分、指标图表、多年趋势、风险与亮点 |
+| 💬 多轮追问 | 「单公司深度分析」页底部 | 基于数据与已有结论连续追问，如行业对标、估值讨论 |
+| ⚖️ 双公司对比 | 「双公司对比」页 | 两家公司在线取数或手动输入，生成对比表与综合结论 |
+| 📝 研报导出 | 各页的下载按钮 | 分析结果可保存为 Markdown 报告 |
 
 **行业知识库：**
 页面顶部横向按钮可选择行业（通用、消费、金融、新能源、医药、互联网）。
 系统会自动将该行业的分析框架、关键指标、经验法则与风险信号注入分析过程，
-使结论更贴合行业特性，而不是泛泛而谈。
+使结论更贴合行业特性，而不是泛泛而谈。银行/保险等特殊行业已内置专用指标
+（不良贷款率、拨备覆盖率、净息差、资本充足率等）。
+
+**数据来源：**
+- 财务数据与行情：东方财富公开接口
+- 公告与年报 PDF：巨潮资讯网（官方指定信息披露平台）
+- 大模型：DeepSeek（推理与生成）
 
 **数据建议：**
-- 粘贴的数据越完整（营收、净利润、毛利率、ROE、负债率、现金流等），评分越准确；
-- PDF 建议使用文本版年报（扫描件无法提取文字）；
+- 在线取数会自动带入多个报告期，可进一步上传年报 PDF 补充细节；
+- 扫描版 PDF 无法提取文字，请改用在线取数或手动粘贴；
 - 分析结果仅供参考，不构成投资建议。
 
 **技术说明：**
-- 大模型：DeepSeek（推理与生成）
 - 应用框架：Streamlit · 部署：Streamlit Community Cloud
 - PDF 解析：pypdf · 图表：Streamlit 内置图表组件
         """

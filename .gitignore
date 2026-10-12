@@ -179,3 +179,7 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+# 本地自检脚本（不部署）
+_selfcheck.py
+materials/
+*.log
