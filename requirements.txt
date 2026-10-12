@@ -3,3 +3,8 @@ openai==3.29.0
 pypdf>=4.0.0
 requests>=2.31.0
 pandas>=1.4.0
+
+# RAG + 双模型 (Plan B)
+dashscope>=1.20.0
+chromadb>=0.5.0
+tiktoken>=0.7.0

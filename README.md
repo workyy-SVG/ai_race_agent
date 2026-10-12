@@ -17,12 +17,15 @@
 | ⚖️ 双公司对比 | 两家公司横向对比，自动生成对比表与综合结论 |
 | 📚 行业知识库 | 内置 6 大行业分析框架（通用/消费/金融/新能源/医药/互联网），自动注入 |
 | 💬 多轮追问 | 基于数据与已有结论连续对话，上下文实时更新 |
+| 🤖 双模型协同 (Plan B) | DeepSeek 出分析 + 千问二次润色 · 年报 PDF 走 RAG 检索增强事实一致性 |
 
 ## 数据来源
 
 - **财务数据与行情**：东方财富公开接口（`datacenter-web.eastmoney.com` / `push2.eastmoney.com`）
 - **公告与年报 PDF**：巨潮资讯网（官方指定信息披露平台 `cninfo.com.cn`）
-- **大模型**：DeepSeek（推理与生成）
+- **大模型**：
+  - DeepSeek（结构化推理与初稿生成）
+  - 千问（DashScope / 阿里云百炼，用于 RAG Embedding + 二次润色）
 
 ## 本地运行
 
@@ -39,6 +42,7 @@
 
 ```toml
 DEEPSEEK_API_KEY = "sk-你的新key"
+QWEN_API_KEY = "sk-你的千问key"  # 申请: https://bailian.console.aliyun.com
 APP_USER = "judge"
 APP_PASSWORD = "ai2026"
 ```

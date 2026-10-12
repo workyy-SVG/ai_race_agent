@@ -20,11 +20,22 @@ import os
 import re
 import json
 import io
+from pathlib import Path
 import streamlit as st
 import pandas as pd
 from openai import OpenAI
 
 import data_source as ds
+
+# RAG + 双模型 (Plan B)  -- 千问用作润色 + RAG 检索回答, DeepSeek 仍负责结构化分析
+try:
+    import rag_engine as rag
+except ImportError:
+    rag = None  # 模块可选缺失, 走兜底
+try:
+    import llm_qwen as lq
+except ImportError:
+    lq = None
 
 # ============ 配置：优先从 Secrets 读取，其次从环境变量 ============
 def _get_secret(key, default=None):
@@ -197,6 +208,18 @@ CUSTOM_CSS = """
     padding: 8px;
   }
   .footer-note b { color: #0A1F44; }
+
+  /* ===== 双模型徽章 (Plan B) ===== */
+  .dual-badge {
+    display: inline-block;
+    background: linear-gradient(90deg, #6E8EFB 0%, #A777E3 100%);
+    color: white !important;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    margin: 6px 0;
+  }
 
   /* ===== 区块小标题 ===== */
   h3, h4, h5 { color: #0A1F44 !important; font-weight: 700 !important; }
@@ -491,6 +514,24 @@ with st.sidebar:
         """
     )
     st.markdown("---")
+    # 双模型开关 (Plan B)
+    st.markdown("### 🤖 双模型协同")
+    use_dual_model = st.toggle(
+        "启用 千问 润色 + RAG",
+        value=True,
+        help="DeepSeek 出分析 → 千问二次校验并润色。当用户上传了年报 PDF 时，会先做 RAG 检索以提升事实一致性。",
+        key="use_dual_model",
+    )
+    if lq is not None:
+        _q_avail = lq.is_available()
+        st.caption(("🟢 千问 API 已就绪" if _q_avail else "🟡 千问 API 未配置, 仅走 DeepSeek"))
+    else:
+        st.caption("🟡 llm_qwen 模块未加载")
+    if rag is not None:
+        st.caption(f"📚 RAG 引擎已加载 · Top-K=6")
+    else:
+        st.caption("🟡 rag_engine 模块未加载")
+    st.markdown("---")
     st.markdown(f"👤 当前登录：**{APP_USER}**")
     if st.button("退出登录", use_container_width=True):
         st.session_state["authenticated"] = False
@@ -742,12 +783,34 @@ with tab1:
     if report_btn and raw_data and DEEPSEEK_API_KEY:
         st.divider()
         st.subheader("📝 完整投研报告")
+        # RAG: 若用户已上传/在线解析了年报 PDF, 索引一次供后续追问使用
+        _raw_pdf_text = st.session_state.get("single_pdf_text")
+        _rag_hits: list = []
+        if (use_dual_model and rag is not None and _raw_pdf_text):
+            _pdf_path = st.session_state.get("single_pdf_path")
+            with st.spinner("正在构建 RAG 索引（首次较慢）……"):
+                if _pdf_path and Path(_pdf_path).exists():
+                    _yr = st.session_state.get("single_year") or ""
+                    _yr = re.sub(r"\D", "", str(_yr))[-4:]
+                    _code = (
+                        st.session_state.get("single_online_code")
+                        or ""
+                    )
+                    if _code and _yr:
+                        _built = rag.build_index_from_pdf(_pdf_path, _code, _yr)
+                        st.session_state["rag_build_status"] = _built
+                        _rag_hits = rag.retrieve(
+                            f"{name} 财务表现 业务亮点 风险",
+                            _code, _yr, top_k=6,
+                        )
         box = st.empty()
         with st.spinner("正在生成完整研报……"):
             try:
                 context = f"行业：{industry}\n\n财务数据：\n{raw_data[:MAX_CHARS]}"
                 if analysis:
                     context += f"\n\n已有的结构化评分（供参考，保持一致）：{json.dumps(analysis.get('scores', {}), ensure_ascii=False)}"
+                if use_dual_model and _rag_hits:
+                    context += f"\n\n【RAG 检索片段（来自年报全文）】\n{rag.format_citations(_rag_hits)}"
                 report = llm_stream(
                     [
                         {"role": "system", "content": system_prompt_with_kb()},
@@ -755,6 +818,19 @@ with tab1:
                     ],
                     box,
                 )
+                # 千问润色 (Plan B 双模型)
+                if use_dual_model and lq is not None and lq.is_available():
+                    _refined = lq.refine_answer(
+                        report,
+                        rag.format_citations(_rag_hits) if _rag_hits else None,
+                    )
+                    if _refined:
+                        report = _refined
+                        st.session_state["dual_model_refined"] = True
+                    else:
+                        st.session_state["dual_model_refined"] = False
+                else:
+                    st.session_state["dual_model_refined"] = False
                 st.session_state["report"] = report
             except Exception as e:
                 st.error(f"研报生成失败：{e}")
@@ -763,6 +839,17 @@ with tab1:
     if report and not report_btn:
         st.divider()
         st.subheader("📝 完整投研报告")
+        if st.session_state.get("dual_model_refined"):
+            st.markdown(
+                '<span class="dual-badge">🤖 双模型协同 · DeepSeek 分析 + 千问润色</span>',
+                unsafe_allow_html=True,
+            )
+        _rstatus = st.session_state.get("rag_build_status")
+        if _rstatus and _rstatus.get("ok"):
+            st.caption(
+                f"📚 RAG 已构建: {_rstatus['chunks']} chunks · "
+                f"基于年报全文检索增强事实一致性"
+            )
         st.markdown(report)
 
     if report:
