@@ -236,6 +236,15 @@ st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 def check_login():
     if st.session_state.get("authenticated", False):
         return True
+
+    # ---- 方案1: 免登录链接 (URL 携带 ?key=xxx) ----
+    _demo_key = _get_secret("DEMO_KEY", "ai2026demo")
+    _qp_key = st.query_params.get("key", "")
+    if _qp_key and _qp_key == _demo_key:
+        st.session_state["authenticated"] = True
+        st.session_state["demo_mode"] = True
+        st.rerun()
+
     st.markdown(
         """
         <div class="hero" style="text-align:center; max-width:560px; margin:40px auto 10px auto;">
@@ -265,13 +274,53 @@ if not check_login():
 def make_client():
     return OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
 
+# ============ 方案3: 每日 LLM 调用熔断 (防 API 额度被刷爆) ============
+DAILY_LIMIT = int(_get_secret("DAILY_LLM_LIMIT", "100"))
+USAGE_FILE = Path("/tmp/llm_usage.txt") if os.path.exists("/tmp") else Path("llm_usage.txt")
+
+def _today():
+    import datetime
+    return datetime.date.today().isoformat()
+
+def _read_usage():
+    try:
+        parts = USAGE_FILE.read_text(encoding="utf-8").strip().split("|")
+        if len(parts) == 2 and parts[0] == _today():
+            return int(parts[1])
+    except Exception:
+        pass
+    return 0
+
+def _bump_usage():
+    try:
+        USAGE_FILE.write_text(f"{_today()}|{_read_usage() + 1}", encoding="utf-8")
+    except Exception:
+        pass
+
+def check_quota():
+    """返回剩余额度是否大于 0；用尽时在页面提示并熔断。"""
+    if _read_usage() >= DAILY_LIMIT:
+        st.error(
+            f"⚠️ 今日 LLM 分析额度（{DAILY_LIMIT} 次）已用完，为保护服务资源已暂停生成。"
+            "请明日再试或联系管理员。"
+        )
+        return False
+    return True
+
 def llm_once(messages, temperature=0.2):
+    if not check_quota():
+        return ""
+    _bump_usage()
     resp = make_client().chat.completions.create(
         model=DEEPSEEK_MODEL, messages=messages, temperature=temperature, stream=False
     )
     return resp.choices[0].message.content or ""
 
 def llm_stream(messages, placeholder, temperature=0.3):
+    if not check_quota():
+        placeholder.error(f"⚠️ 今日 LLM 分析额度（{DAILY_LIMIT} 次）已用完，为保护服务资源已暂停生成。")
+        return ""
+    _bump_usage()
     resp = make_client().chat.completions.create(
         model=DEEPSEEK_MODEL, messages=messages, temperature=temperature, stream=True
     )
@@ -532,9 +581,14 @@ with st.sidebar:
     else:
         st.caption("🟡 rag_engine 模块未加载")
     st.markdown("---")
-    st.markdown(f"👤 当前登录：**{APP_USER}**")
+    if st.session_state.get("demo_mode"):
+        st.markdown("👤 当前访问：**🎤 评委演示模式（免登录）**")
+    else:
+        st.markdown(f"👤 当前登录：**{APP_USER}**")
+    st.caption(f"🔋 今日剩余分析额度：**{max(DAILY_LIMIT - _read_usage(), 0)} / {DAILY_LIMIT}** 次")
     if st.button("退出登录", use_container_width=True):
         st.session_state["authenticated"] = False
+        st.session_state["demo_mode"] = False
         st.rerun()
     st.markdown(
         '<p class="footer-note">金融智能投研 Agent · 大赛参赛作品</p>',
