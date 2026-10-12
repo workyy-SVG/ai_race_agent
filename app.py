@@ -535,8 +535,6 @@ if _auto_matched and industry == _auto_matched:
     st.caption(f"🤖 已根据在线取数结果自动匹配行业：**{industry}**（如需切换，点击上方按钮即可）")
 else:
     st.caption(f"当前行业：**{industry}** · " + INDUSTRY_KB[industry].splitlines()[0].replace("【", "").replace("】", "·").strip(" -"))
-else:
-    st.caption(f"当前行业：**{industry}** · " + INDUSTRY_KB[industry].splitlines()[0].replace("【", "").replace("】", "·").strip(" -"))
 
 def system_prompt_with_kb():
     return BASE_SYSTEM_PROMPT + "\n\n" + INDUSTRY_KB[industry]
