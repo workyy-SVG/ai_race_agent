@@ -370,10 +370,12 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
             help="直接选择一家公司，代码会自动填到下方输入框；也可手动输入任意 A 股代码。",
         )
         _code = next((s[1] for s in _POPULAR_STOCKS if s[0] == _choice), "")
-        # 2. 手动输入框（默认填入下拉选中的代码，避免重复输入）
+        # 2. 手动输入框（默认填入下拉选中的代码；用 session_state 同步确保下拉选完立即生效）
+        if _code:
+            st.session_state[f"{key_prefix}_kw"] = _code
         kw = st.text_input(
             "股票代码或名称（可编辑；确认后点右侧 🔍 获取数据）",
-            value=_code,
+            value=st.session_state.get(f"{key_prefix}_kw", _code),
             placeholder="例如：600519 或 贵州茅台",
             key=f"{key_prefix}_kw",
         )
@@ -408,13 +410,11 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
                     st.session_state[f"{key_prefix}_online_name"] = name
                     st.session_state[f"{key_prefix}_online_code"] = code
                     st.session_state[f"{key_prefix}_online_org"] = hits[0].get("orgId", "")
-                    # 自动匹配行业知识库
+                    # 自动匹配行业知识库（不再直接修改已渲染的 industry radio，
+                    # 而是保存到 session_state 由顶部 radio 在下一轮渲染时读取）
                     gi = ds.guess_industry(name)
                     if gi:
                         st.session_state[f"{key_prefix}_auto_industry"] = gi
-                        # 同步切换到顶部的行业 radio（仅单公司面板）
-                        if key_prefix == "single" and gi in INDUSTRY_KB:
-                            st.session_state["industry"] = gi
 
     text = st.session_state.get(f"{key_prefix}_online", "")
     name = st.session_state.get(f"{key_prefix}_online_name", "")
@@ -502,12 +502,15 @@ with st.sidebar:
 
 # ---- 行业知识库：主界面横向按钮（不再藏在侧边栏下拉框里） ----
 st.markdown("##### 📚 行业知识库 —— 请选择待分析公司所属行业（将自动注入该行业的分析框架与经验法则）")
-# 默认索引：以「通用」为默认，避免每次刷新都跳到第一个非通用行业
-_default_idx = list(INDUSTRY_KB.keys()).index(
-    st.session_state.get("industry", "通用")
-    if st.session_state.get("industry", "通用") in INDUSTRY_KB
-    else "通用"
+# 默认索引：用户手动选过就沿用；否则取在线取数自动识别的行业
+_auto_matched = st.session_state.get("single_auto_industry", "")
+_user_selected = st.session_state.get("industry", "")
+_default_industry = (
+    _user_selected
+    if _user_selected in INDUSTRY_KB
+    else (_auto_matched if _auto_matched in INDUSTRY_KB else "通用")
 )
+_default_idx = list(INDUSTRY_KB.keys()).index(_default_industry)
 industry = st.radio(
     "行业",
     list(INDUSTRY_KB.keys()),
@@ -517,7 +520,7 @@ industry = st.radio(
     key="industry",
 )
 # 如果是自动匹配过来的，提示一下
-if st.session_state.get("single_auto_industry") and st.session_state.get("industry") == st.session_state.get("single_auto_industry"):
+if _auto_matched and industry == _auto_matched:
     st.caption(f"🤖 已根据在线取数结果自动匹配行业：**{industry}**（如需切换，点击上方按钮即可）")
 else:
     st.caption(f"当前行业：**{industry}** · " + INDUSTRY_KB[industry].splitlines()[0].replace("【", "").replace("】", "·").strip(" -"))
