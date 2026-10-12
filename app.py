@@ -501,7 +501,6 @@ with st.sidebar:
     )
 
 # ---- 行业知识库：主界面横向按钮（不再藏在侧边栏下拉框里） ----
-st.markdown("##### 📚 行业知识库 —— 请选择待分析公司所属行业（将自动注入该行业的分析框架与经验法则）")
 # 默认索引：用户手动选过就沿用；否则取在线取数自动识别的行业
 _auto_matched = st.session_state.get("single_auto_industry", "")
 _user_selected = st.session_state.get("industry", "")
@@ -511,6 +510,18 @@ _default_industry = (
     else (_auto_matched if _auto_matched in INDUSTRY_KB else "通用")
 )
 _default_idx = list(INDUSTRY_KB.keys()).index(_default_industry)
+
+# 如果已经在线取数，标题直接显示公司名称+代码+匹配行业
+_single_name = st.session_state.get("single_online_name", "")
+_single_code = st.session_state.get("single_online_code", "")
+if _single_name and _single_code:
+    st.markdown(
+        f"##### 📚 行业知识库 —— 当前分析对象：**{_single_name}（{_single_code}）** → **{_default_industry}**\n"
+        f"*将自动注入该行业的分析框架与经验法则*"
+    )
+else:
+    st.markdown("##### 📚 行业知识库 —— 请选择待分析公司所属行业（将自动注入该行业的分析框架与经验法则）")
+
 industry = st.radio(
     "行业",
     list(INDUSTRY_KB.keys()),
@@ -522,6 +533,8 @@ industry = st.radio(
 # 如果是自动匹配过来的，提示一下
 if _auto_matched and industry == _auto_matched:
     st.caption(f"🤖 已根据在线取数结果自动匹配行业：**{industry}**（如需切换，点击上方按钮即可）")
+else:
+    st.caption(f"当前行业：**{industry}** · " + INDUSTRY_KB[industry].splitlines()[0].replace("【", "").replace("】", "·").strip(" -"))
 else:
     st.caption(f"当前行业：**{industry}** · " + INDUSTRY_KB[industry].splitlines()[0].replace("【", "").replace("】", "·").strip(" -"))
 
