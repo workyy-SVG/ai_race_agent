@@ -1,0 +1,25 @@
+# Streamlit Cloud 保活：每 5 分钟自动访问一次应用，防止免费版休眠
+# 说明：
+# 1. 本仓库为公开仓库，GitHub Actions 免费不限时长
+# 2. 仓库 60 天无提交时 GitHub 会自动停用定时任务——届时手动来这里
+#    (Actions -> keepalive -> Enable workflow) 点一下重新启用即可
+# 3. 高峰期实际执行可能有几分钟延迟，属正常现象，不影响保活效果
+
+name: keepalive
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: # 允许手动触发测试
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Streamlit app
+        run: |
+          code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 https://airaceagent-gzelpcnnkfdpvgwgkii97oj.streamlit.app)
+          echo "HTTP status: $code"
+          if [ "$code" != "200" ]; then
+            echo "::warning::应用响应异常 ($code)，请检查 Streamlit Cloud 状态"
+          fi
