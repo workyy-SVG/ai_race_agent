@@ -20,12 +20,18 @@ import os
 import re
 import json
 import io
+import math
+import tempfile
 from pathlib import Path
 import streamlit as st
 import pandas as pd
 from openai import OpenAI
 
 import data_source as ds
+try:
+    import scoring
+except ImportError:
+    scoring = None  # 缺失时退回 LLM 评分并标记
 
 # RAG + 双模型 (Plan B)  -- 千问用作润色 + RAG 检索回答, DeepSeek 仍负责结构化分析
 try:
@@ -383,6 +389,158 @@ def parse_json_loose(text):
         text = text[start:end + 1]
     return json.loads(text)
 
+
+# ============ LLM 输出严格校验（页面永不因模型格式异常而崩溃） ============
+def _safe_num(v, lo=None, hi=None):
+    """转数值并夹范围；非法值返回 None。"""
+    try:
+        if v is None or isinstance(v, bool):
+            return None
+        f = float(v)
+        if math.isnan(f) or math.isinf(f):
+            return None
+        if lo is not None:
+            f = max(lo, f)
+        if hi is not None:
+            f = min(hi, f)
+        return f
+    except (TypeError, ValueError):
+        return None
+
+
+def validate_analysis(a):
+    """
+    校验并修复结构化分析结果。
+    返回 (analysis, issues)。所有字段兜底到安全默认值，异常项被剔除/修复。
+    """
+    issues = []
+    if not isinstance(a, dict):
+        return {}, ["模型输出不是 JSON 对象，已丢弃"]
+
+    out = {}
+
+    # -- 基本字段 --
+    out["company"] = str(a.get("company") or "目标公司").strip()[:50] or "目标公司"
+    out["summary"] = str(a.get("summary") or "").strip()[:400]
+
+    # -- metrics: list[dict]，逐项校验 --
+    metrics = []
+    raw_metrics = a.get("metrics")
+    if isinstance(raw_metrics, list):
+        for m in raw_metrics[:12]:
+            if not isinstance(m, dict):
+                continue
+            item = str(m.get("item") or "").strip()[:30]
+            if not item:
+                continue
+            val = m.get("value")
+            val_out = _safe_num(val)
+            if val_out is None and val not in (None, ""):
+                val_out = str(val)[:20]  # 文本型数值（如 "91.5%"）保留原文
+            elif val_out is not None:
+                val_out = round(val_out, 4)
+            metrics.append({
+                "item": item,
+                "value": val_out if val_out is not None else (str(val)[:20] if val not in (None, "") else "N/A"),
+                "unit": str(m.get("unit") or "").strip()[:10],
+                "comment": str(m.get("comment") or "").strip()[:120],
+            })
+    if not metrics:
+        issues.append("metrics 缺失或格式异常，已置空")
+    out["metrics"] = metrics
+
+    # -- chart_data: 仅保留合法数值，最多 6 项 --
+    chart = []
+    raw_chart = a.get("chart_data")
+    if isinstance(raw_chart, list):
+        for c in raw_chart:
+            if not isinstance(c, dict):
+                continue
+            v = _safe_num(c.get("value"), lo=-1e6, hi=1e7)
+            if v is None:
+                continue
+            item = str(c.get("item") or "").strip()[:20]
+            if item:
+                chart.append({"item": item, "value": v})
+    chart = chart[:6]
+    if isinstance(raw_chart, list) and len(raw_chart) > 0 and not chart:
+        issues.append("chart_data 全部非法（非数值），图表已隐藏")
+    out["chart_data"] = chart
+
+    # -- trend: 数值 + 期别标签，去重 --
+    trend = []
+    seen_periods = set()
+    raw_trend = a.get("trend")
+    if isinstance(raw_trend, list):
+        for t in raw_trend:
+            if not isinstance(t, dict):
+                continue
+            period = str(t.get("period") or "").strip()[:20]
+            rev = _safe_num(t.get("revenue"), lo=-1e6, hi=1e7)
+            np_ = _safe_num(t.get("net_profit"), lo=-1e6, hi=1e7)
+            if rev is None and np_ is None:
+                continue
+            if not period or period in seen_periods:
+                continue
+            seen_periods.add(period)
+            trend.append({"period": period, "revenue": rev, "net_profit": np_})
+    out["trend"] = trend
+
+    # -- scores / total_score: 夹在 [0,10]；总分非法时回退为维度均分 --
+    raw_scores = a.get("scores")
+    scores = {}
+    if isinstance(raw_scores, dict):
+        for k in ["盈利能力", "成长性", "偿债能力", "现金流质量"]:
+            v = _safe_num(raw_scores.get(k), lo=0, hi=10)
+            if v is not None:
+                scores[k] = round(v, 1)
+    out["scores"] = scores
+    _svals = list(scores.values())
+    _avg = round(sum(_svals) / len(_svals), 1) if _svals else None
+    raw_total = a.get("total_score")
+    _raw_total_num = _safe_num(raw_total)  # 不夹范围，用于判断是否非法
+    total = _safe_num(raw_total, lo=0, hi=10)
+    if total is None or _raw_total_num is None or not (0 <= _raw_total_num <= 10):
+        # 总分缺失或越界 → 用维度分数均分兜底
+        total = _avg
+        if _raw_total_num is not None and not (0 <= _raw_total_num <= 10):
+            issues.append(f"total_score 非法（{raw_total}），已按维度均分回退为 {total}")
+    if total is not None:
+        total = round(total, 1)
+    out["total_score"] = total
+    if not scores:
+        issues.append("评分缺失（数据不足或规则引擎未启用）")
+
+    # -- risks / highlights: 字符串列表，截断 --
+    def _str_list(x, maxn, name):
+        if not isinstance(x, list):
+            if x not in (None, ""):
+                issues.append(f"{name} 格式异常，已置空")
+            return []
+        cleaned = []
+        for it in x:
+            s = str(it or "").strip()
+            if s:
+                cleaned.append(s[:150])
+        return cleaned[:maxn]
+
+    out["risks"] = _str_list(a.get("risks"), 4, "risks")
+    out["highlights"] = _str_list(a.get("highlights"), 4, "highlights")
+
+    # -- 评分依据（规则引擎生成，原样保留） --
+    if isinstance(a.get("score_reasons"), dict):
+        out["score_reasons"] = {
+            str(k): [str(x)[:200] for x in (v if isinstance(v, list) else [])]
+            for k, v in a["score_reasons"].items()
+        }
+    if a.get("score_engine"):
+        out["score_engine"] = str(a["score_engine"])[:40]
+    if isinstance(a.get("score_missing"), list):
+        out["score_missing"] = [str(x)[:30] for x in a["score_missing"]][:12]
+
+    return out, issues
+
+
 def render_score_card(label, value):
     if value is None:
         st.metric(label, "数据不足")
@@ -463,6 +621,9 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
         # 避免"切到新公司后研报还显示上一家"的问题
         st.session_state[f"{key_prefix}_pdftext"] = ""
         st.session_state[f"{key_prefix}_reports"] = []
+        for _k in (f"{key_prefix}_pdf_path", f"{key_prefix}_pdf_year",
+                   f"{key_prefix}_pdf_title", f"{key_prefix}_rag_status"):
+            st.session_state.pop(_k, None)
         if key_prefix == "single":
             st.session_state.pop("report", None)
             st.session_state.pop("analysis", None)
@@ -504,6 +665,7 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
 
         # 年报 PDF 一键获取：默认展开，且解析成功后保持展开
         pdf_done = bool(st.session_state.get(f"{key_prefix}_pdftext"))
+        _rag_ok = bool(st.session_state.get(f"{key_prefix}_rag_status", {}).get("ok"))
         with st.expander("📄 一键获取并在云端解析年报 PDF（可选，数据更全）", expanded=not pdf_done):
             rtype = st.radio("报告类型", ["年报", "半年报", "一季报", "三季报"], horizontal=True, key=f"{key_prefix}_rtype")
             if st.button("获取报告列表", key=f"{key_prefix}_listbtn"):
@@ -523,8 +685,44 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
                             if not ptxt or len(ptxt) < 200:
                                 st.warning("该 PDF 提取不到文字（可能是扫描件），请改用手动粘贴。")
                             else:
+                                # 保存 PDF 到临时文件（供 RAG 按页建库）
+                                _yr = re.sub(r"\D", "", reports[idx].get("date") or "")[:4]
+                                _pdf_path = Path(tempfile.gettempdir()) / f"{code}_{_yr}_{rtype}.pdf"
+                                try:
+                                    _pdf_path.write_bytes(pdf)
+                                except Exception:
+                                    _pdf_path = None
                                 st.session_state[f"{key_prefix}_pdftext"] = ptxt
+                                st.session_state[f"{key_prefix}_pdf_title"] = reports[idx]["title"]
+                                st.session_state[f"{key_prefix}_pdf_year"] = _yr
+                                st.session_state[f"{key_prefix}_pdf_path"] = str(_pdf_path) if _pdf_path else ""
+                                st.session_state.pop(f"{key_prefix}_rag_status", None)
                                 st.success(f"✅ 已解析《{reports[idx]['title']}》，提取 {len(ptxt)} 字。")
+                                # 【RAG 接通关键步】立即按页切片并构建向量索引
+                                if (
+                                    rag is not None
+                                    and _pdf_path
+                                    and code and _yr
+                                    and st.session_state.get("use_dual_model", True)
+                                ):
+                                    with st.spinner("正在构建年报向量索引（按页切片 → Embedding → ChromaDB）……"):
+                                        _st = rag.build_index_from_pdf(_pdf_path, code, _yr)
+                                    st.session_state[f"{key_prefix}_rag_status"] = _st
+                                    if _st.get("ok"):
+                                        st.success(
+                                            f"📚 RAG 索引构建成功：{_st['chunks']} 个文本块 · "
+                                            f"覆盖 {_st.get('pages', 0)} 页，后续分析与追问将自动检索引用（含页码）。"
+                                        )
+                                    else:
+                                        st.warning(f"RAG 索引未构建：{_st.get('msg', '未知原因')}（分析仍可用年报开头文本）")
+
+        # RAG 状态提示
+        if _rag_ok:
+            _st_ = st.session_state.get(f"{key_prefix}_rag_status", {})
+            st.caption(
+                f"📚 年报向量库已就绪：{_st_.get('chunks', 0)} chunks · "
+                f"{_st_.get('pages', 0)} 页 · 分析/研报/追问将按问题检索相关章节并标注页码"
+            )
 
     pdftext = st.session_state.get(f"{key_prefix}_pdftext", "")
     return text, name, pdftext
@@ -676,11 +874,13 @@ with tab1:
                 st.warning(upload_err)
 
     # 合并所有数据源
+    # 年报全文不再只截开头送模型：开头 3000 字供"公司概况"，
+    # 财务报表/风险等章节改由 RAG 按问题检索注入（见分析/研报/追问流程）
     parts = []
     if online_text:
         parts.append(online_text)
     if online_pdftext:
-        parts.append("【年报原文摘录】\n" + online_pdftext[:6000])
+        parts.append("【年报原文 · 开头摘录（全文已入向量库，可按问题检索）】\n" + online_pdftext[:3000])
     if data_text and data_text.strip():
         parts.append(data_text.strip())
     if uploaded_text:
@@ -707,20 +907,57 @@ with tab1:
         st.error("系统未配置 DEEPSEEK_API_KEY，请联系管理员。")
 
     # ---- 结构化分析（评分 + 图表 + 风险） ----
-    # 安全网：如果旧的 analysis 对应的公司与当前 raw_data 推断的公司不一致，
-    # 自动丢弃旧 analysis 并清空旧报告，避免"分析已切换但研报还显示旧公司"
-    _current_target = (online_name or "").strip()
-    _analysis = st.session_state.get("analysis") or {}
-    if _analysis and _current_target and _analysis.get("company", "") != _current_target:
+    # 【统一清空】根据 公司/代码/报告期数/年报/数据来源/行业 生成数据指纹，
+    # 指纹变化（切公司、换报告期、换年报、换行业、清空数据）时统一清空旧结果
+    def _data_sig():
+        return "|".join([
+            src_mode,
+            st.session_state.get("single_online_code", ""),
+            st.session_state.get("single_online_name", ""),
+            str(st.session_state.get("single_periods", "")),
+            st.session_state.get("single_pdf_title", ""),
+            industry,
+            "hasdata" if raw_data else "nodata",
+        ])
+
+    _sig_now = _data_sig()
+    _sig_old = st.session_state.get("data_sig")
+    if _sig_old and _sig_old != _sig_now:
+        # 数据版本变了：统一清空旧分析/旧研报/旧对话
         st.session_state.pop("analysis", None)
         st.session_state.pop("report", None)
+        st.session_state.pop("analysis_data", None)
+        st.session_state.pop("rag_hits_last", None)
         st.session_state["messages"] = []
-        _analysis = None
-        st.info(f"🔄 检测到分析对象已切换为 **{_current_target}**，旧的研报已清空，请重新点击「🚀 开始结构化分析」。")
+        st.info("🔄 检测到分析对象或数据版本已变化，旧的分析结果与研报已清空，请重新点击「🚀 开始结构化分析」。")
+    st.session_state["data_sig"] = _sig_now
+
+    # 【RAG 按问题检索】不再把年报当"开头几千字"硬塞给模型，
+    # 而是针对"财务数据/经营讨论/风险"检索最相关的章节（带页码）
+    def _rag_retrieve(query, top_k=8):
+        _code = st.session_state.get("single_online_code", "")
+        _year = st.session_state.get("single_pdf_year", "")
+        if (
+            rag is None or not _code or not _year
+            or not st.session_state.get("single_pdftext")
+            or not rag.has_index(_code, _year)
+        ):
+            return []
+        try:
+            return rag.retrieve(query, _code, _year, top_k=top_k)
+        except Exception:
+            return []
 
     if run_btn and raw_data and DEEPSEEK_API_KEY:
         with st.spinner("正在提取关键指标并评分……（约 10-30 秒）"):
             try:
+                # 1) RAG 检索年报相关章节（财务报表/风险章节往往不在开头）
+                rag_hits = _rag_retrieve(
+                    f"{online_name or '目标公司'} 主要财务数据 财务报表 经营情况讨论 风险因素", top_k=8
+                )
+                st.session_state["rag_hits_last"] = rag_hits
+
+                # 2) LLM 只负责"提取指标 + 解读"，不再直接打分（分数由规则引擎计算）
                 json_instruction = (
                     "请只输出一个 JSON 对象，不要输出任何其他文字。格式如下：\n"
                     "{\n"
@@ -729,24 +966,85 @@ with tab1:
                     '  "metrics": [{"item": "指标名", "value": 数值, "unit": "单位", "comment": "一句话解读"}],\n'
                     '  "chart_data": [{"item": "指标名", "value": 数值}],\n'
                     '  "trend": [{"period": "2021年报", "revenue": 数值, "net_profit": 数值}],\n'
-                    '  "scores": {"盈利能力": 1到10的整数, "成长性": 1到10的整数, "偿债能力": 1到10的整数, "现金流质量": 1到10的整数},\n'
-                    '  "total_score": 1到10的整数,\n'
                     '  "risks": ["风险1", "风险2", "风险3"],\n'
                     '  "highlights": ["亮点1", "亮点2"]\n'
                     "}\n"
                     "要求：metrics 提取 4-8 个关键财务指标；chart_data 最多 6 项且单位统一为亿元，"
-                    "用于画柱状图（不要放比率类指标）；trend 为多年（若数据中含多个报告期）营收与净利润，"
-                    "单位统一为亿元，没有多年数据则填空数组 []；数据不足的维度填 null；分数基于行业经验法则。\n\n"
+                    "用于画柱状图（不要放比率类指标）；\n"
+                    "trend 只放**同口径的年报期**数据（单位亿元），数据中没有多年年报则填空数组 []，"
+                    "禁止把一季报/半年报等中期累计数据当作年度数据放入 trend；\n"
+                    "注意：数据中可能包含一季报/半年报/三季报等中期报告，其金额为年初至今累计值，"
+                    "解读时必须标注报告期口径，不得与年报全年数据直接比较；\n"
+                    "不要输出任何评分（scores 由系统规则引擎计算）；数据不足的字段填 null。\n\n"
                     f"行业：{industry}\n\n财务数据：\n"
                 )
+                _ctx = json_instruction + raw_data[:MAX_CHARS]
+                if rag_hits:
+                    _ctx += (
+                        "\n\n【年报相关章节 · RAG 检索（引用时请注明页码）】\n"
+                        + rag.format_citations(rag_hits)
+                    )
                 raw_json = llm_once(
                     [
                         {"role": "system", "content": "你是严谨的金融投研分析师，只输出 JSON。"},
-                        {"role": "user", "content": json_instruction + raw_data[:MAX_CHARS]},
+                        {"role": "user", "content": _ctx},
                     ],
                     temperature=0.1,
                 )
                 analysis = parse_json_loose(raw_json)
+
+                # 3) 规则引擎评分（固定阈值 → 同样的数据永远得到同样的分数）
+                if scoring is not None:
+                    _metrics_for_score = {}
+                    _oc = st.session_state.get("single_online_code", "")
+                    if _oc:
+                        try:
+                            _fina = ds.get_financial_indicators(
+                                _oc, periods=int(st.session_state.get("single_periods", 4) or 4)
+                            )
+                            if _fina:
+                                _metrics_for_score = _fina[0]  # 最新报告期的标准化指标
+                        except Exception:
+                            _metrics_for_score = {}
+                    if not _metrics_for_score:
+                        # 手动模式：正则抽取 → 抽不到再让 LLM 抽（LLM 只提取数字，不打分）
+                        _metrics_for_score = scoring.extract_metrics_regex(raw_data)
+                        _need_llm = [k for k in (
+                            "roe", "gross_margin", "net_margin", "revenue_yoy", "net_profit_yoy",
+                            "debt_ratio", "current_ratio", "ocf_to_revenue",
+                        ) if k not in _metrics_for_score]
+                        if _need_llm and raw_data:
+                            try:
+                                _mj = llm_once(
+                                    [
+                                        {"role": "system", "content": "你是严谨的财务数据抽取器，只输出 JSON。"},
+                                        {"role": "user", "content": scoring.METRICS_EXTRACTION_PROMPT + raw_data[:MAX_CHARS]},
+                                    ],
+                                    temperature=0.0,
+                                )
+                                _m = parse_json_loose(_mj)
+                                if isinstance(_m, dict):
+                                    for k in _need_llm:
+                                        v = _m.get(k)
+                                        if v is not None:
+                                            _metrics_for_score[k] = v
+                            except Exception:
+                                pass
+                    sc = scoring.compute_scores(_metrics_for_score, industry)
+                    analysis["scores"] = sc["scores"]
+                    analysis["total_score"] = sc["total_score"]
+                    analysis["score_reasons"] = sc["reasons"]
+                    analysis["score_missing"] = sc["missing"]
+                    analysis["score_engine"] = "规则引擎 v1"
+                    analysis["score_source"] = (
+                        "在线财务指标（最新报告期）" if st.session_state.get("single_online_code") else "文本抽取"
+                    )
+
+                # 4) 严格校验（字段/类型/范围/缺失值），异常项修复或剔除
+                analysis, v_issues = validate_analysis(analysis)
+                for _iss in v_issues:
+                    st.warning(f"输出校验：{_iss}")
+
                 st.session_state["analysis"] = analysis
                 st.session_state["analysis_data"] = raw_data
                 # 每次重新分析时清空旧的追问记录与旧的研报，避免上下文/报告串台
@@ -780,6 +1078,28 @@ with tab1:
                 st.metric("综合评分", f"{total} / 10")
                 st.progress(min(max(total / 10.0, 0.0), 1.0))
 
+        # 评分依据（规则引擎 · 可复现可解释）
+        if analysis.get("score_engine"):
+            st.caption(
+                f"📐 评分由 **{analysis['score_engine']}** 按固定阈值计算"
+                + (f" · 数据来源：{analysis.get('score_source')}" if analysis.get("score_source") else "")
+                + " —— 同样的数据必然得到同样的分数，大模型仅负责解读"
+            )
+            _reasons = analysis.get("score_reasons") or {}
+            _missing = analysis.get("score_missing") or []
+            if _reasons or _missing:
+                with st.expander("📌 查看评分依据（每个分数怎么算出来的）"):
+                    for _dim, _rs in _reasons.items():
+                        _sc = scores.get(_dim)
+                        st.markdown(
+                            f"**{_dim}：{_sc if _sc is not None else '数据不足'} 分**"
+                            + (f"（{len(_rs)} 项指标加权）" if _rs else "")
+                        )
+                        for _r in _rs:
+                            st.markdown(f"&nbsp;&nbsp;- {_r}")
+                    if _missing:
+                        st.caption("未参与计分的缺失指标：" + "、".join(_missing))
+
         left, right = st.columns(2)
         with left:
             chart_data = analysis.get("chart_data") or []
@@ -807,17 +1127,32 @@ with tab1:
                 )
                 st.dataframe(mdf, use_container_width=True, hide_index=True)
 
-        # ---- 多年趋势图 ----
-        trend = analysis.get("trend") or []
-        trend = [t for t in trend if isinstance(t.get("revenue"), (int, float)) or isinstance(t.get("net_profit"), (int, float))]
-        if len(trend) >= 2:
-            st.markdown("##### 📈 多年营收与净利润趋势（单位：亿元）")
-            tdf = pd.DataFrame(trend)
-            if "period" in tdf.columns:
-                tdf = tdf.set_index("period")
+        # ---- 多年趋势图（仅年报口径，杜绝季报/半年报混入年度趋势） ----
+        _oc = st.session_state.get("single_online_code", "")
+        _trend_annual = []
+        if _oc:
+            try:
+                _trend_annual = ds.build_annual_trend(_oc, years=5) or []
+            except Exception:
+                _trend_annual = []
+        if len(_trend_annual) >= 2:
+            st.markdown("##### 📈 近五年年报营收与净利润趋势（仅年报口径 · 单位：亿元）")
+            st.caption("数据直接来自财务指标接口的年报记录（REPORT_TYPE=年报），与季度数据严格区分。")
+            tdf = pd.DataFrame(_trend_annual).set_index("period")
             keep = [c for c in ["revenue", "net_profit"] if c in tdf.columns]
             if keep:
                 st.line_chart(tdf[keep], height=280)
+        else:
+            trend = analysis.get("trend") or []
+            if len(trend) >= 2:
+                st.markdown("##### 📈 多年营收与净利润趋势（单位：亿元）")
+                st.caption("提示：仅统计同口径年报期数据；中期报告（季报/半年报）不参与年度趋势。")
+                tdf = pd.DataFrame(trend)
+                if "period" in tdf.columns:
+                    tdf = tdf.set_index("period")
+                keep = [c for c in ["revenue", "net_profit"] if c in tdf.columns]
+                if keep:
+                    st.line_chart(tdf[keep], height=280)
 
         colr, colh = st.columns(2)
         with colr:
@@ -837,26 +1172,29 @@ with tab1:
     if report_btn and raw_data and DEEPSEEK_API_KEY:
         st.divider()
         st.subheader("📝 完整投研报告")
-        # RAG: 若用户已上传/在线解析了年报 PDF, 索引一次供后续追问使用
-        _raw_pdf_text = st.session_state.get("single_pdf_text")
+        # 【RAG 接通】索引已在"下载并解析该报告"时构建完成，
+        # 这里按研报主题检索相关章节（含页码），注入 DeepSeek 上下文
         _rag_hits: list = []
-        if (use_dual_model and rag is not None and _raw_pdf_text):
-            _pdf_path = st.session_state.get("single_pdf_path")
-            with st.spinner("正在构建 RAG 索引（首次较慢）……"):
-                if _pdf_path and Path(_pdf_path).exists():
-                    _yr = st.session_state.get("single_year") or ""
-                    _yr = re.sub(r"\D", "", str(_yr))[-4:]
-                    _code = (
-                        st.session_state.get("single_online_code")
-                        or ""
-                    )
-                    if _code and _yr:
+        if use_dual_model and rag is not None:
+            _code = st.session_state.get("single_online_code", "")
+            _yr = st.session_state.get("single_pdf_year", "")
+            _pdf_path = st.session_state.get("single_pdf_path", "")
+            if st.session_state.get("single_pdftext") and _code and _yr:
+                # 兜底：如果索引还没建（如旧会话数据），现场补建一次
+                if not rag.has_index(_code, _yr) and _pdf_path and Path(_pdf_path).exists():
+                    with st.spinner("正在补建年报向量索引……"):
                         _built = rag.build_index_from_pdf(_pdf_path, _code, _yr)
-                        st.session_state["rag_build_status"] = _built
+                        st.session_state["single_rag_status"] = _built
+                if rag.has_index(_code, _yr):
+                    with st.spinner("正在从年报全文检索相关章节……"):
                         _rag_hits = rag.retrieve(
-                            f"{name} 财务表现 业务亮点 风险",
+                            f"{online_name or '目标公司'} 财务表现 经营讨论 业务亮点 风险因素 未来展望",
                             _code, _yr, top_k=6,
                         )
+                    st.session_state["rag_build_status"] = (
+                        st.session_state.get("single_rag_status")
+                        or {"ok": True, "chunks": len(_rag_hits), "pages": 0, "msg": "复用已有索引"}
+                    )
         box = st.empty()
         with st.spinner("正在生成完整研报……"):
             try:
@@ -901,8 +1239,9 @@ with tab1:
         _rstatus = st.session_state.get("rag_build_status")
         if _rstatus and _rstatus.get("ok"):
             st.caption(
-                f"📚 RAG 已构建: {_rstatus['chunks']} chunks · "
-                f"基于年报全文检索增强事实一致性"
+                f"📚 RAG 检索增强已启用：{_rstatus.get('chunks', 0)} chunks"
+                + (f" · 覆盖 {_rstatus.get('pages', 0)} 页" if _rstatus.get("pages") else "")
+                + " · 研报中的年报内容均来自全文检索并标注页码"
             )
         st.markdown(report)
 
@@ -946,10 +1285,22 @@ with tab1:
             with st.chat_message("user"):
                 st.markdown(question)
 
-            # 2) 组装上下文：数据 + 结构化评分 + 历史对话
+            # 2) 组装上下文：数据 + 结构化评分 + RAG 检索 + 历史对话
             base_context = f"【行业】{industry}\n\n【财务数据】\n{raw_data[:MAX_CHARS]}"
             if analysis:
                 base_context += f"\n\n【已生成的结构化评分与结论】\n{json.dumps(analysis, ensure_ascii=False)[:2000]}"
+
+            # 【RAG 接通】按用户问题实时检索年报相关章节（含页码）
+            _q_hits = []
+            if rag is not None:
+                _q_hits = _rag_retrieve(question, top_k=6)
+            if _q_hits:
+                base_context += (
+                    "\n\n【年报相关章节 · 按问题检索（回答时请注明引用页码，"
+                    "如「见年报第X页」；检索片段之外的内容不要编造）】\n"
+                    + rag.format_citations(_q_hits)
+                )
+                st.caption(f"📚 已从年报检索到 {len(_q_hits)} 个相关片段（含页码），正在结合原文回答……")
 
             history = st.session_state["messages"][:-1]  # 不含刚追加的这条
             history = history[-6:]  # 最多保留最近 3 轮
@@ -1005,6 +1356,24 @@ with tab2:
             if err_b:
                 st.warning(err_b)
             data_b = (text_b + "\n" + file_b).strip()
+
+    # 【统一清空】对比对象变化时清空旧对比报告
+    def _cmp_sig():
+        return "|".join([
+            str(st.session_state.get("name_a", "")),
+            str(st.session_state.get("name_b", "")),
+            st.session_state.get("cmp_a_online_code", ""),
+            st.session_state.get("cmp_b_online_code", ""),
+            "A" if data_a else "-",
+            "B" if data_b else "-",
+        ])
+
+    _csig_now = _cmp_sig()
+    _csig_old = st.session_state.get("cmp_sig")
+    if _csig_old and _csig_old != _csig_now and st.session_state.get("cmp_report"):
+        st.session_state.pop("cmp_report", None)
+        st.info("🔄 对比对象已变化，旧的对比报告已清空，请重新点击「⚖️ 开始对比分析」。")
+    st.session_state["cmp_sig"] = _csig_now
 
     cmp_btn = st.button("⚖️ 开始对比分析", disabled=not (data_a and data_b), use_container_width=True, type="primary")
 
@@ -1063,11 +1432,12 @@ with tab3:
 | 功能 | 入口 | 说明 |
 |---|---|---|
 | 🌐 在线自动取数 | 「单公司深度分析」页顶部 | 输入股票代码/名称，自动从巨潮资讯网与东方财富获取行情、多期财务指标、年报 PDF，无需自己找财报 |
-| 📄 年报 PDF 云端解析 | 取数面板内 | 一键下载并解析上市公司年报 PDF |
-| 单公司深度分析 | 「单公司深度分析」页 | 一键得到四维评分、指标图表、多年趋势、风险与亮点 |
-| 💬 多轮追问 | 「单公司深度分析」页底部 | 基于数据与已有结论连续追问，如行业对标、估值讨论 |
+| 📄 年报 PDF 云端解析 + RAG | 取数面板内 | 一键下载年报 → 按页切片构建向量索引；分析与追问自动检索相关章节，结论标注「见年报第X页」 |
+| 📐 规则引擎评分 | 「开始结构化分析」 | 四维评分由固定阈值规则计算（同一数据必然同一分数），页面可展开查看每个分数的完整依据链 |
+| 单公司深度分析 | 「单公司深度分析」页 | 一键得到四维评分、指标图表、年报口径趋势、风险与亮点 |
+| 💬 多轮追问 | 「单公司深度分析」页底部 | 基于数据与已有结论连续追问；年报问题实时检索原文片段（带页码） |
 | ⚖️ 双公司对比 | 「双公司对比」页 | 两家公司在线取数或手动输入，生成对比表与综合结论 |
-| 📝 研报导出 | 各页的下载按钮 | 分析结果可保存为 Markdown 报告 |
+| 📝 研报导出 | 各页的下载按钮 | 分析结果可保存为 Markdown 报告（双模型润色） |
 
 **行业知识库：**
 页面顶部横向按钮可选择行业（通用、消费、金融、新能源、医药、互联网）。
@@ -1087,7 +1457,9 @@ with tab3:
 
 **技术说明：**
 - 应用框架：Streamlit · 部署：Streamlit Community Cloud
-- PDF 解析：pypdf · 图表：Streamlit 内置图表组件
+- PDF 解析：pypdf（按页解析，保留页码）· 向量检索：ChromaDB + DashScope Embedding
+- 评分：scoring.py 固定规则引擎（可复现、附依据链）· 输出校验：字段/类型/范围自动校验
+- 对照实验：仓库内 `eval_cases.py` + `docs/对照实验报告.md`（Agent vs 直接大模型）
         """
     )
 

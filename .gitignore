@@ -183,3 +183,7 @@ cython_debug/
 _selfcheck.py
 materials/
 *.log
+# 本地向量库缓存与实验输出（运行时生成，不入库）
+chroma_store/
+eval_results/
+llm_usage.txt

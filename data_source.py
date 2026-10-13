@@ -619,6 +619,7 @@ def build_summary_text(code: str, name: str = "", periods: int = 4) -> str:
     """
     调用各接口，拼装成一段结构化的中文摘要文本，可直接喂给大模型分析。
     返回 markdown 文本；全部失败则返回空串。
+    报告期口径：年报/半年报/季报会显式标注，防止中期数据被误读为全年数据。
     """
     lines: List[str] = []
     quote = get_quote(code)
@@ -651,6 +652,18 @@ def build_summary_text(code: str, name: str = "", periods: int = 4) -> str:
     if fina:
         lines.append("## 二、主要财务指标（按报告期）")
         is_bank = any((p.get("npl_ratio") is not None or p.get("nim") is not None) for p in fina)
+        # 口径提示：年报 / 半年报 / 季报不能混为一谈
+        has_interim = any((p.get("report_type") or "") != "年报" for p in fina[:periods])
+        if has_interim:
+            lines.append("> ⚠️ 口径说明：下列报告期中可能包含一季报/半年报/三季报等**中期报告**，"
+                         "其金额为**年初至今累计值**，不能与年报全年数据直接比较；"
+                         "同比增速字段为可比口径。分析多年趋势时请只使用年报数据。")
+            lines.append("")
+
+        for p in fina[:periods]:
+            rt = p.get("report_type") or ""
+            rt_label = f"（{rt}）" if rt and rt != "年报" else "（年报）"
+            lines.append(f"### {p.get('report_name') or p.get('report_date')}{rt_label}")
 
         for p in fina[:periods]:
             lines.append(f"### {p.get('report_name') or p.get('report_date')}")

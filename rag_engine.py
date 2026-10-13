@@ -112,8 +112,23 @@ def split_text(text: str) -> List[str]:
     return chunks
 
 
+def split_chunks_paged(pages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    v2 按页切片: 输入 pdf_to_pages() 的结果,
+    返回 [{"text": chunk, "page": 页码}, ...]。
+    财务报表/风险章节散落在几百页年报中, 页码是引用溯源的关键。
+    """
+    chunks: List[Dict[str, Any]] = []
+    for pg in pages or []:
+        page_no = int(pg.get("page") or 0)
+        for para in _split_paragraphs(pg.get("text") or ""):
+            for piece in _chunk_paragraph(para):
+                chunks.append({"text": piece, "page": page_no})
+    return chunks
+
+
 # ---------------------------------------------------------------------------
-# PDF 解析
+# PDF 解析（v2：按页解析，保留页码，供引用归因）
 # ---------------------------------------------------------------------------
 def pdf_to_text(pdf_path: str | Path) -> str:
     reader = PdfReader(str(pdf_path))
@@ -124,6 +139,19 @@ def pdf_to_text(pdf_path: str | Path) -> str:
         except Exception as e:
             logger.warning("PDF 第 %s 页解析失败: %s", page, e)
     return "\n\n".join(parts)
+
+
+def pdf_to_pages(pdf_path: str | Path) -> List[Dict[str, Any]]:
+    """逐页解析，返回 [{"page": 页码(1起), "text": 文本}, ...]。"""
+    reader = PdfReader(str(pdf_path))
+    out: List[Dict[str, Any]] = []
+    for i, page in enumerate(reader.pages, start=1):
+        try:
+            out.append({"page": i, "text": page.extract_text() or ""})
+        except Exception as e:
+            logger.warning("PDF 第 %s 页解析失败: %s", i, e)
+            out.append({"page": i, "text": ""})
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -179,10 +207,12 @@ def _get_chroma_client() -> chromadb.PersistentClient:
 def _build_index(
     code: str,
     year: str,
-    texts: List[str],
+    texts: List,
     embedding_model: str = EMBED_MODEL_DEFAULT,
 ) -> Tuple[chromadb.Collection, int]:
-    """构建索引并写入 Chroma, 同时持久化到磁盘."""
+    """构建索引并写入 Chroma, 同时持久化到磁盘.
+    texts: List[str] 或 List[{"text", "page"}] (v2 按页切片).
+    """
     client = _get_chroma_client()
     cname = _collection_name(code, year)
     # 如果磁盘目录不存在 → 删除老 collection, 重建 (Streamlit Cloud 兜底)
@@ -197,20 +227,31 @@ def _build_index(
         metadata={"hnsw:space": "cosine", "code": code, "year": year},
     )
 
+    # 兼容两种输入：纯字符串 或 {text, page} 字典
+    norm: List[Dict[str, Any]] = []
+    for i, t in enumerate(texts):
+        if isinstance(t, dict):
+            norm.append({"text": str(t.get("text") or ""), "page": int(t.get("page") or 0)})
+        else:
+            norm.append({"text": str(t), "page": 0})
+
     # 已有就跳过
     existing = coll.count()
-    if existing >= len(texts):
+    if existing >= len(norm):
         logger.info("索引已存在 (%s 条), 跳过构建", existing)
         return coll, existing
 
-    vectors = _embed_batch(texts, model=embedding_model)
-    ids = [f"{code}_{year}_{i:04d}" for i in range(len(texts))]
-    metadatas = [{"code": code, "year": year, "chunk_idx": i} for i in range(len(texts))]
+    vectors = _embed_batch([n["text"] for n in norm], model=embedding_model)
+    ids = [f"{code}_{year}_{i:04d}" for i in range(len(norm))]
+    metadatas = [
+        {"code": code, "year": year, "chunk_idx": i, "page": n["page"]}
+        for i, n in enumerate(norm)
+    ]
 
-    coll.add(ids=ids, embeddings=vectors, documents=texts, metadatas=metadatas)
+    coll.add(ids=ids, embeddings=vectors, documents=[n["text"] for n in norm], metadatas=metadatas)
     # 触发持久化 (chroma 0.5+ PersistentClient 是惰性的, 这里强制 flush)
     coll.get(limit=1)
-    return coll, len(texts)
+    return coll, len(norm)
 
 
 # ---------------------------------------------------------------------------
@@ -222,27 +263,28 @@ def build_index_from_pdf(
     year: str,
     embedding_model: str = EMBED_MODEL_DEFAULT,
 ) -> Dict[str, Any]:
-    """从 PDF 解析 -> 切片 -> 索引.
+    """从 PDF 解析 -> 按页切片 -> 索引.
 
-    Returns: {"ok": bool, "chunks": int, "msg": str, "collection": str}
+    Returns: {"ok": bool, "chunks": int, "pages": int, "msg": str, "collection": str}
     """
     try:
-        text = pdf_to_text(pdf_path)
-        if not text.strip():
-            return {"ok": False, "chunks": 0, "msg": "PDF 解析为空", "collection": ""}
-        chunks = split_text(text)
+        pages = pdf_to_pages(pdf_path)
+        if not any(p["text"].strip() for p in pages):
+            return {"ok": False, "chunks": 0, "pages": 0, "msg": "PDF 解析为空", "collection": ""}
+        chunks = split_chunks_paged(pages)
         if not chunks:
-            return {"ok": False, "chunks": 0, "msg": "切片结果为空", "collection": ""}
+            return {"ok": False, "chunks": 0, "pages": len(pages), "msg": "切片结果为空", "collection": ""}
         coll, cnt = _build_index(code, year, chunks, embedding_model)
         return {
             "ok": True,
             "chunks": cnt,
-            "msg": f"已构建/复用索引 ({cnt} chunks)",
+            "pages": len(pages),
+            "msg": f"已构建/复用索引 ({cnt} chunks, 覆盖 {len(pages)} 页)",
             "collection": _collection_name(code, year),
         }
     except Exception as e:
         logger.exception("build_index_from_pdf 失败")
-        return {"ok": False, "chunks": 0, "msg": f"{type(e).__name__}: {e}", "collection": ""}
+        return {"ok": False, "chunks": 0, "pages": 0, "msg": f"{type(e).__name__}: {e}", "collection": ""}
 
 
 def retrieve(
@@ -252,7 +294,7 @@ def retrieve(
     top_k: int = TOP_K,
     embedding_model: str = EMBED_MODEL_DEFAULT,
 ) -> List[Dict[str, Any]]:
-    """检索 Top-K 片段, 返回 [{text, score, code, year, chunk_idx}, ...]."""
+    """检索 Top-K 片段, 返回 [{text, score, code, year, chunk_idx, page}, ...]."""
     try:
         client = _get_chroma_client()
         cname = _collection_name(code, year)
@@ -277,6 +319,7 @@ def retrieve(
                 "code": m.get("code", code),
                 "year": m.get("year", year),
                 "chunk_idx": m.get("chunk_idx", -1),
+                "page": m.get("page", 0),
             })
         return out
     except Exception as e:
@@ -289,7 +332,7 @@ def has_index(code: str, year: str) -> bool:
 
 
 def format_citations(hits: List[Dict[str, Any]]) -> str:
-    """把检索结果格式化成 LLM prompt 友好的引用块."""
+    """把检索结果格式化成 LLM prompt 友好的引用块（带页码，可溯源）."""
     if not hits:
         return "（未检索到相关片段）"
     lines = []
@@ -297,8 +340,10 @@ def format_citations(hits: List[Dict[str, Any]]) -> str:
         snippet = h["text"].replace("\n", " ").strip()
         if len(snippet) > 280:
             snippet = snippet[:280] + "..."
+        _pg = h.get("page") or 0
+        _loc = f"第{_pg}页" if _pg else f"chunk#{h.get('chunk_idx', -1)}"
         lines.append(
-            f"[{i}] (chunk#{h['chunk_idx']}, 相似度={h['score']:.2f}) {snippet}"
+            f"[{i}] (年报{_loc}, 相似度={h['score']:.2f}) {snippet}"
         )
     return "\n\n".join(lines)
 
