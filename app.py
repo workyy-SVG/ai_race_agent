@@ -55,8 +55,8 @@ def _get_secret(key, default=None):
 DEEPSEEK_API_KEY = _get_secret("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = _get_secret("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 DEEPSEEK_MODEL = _get_secret("DEEPSEEK_MODEL", "deepseek-chat")
-APP_USER = _get_secret("APP_USER", "judge")
-APP_PASSWORD = _get_secret("APP_PASSWORD", "ai2026")
+APP_USER = _get_secret("APP_USER", "zzy")
+APP_PASSWORD = _get_secret("APP_PASSWORD", "zzy2026")
 
 MAX_CHARS = 12000  # 送入大模型的财报文本最大长度（控制费用与时延）
 

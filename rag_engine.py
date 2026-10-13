@@ -158,12 +158,14 @@ def pdf_to_pages(pdf_path: str | Path) -> List[Dict[str, Any]]:
 # Embedding
 # ---------------------------------------------------------------------------
 def _embed_batch(texts: List[str], model: str = EMBED_MODEL_DEFAULT) -> List[List[float]]:
-    """批量 embedding, dashscope 单次最多 25 条, 自动分批."""
+    """批量 embedding. 注意: DashScope embedding 接口单次最多 10 条
+    (超过会报 InternalError.Algo.InvalidParameter: batch size ... not be larger than 10),
+    这里自动分批调用."""
     if not texts:
         return []
     _ensure_dashscope_key()
     out: List[List[float]] = []
-    BATCH = 25
+    BATCH = 10
     for i in range(0, len(texts), BATCH):
         batch = texts[i:i + BATCH]
         resp = TextEmbedding.call(

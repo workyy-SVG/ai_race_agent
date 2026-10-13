@@ -47,12 +47,12 @@
 ```toml
 DEEPSEEK_API_KEY = "sk-你的新key"
 QWEN_API_KEY = "sk-你的千问key"  # 申请: https://bailian.console.aliyun.com
-APP_USER = "judge"
-APP_PASSWORD = "ai2026"
+APP_USER = "zzy"
+APP_PASSWORD = "zzy2026"
 ```
 
 5. Deploy，等待几分钟得到 `https://xxx.streamlit.app` 公开链接
-6. 提交给比赛时，把这个链接 + 账号 `judge` / 密码 `ai2026` 一并附上
+6. 提交给比赛时，把这个链接 + 账号 `zzy` / 密码 `zzy2026` 一并附上
 
 ## 安全说明
 
