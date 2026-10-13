@@ -1273,7 +1273,42 @@ with tab1:
             st.session_state["messages"] = []
             st.rerun()
 
-    question = st.chat_input("例如：这家公司的毛利率在同行业处于什么水平？", key="chat_q")
+    # 【智能推荐提问】根据当前公司名称/行业/最新评分结果实时生成，点击即问
+    _company = online_name or st.session_state.get("current_target", "")
+    _suggestions: list = []
+    if _company:
+        _suggestions.append(f"{_company}近三年营收与净利润的增长趋势如何？主要驱动因素是什么？")
+        _sc = {}
+        if analysis and isinstance(analysis.get("scores"), dict):
+            _sc = {k: v for k, v in analysis["scores"].items() if isinstance(v, (int, float))}
+        if _sc:
+            _wk = min(_sc, key=_sc.get)
+            _suggestions.append(f"评分中「{_wk}」得分最低（{_sc[_wk]} 分），主要原因是什么？有哪些改善空间？")
+            _bst = max(_sc, key=_sc.get)
+            _suggestions.append(f"{_company}的「{_bst}」得分最高（{_sc[_bst]} 分），核心优势体现在哪些财务指标上？")
+        if "银行" in industry:
+            _suggestions.append(f"{_company}的不良贷款率、拨备覆盖率与资本充足率是否满足监管要求？")
+        else:
+            _suggestions.append(f"{_company}的毛利率与同行业可比公司相比处于什么水平？")
+        if rag is not None:
+            _suggestions.append(f"年报风险章节提到{_company}面临哪些主要风险？请结合原文并标注页码。")
+    if _suggestions:
+        st.caption("🎯 智能推荐（根据当前公司与最新评分实时生成，点击即问）：")
+        _qcols = st.columns(2)
+        for _i, _sq in enumerate(_suggestions[:6]):
+            with _qcols[_i % 2]:
+                if st.button(_sq, key=f"suggest_q_{_i}", use_container_width=True):
+                    st.session_state["_pending_question"] = _sq
+                    st.rerun()
+
+    # 问题来源：推荐问题点击（_pending_question）或手动输入
+    _pending = st.session_state.get("_pending_question", "")
+    if _pending:
+        try:
+            del st.session_state["_pending_question"]
+        except KeyError:
+            pass
+    question = _pending or st.chat_input("例如：这家公司的毛利率在同行业处于什么水平？", key="chat_q")
     if question:
         if not raw_data:
             st.warning("请先获取或粘贴财务数据，再提问。")
