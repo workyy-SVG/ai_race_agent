@@ -676,7 +676,7 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
                 opts = [f"{r['date']} {r['title']}" for r in reports]
                 idx = st.selectbox("选择报告", range(len(opts)), format_func=lambda i: opts[i], key=f"{key_prefix}_rsel")
                 if st.button("下载并解析该报告", key=f"{key_prefix}_dlbtn"):
-                    with st.spinner("正在下载并解析 PDF（大文件可能需要 10-30 秒）……"):
+                    with st.spinner("正在下载并解析 PDF（大文件约 10-20 秒）……"):
                         pdf = ds.download_pdf(reports[idx]["url"])
                         if not pdf:
                             st.error("PDF 下载失败，请稍后重试或改用手动上传。")
@@ -705,7 +705,7 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
                                     and code and _yr
                                     and st.session_state.get("use_dual_model", True)
                                 ):
-                                    with st.spinner("正在构建年报向量索引（按页切片 → Embedding → ChromaDB）……"):
+                                    with st.spinner("正在构建年报向量索引（6 路并发 Embedding，约 15-25 秒）……"):
                                         _st = rag.build_index_from_pdf(_pdf_path, code, _yr)
                                     st.session_state[f"{key_prefix}_rag_status"] = _st
                                     if _st.get("ok"):

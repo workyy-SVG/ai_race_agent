@@ -159,15 +159,16 @@ def pdf_to_pages(pdf_path: str | Path) -> List[Dict[str, Any]]:
 # ---------------------------------------------------------------------------
 def _embed_batch(texts: List[str], model: str = EMBED_MODEL_DEFAULT) -> List[List[float]]:
     """批量 embedding. 注意: DashScope embedding 接口单次最多 10 条
-    (超过会报 InternalError.Algo.InvalidParameter: batch size ... not be larger than 10),
-    这里自动分批调用."""
+    (超过会报 InternalError.Algo.InvalidParameter: batch size ... not be larger than 10).
+    v2: 6 路并发调用 (ThreadPoolExecutor), 414 chunks 约 40 批串行需 60-90 秒,
+    并发后约 15-25 秒; 返回顺序与输入顺序严格一致."""
     if not texts:
         return []
     _ensure_dashscope_key()
-    out: List[List[float]] = []
     BATCH = 10
-    for i in range(0, len(texts), BATCH):
-        batch = texts[i:i + BATCH]
+    batches = [texts[i:i + BATCH] for i in range(0, len(texts), BATCH)]
+
+    def _call_one(batch: List[str]) -> List[List[float]]:
         resp = TextEmbedding.call(
             model=model,
             input=batch,
@@ -177,8 +178,13 @@ def _embed_batch(texts: List[str], model: str = EMBED_MODEL_DEFAULT) -> List[Lis
             raise RuntimeError(
                 f"Embedding 失败 [{resp.status_code}]: {resp.message}"
             )
-        for item in resp.output["embeddings"]:
-            out.append(item["embedding"])
+        return [item["embedding"] for item in resp.output["embeddings"]]
+
+    from concurrent.futures import ThreadPoolExecutor
+    out: List[List[float]] = []
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        for part in pool.map(_call_one, batches):  # map 保持输入顺序
+            out.extend(part)
     return out
 
 
@@ -250,7 +256,7 @@ def _build_index(
         for i, n in enumerate(norm)
     ]
 
-    coll.add(ids=ids, embeddings=vectors, documents=[n["text"] for n in norm], metadatas=metadatas)
+    coll.upsert(ids=ids, embeddings=vectors, documents=[n["text"] for n in norm], metadatas=metadatas)
     # 触发持久化 (chroma 0.5+ PersistentClient 是惰性的, 这里强制 flush)
     coll.get(limit=1)
     return coll, len(norm)
