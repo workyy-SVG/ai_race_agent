@@ -304,8 +304,9 @@ def list_reports(code: str, org_id: str = "", report_type: str = "年报", limit
                 except Exception:
                     date_str = str(ts)[:10]
             if adj:
-                # 过滤英文版
-                if "英文" in title or "English" in title:
+                # 过滤英文版与摘要版（摘要版仅 2 万字左右、无财报明细与风险章节，
+                # 不适合 RAG 按页检索引用；完整年报才是演示与建库的正确口径）
+                if "英文" in title or "English" in title or "摘要" in title:
                     continue
                 out.append(
                     {

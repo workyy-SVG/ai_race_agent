@@ -712,8 +712,11 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
             if st.button("获取报告列表", key=f"{key_prefix}_listbtn"):
                 reports = ds.list_reports(code, org, rtype, limit=8)
                 st.session_state[f"{key_prefix}_reports"] = reports
+                if not reports:
+                    st.warning("未找到该类型的完整版报告，可换一个报告类型，或改用手动上传 PDF。")
             reports = st.session_state.get(f"{key_prefix}_reports", [])
             if reports:
+                st.caption("📋 已自动过滤摘要版 / 英文版，仅保留完整报告（内容厚、含财报明细与风险章节）。")
                 opts = [f"{r['date']} {r['title']}" for r in reports]
                 idx = st.selectbox("选择报告", range(len(opts)), format_func=lambda i: opts[i], key=f"{key_prefix}_rsel")
                 if st.button("下载并解析该报告", key=f"{key_prefix}_dlbtn"):
