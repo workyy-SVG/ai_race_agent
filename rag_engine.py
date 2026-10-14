@@ -161,7 +161,8 @@ def _embed_batch(texts: List[str], model: str = EMBED_MODEL_DEFAULT) -> List[Lis
     """批量 embedding. 注意: DashScope embedding 接口单次最多 10 条
     (超过会报 InternalError.Algo.InvalidParameter: batch size ... not be larger than 10).
     v2: 6 路并发调用 (ThreadPoolExecutor), 414 chunks 约 40 批串行需 60-90 秒,
-    并发后约 15-25 秒; 返回顺序与输入顺序严格一致."""
+    并发后约 15-25 秒; 返回顺序与输入顺序严格一致.
+    v3: 单批 25 秒超时 (future.result(timeout)), 防接口抽风时无限挂起."""
     if not texts:
         return []
     _ensure_dashscope_key()
@@ -169,11 +170,16 @@ def _embed_batch(texts: List[str], model: str = EMBED_MODEL_DEFAULT) -> List[Lis
     batches = [texts[i:i + BATCH] for i in range(0, len(texts), BATCH)]
 
     def _call_one(batch: List[str]) -> List[List[float]]:
-        resp = TextEmbedding.call(
-            model=model,
-            input=batch,
-            text_type="document",
-        )
+        # 单批 25 秒超时; 注意必须 shutdown(wait=False), 否则 with 块退出
+        # 仍会等挂起的 HTTP 调用跑完, 超时就失效了
+        from concurrent.futures import ThreadPoolExecutor
+        _single = ThreadPoolExecutor(max_workers=1)
+        try:
+            resp = _single.submit(
+                TextEmbedding.call, model=model, input=batch, text_type="document"
+            ).result(timeout=25)
+        finally:
+            _single.shutdown(wait=False)
         if resp.status_code != 200:
             raise RuntimeError(
                 f"Embedding 失败 [{resp.status_code}]: {resp.message}"
@@ -189,12 +195,16 @@ def _embed_batch(texts: List[str], model: str = EMBED_MODEL_DEFAULT) -> List[Lis
 
 
 def _embed_query(q: str, model: str = EMBED_MODEL_DEFAULT) -> List[float]:
+    """单条查询 embedding, 同样带 15 秒超时保护."""
+    from concurrent.futures import ThreadPoolExecutor
     _ensure_dashscope_key()
-    resp = TextEmbedding.call(
-        model=model,
-        input=[q],
-        text_type="query",
-    )
+    _single = ThreadPoolExecutor(max_workers=1)
+    try:
+        resp = _single.submit(
+            TextEmbedding.call, model=model, input=[q], text_type="query"
+        ).result(timeout=15)
+    finally:
+        _single.shutdown(wait=False)
     if resp.status_code != 200:
         raise RuntimeError(
             f"查询 embedding 失败 [{resp.status_code}]: {resp.message}"
@@ -283,11 +293,20 @@ def build_index_from_pdf(
         if not chunks:
             return {"ok": False, "chunks": 0, "pages": len(pages), "msg": "切片结果为空", "collection": ""}
         coll, cnt = _build_index(code, year, chunks, embedding_model)
+        # 【扫描件检测】文本 <50 字的页占比 >30% 时提示（pypdf 读不到图片层文字）
+        _low = sum(1 for p in pages if len((p.get("text") or "").strip()) < 50)
+        _low_ratio = _low / max(len(pages), 1)
+        _warn = ""
+        if _low_ratio > 0.30:
+            _warn = (
+                f" ⚠️ 检测到 {int(_low_ratio * 100)}% 的页面几乎没有文本"
+                "（疑似扫描件/图片型 PDF），这些页无法被检索，引用覆盖不完整。"
+            )
         return {
             "ok": True,
             "chunks": cnt,
             "pages": len(pages),
-            "msg": f"已构建/复用索引 ({cnt} chunks, 覆盖 {len(pages)} 页)",
+            "msg": f"已构建/复用索引 ({cnt} chunks, 覆盖 {len(pages)} 页){_warn}",
             "collection": _collection_name(code, year),
         }
     except Exception as e:

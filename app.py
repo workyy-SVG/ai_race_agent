@@ -278,7 +278,33 @@ if not check_login():
 
 # ============ 工具函数 ============
 def make_client():
-    return OpenAI(api_key=DEEPSEEK_API_KEY, base_url=DEEPSEEK_BASE_URL)
+    # timeout=60: 单次请求 60 秒上限（流式则约束相邻 chunk 间隔），防网络抽风无限挂起
+    # max_retries=2: 连接类错误自动重试 2 次
+    return OpenAI(
+        api_key=DEEPSEEK_API_KEY,
+        base_url=DEEPSEEK_BASE_URL,
+        timeout=60.0,
+        max_retries=2,
+    )
+
+# ============ 使用日志（可观测性：只记动作/耗时/成败，不记密钥与正文） ============
+USAGE_LOG = Path("usage_log.jsonl")
+
+def log_event(action: str, ok: bool = True, dur: float = 0.0, extra: str = ""):
+    try:
+        import datetime
+        rec = {
+            "t": datetime.datetime.now().isoformat(timespec="seconds"),
+            "action": str(action)[:24],
+            "ok": bool(ok),
+            "dur": round(float(dur), 2),
+            "target": str(st.session_state.get("current_target") or "")[:40],
+            "extra": str(extra)[:80],
+        }
+        with open(USAGE_LOG, "a", encoding="utf-8") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    except Exception:
+        pass  # 日志失败绝不影响主流程
 
 # ============ 方案3: 每日 LLM 调用熔断 (防 API 额度被刷爆) ============
 DAILY_LIMIT = int(_get_secret("DAILY_LLM_LIMIT", "100"))
@@ -313,30 +339,45 @@ def check_quota():
         return False
     return True
 
-def llm_once(messages, temperature=0.2):
+def llm_once(messages, temperature=0.2, action="llm"):
+    import time
+    _t0 = time.time()
     if not check_quota():
         return ""
     _bump_usage()
-    resp = make_client().chat.completions.create(
-        model=DEEPSEEK_MODEL, messages=messages, temperature=temperature, stream=False
-    )
-    return resp.choices[0].message.content or ""
+    try:
+        resp = make_client().chat.completions.create(
+            model=DEEPSEEK_MODEL, messages=messages, temperature=temperature, stream=False
+        )
+        out = resp.choices[0].message.content or ""
+        log_event(action, ok=True, dur=time.time() - _t0)
+        return out
+    except Exception as e:
+        log_event(action, ok=False, dur=time.time() - _t0, extra=type(e).__name__)
+        raise
 
-def llm_stream(messages, placeholder, temperature=0.3):
+def llm_stream(messages, placeholder, temperature=0.3, action="chat"):
+    import time
+    _t0 = time.time()
     if not check_quota():
         placeholder.error(f"⚠️ 今日 LLM 分析额度（{DAILY_LIMIT} 次）已用完，为保护服务资源已暂停生成。")
         return ""
     _bump_usage()
-    resp = make_client().chat.completions.create(
-        model=DEEPSEEK_MODEL, messages=messages, temperature=temperature, stream=True
-    )
-    full = ""
-    for chunk in resp:
-        delta = chunk.choices[0].delta.content
-        if delta:
-            full += delta
-            placeholder.write(full)
-    return full
+    try:
+        resp = make_client().chat.completions.create(
+            model=DEEPSEEK_MODEL, messages=messages, temperature=temperature, stream=True
+        )
+        full = ""
+        for chunk in resp:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                full += delta
+                placeholder.write(full)
+        log_event(action, ok=True, dur=time.time() - _t0, extra=f"out_len={len(full)}")
+        return full
+    except Exception as e:
+        log_event(action, ok=False, dur=time.time() - _t0, extra=type(e).__name__)
+        raise
 
 def extract_pdf_text(file):
     try:
@@ -705,14 +746,23 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
                                     and code and _yr
                                     and st.session_state.get("use_dual_model", True)
                                 ):
+                                    import time as _time
+                                    _t0 = _time.time()
                                     with st.spinner("正在构建年报向量索引（6 路并发 Embedding，约 15-25 秒）……"):
                                         _st = rag.build_index_from_pdf(_pdf_path, code, _yr)
+                                    log_event(
+                                        "rag_build", ok=bool(_st.get("ok")),
+                                        dur=_time.time() - _t0,
+                                        extra=f"chunks={_st.get('chunks', 0)}",
+                                    )
                                     st.session_state[f"{key_prefix}_rag_status"] = _st
                                     if _st.get("ok"):
                                         st.success(
                                             f"📚 RAG 索引构建成功：{_st['chunks']} 个文本块 · "
                                             f"覆盖 {_st.get('pages', 0)} 页，后续分析与追问将自动检索引用（含页码）。"
                                         )
+                                        if "⚠️" in _st.get("msg", ""):
+                                            st.warning(_st["msg"])
                                     else:
                                         st.warning(f"RAG 索引未构建：{_st.get('msg', '未知原因')}（分析仍可用年报开头文本）")
 
@@ -990,6 +1040,7 @@ with tab1:
                         {"role": "user", "content": _ctx},
                     ],
                     temperature=0.1,
+                    action="analysis",
                 )
                 analysis = parse_json_loose(raw_json)
 
@@ -1021,6 +1072,7 @@ with tab1:
                                         {"role": "user", "content": scoring.METRICS_EXTRACTION_PROMPT + raw_data[:MAX_CHARS]},
                                     ],
                                     temperature=0.0,
+                                    action="metrics_extract",
                                 )
                                 _m = parse_json_loose(_mj)
                                 if isinstance(_m, dict):
@@ -1209,6 +1261,7 @@ with tab1:
                         {"role": "user", "content": context},
                     ],
                     box,
+                    action="report",
                 )
                 # 千问润色 (Plan B 双模型)
                 if use_dual_model and lq is not None and lq.is_available():
@@ -1286,7 +1339,8 @@ with tab1:
             _suggestions.append(f"评分中「{_wk}」得分最低（{_sc[_wk]} 分），主要原因是什么？有哪些改善空间？")
             _bst = max(_sc, key=_sc.get)
             _suggestions.append(f"{_company}的「{_bst}」得分最高（{_sc[_bst]} 分），核心优势体现在哪些财务指标上？")
-        if "银行" in industry:
+        # 金融/银行类行业判断（行业 KB 的 key 是「金融」；兼容直接选「银行」的场景）
+        if any(_k in industry for _k in ("金融", "银行")):
             _suggestions.append(f"{_company}的不良贷款率、拨备覆盖率与资本充足率是否满足监管要求？")
         else:
             _suggestions.append(f"{_company}的毛利率与同行业可比公司相比处于什么水平？")
@@ -1310,6 +1364,10 @@ with tab1:
             pass
     question = _pending or st.chat_input("例如：这家公司的毛利率在同行业处于什么水平？", key="chat_q")
     if question:
+        # 【长度保护】超长输入截断到 500 字，防单次调用成本与耗时失控
+        if len(question) > 500:
+            st.warning(f"⚠️ 问题过长（{len(question)} 字），已截取前 500 字进行回答。")
+            question = question[:500]
         if not raw_data:
             st.warning("请先获取或粘贴财务数据，再提问。")
         elif not DEEPSEEK_API_KEY:
@@ -1350,7 +1408,7 @@ with tab1:
                 with st.chat_message("assistant"):
                     box = st.empty()
                     with st.spinner("正在分析……"):
-                        answer = llm_stream(msgs, box)
+                        answer = llm_stream(msgs, box, action="followup")
                 st.session_state["messages"].append({"role": "assistant", "content": answer})
             except Exception as e:
                 st.error(f"调用失败：{e}")
@@ -1437,6 +1495,7 @@ with tab2:
                         ],
                         box,
                         temperature=0.3,
+                        action="compare",
                     )
                     st.session_state["cmp_report"] = cmp_result
                 except Exception as e:

@@ -187,3 +187,5 @@ materials/
 chroma_store/
 eval_results/
 llm_usage.txt
+# 使用日志（运行时生成，不入库）
+usage_log.jsonl

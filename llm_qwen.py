@@ -55,14 +55,21 @@ def _call(prompt: str, system: Optional[str] = None, temperature: float = 0.4) -
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
 
+    # 60 秒超时保护: 必须 shutdown(wait=False), 否则退出时仍等挂起的 HTTP
+    from concurrent.futures import ThreadPoolExecutor
+    _single = ThreadPoolExecutor(max_workers=1)
     try:
-        resp = Generation.call(
-            model=_model_name(),
-            messages=messages,
-            temperature=temperature,
-            result_format="message",
-            top_p=0.85,
-        )
+        try:
+            resp = _single.submit(
+                Generation.call,
+                model=_model_name(),
+                messages=messages,
+                temperature=temperature,
+                result_format="message",
+                top_p=0.85,
+            ).result(timeout=60)
+        finally:
+            _single.shutdown(wait=False)
         if resp.status_code != 200:
             logger.warning("千问调用失败 [%s]: %s", resp.status_code, resp.message)
             return None
