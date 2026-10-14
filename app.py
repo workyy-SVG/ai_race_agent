@@ -1042,7 +1042,7 @@ def render_horizontal_bar(chart_data: list) -> bytes | None:
                 f"{v:,.1f}", va="center", ha="left",
                 color=_PAL["text"], fontsize=9)
     ax.set_xlim(0, max(vals) * 1.18)
-    ax.set_title("关键指标横向对比（🟡 最高 / ⚫ 最低）",
+    ax.set_title("关键指标横向对比（金色 = 最高 / 灰色 = 最低）",
                  color=_PAL["title"], fontsize=11, pad=10, fontweight="bold")
     ax.grid(axis="x", linestyle="--", alpha=0.4)
     return _fig_to_png_bytes(fig)
