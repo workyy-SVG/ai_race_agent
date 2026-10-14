@@ -796,7 +796,7 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
                                         _pbar.progress(
                                             min(done / max(total, 1), 1.0),
                                             text=f"正在构建年报向量索引… 批次 {done}/{total}"
-                                                 f"（完整年报约需 30-50 秒，请勿关闭页面）",
+                                                 f"（完整年报约需 40-80 秒，单批失败会自动重试，请勿关闭页面）",
                                         )
 
                                     _st = rag.build_index_from_pdf(_pdf_path, code, _yr, progress_cb=_pcb)

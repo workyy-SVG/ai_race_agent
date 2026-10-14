@@ -164,48 +164,75 @@ def _embed_batch(
 ) -> List[List[float]]:
     """批量 embedding. 注意: DashScope embedding 接口单次最多 10 条
     (超过会报 InternalError.Algo.InvalidParameter: batch size ... not be larger than 10).
-    v2: 6 路并发调用, 返回顺序与输入顺序严格一致.
-    v3: 单批 25 秒超时 (future.result(timeout)), 防接口抽风时无限挂起.
-    v4: 8 路并发 + as_completed 进度回调 progress_cb(done, total),
-        40 万字年报 ~1000 chunks=100 批, 6 路约 50-70 秒 -> 8 路约 35-50 秒;
-        配合进度条消除"看似卡死"的观感."""
+    v2: 并发调用, 返回顺序与输入顺序严格一致.
+    v3: 单批超时 (future.result(timeout)), 防接口抽风时无限挂起.
+    v4: as_completed 进度回调 progress_cb(done, total), 配合 UI 进度条.
+    v5: 修正招行 40 万字年报实测问题——8 路并发会触发 DashScope 限流排队,
+        25 秒超时太紧导致 TimeoutError 全场失败。改为:
+        ① 并发回落到 6 路 (限流安全); ② 单批超时放宽到 60 秒;
+        ③ 每批超时/失败自动重试 2 次 (退避 2s/4s); ④ 整体失败时
+        cancel 未开始的任务并 shutdown(wait=False) 立即脱身,
+        不让 with 块退出时傻等剩余 100 批队列."""
     if not texts:
         return []
     _ensure_dashscope_key()
     BATCH = 10
+    WORKERS = 6
+    TIMEOUT = 60
+    RETRIES = 2  # 额外重试次数 (共 3 次尝试)
     batches = [texts[i:i + BATCH] for i in range(0, len(texts), BATCH)]
     total = len(batches)
     if progress_cb:
         progress_cb(0, total)
 
     def _call_one(batch: List[str]) -> List[List[float]]:
-        # 单批 25 秒超时; 注意必须 shutdown(wait=False), 否则 with 块退出
-        # 仍会等挂起的 HTTP 调用跑完, 超时就失效了
-        from concurrent.futures import ThreadPoolExecutor
-        _single = ThreadPoolExecutor(max_workers=1)
-        try:
-            resp = _single.submit(
-                TextEmbedding.call, model=model, input=batch, text_type="document"
-            ).result(timeout=25)
-        finally:
-            _single.shutdown(wait=False)
-        if resp.status_code != 200:
-            raise RuntimeError(
-                f"Embedding 失败 [{resp.status_code}]: {resp.message}"
-            )
-        return [item["embedding"] for item in resp.output["embeddings"]]
+        import time as _time
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutTimeout
+        last_err: Exception = RuntimeError("embedding 未知错误")
+        for attempt in range(RETRIES + 1):
+            _single = ThreadPoolExecutor(max_workers=1)
+            try:
+                resp = _single.submit(
+                    TextEmbedding.call, model=model, input=batch, text_type="document"
+                ).result(timeout=TIMEOUT)
+            except _FutTimeout as e:
+                last_err = e
+                if attempt < RETRIES:
+                    _time.sleep(2.0 * (attempt + 1))  # 退避 2s/4s 后重试
+                continue
+            finally:
+                _single.shutdown(wait=False)  # 绝不等挂起的 HTTP 调用
+            if resp.status_code != 200:
+                raise RuntimeError(
+                    f"Embedding 失败 [{resp.status_code}]: {resp.message}"
+                )
+            return [item["embedding"] for item in resp.output["embeddings"]]
+        raise RuntimeError(
+            f"Embedding 批次在 {RETRIES + 1} 次尝试后仍超时 (单次上限 {TIMEOUT}s): {last_err}"
+        )
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
     # 结果按提交索引归位, 保证返回顺序与输入严格一致; 进度按完成数即时回报
     results: Dict[int, List[List[float]]] = {}
     done_cnt = 0
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    futmap: dict = {}
+    pool = ThreadPoolExecutor(max_workers=WORKERS)
+    try:
         futmap = {pool.submit(_call_one, b): i for i, b in enumerate(batches)}
         for fut in as_completed(futmap):
             results[futmap[fut]] = fut.result()
             done_cnt += 1
             if progress_cb:
                 progress_cb(done_cnt, total)
+    except Exception:
+        # 某批最终失败: 取消所有未开始的任务并立即返回,
+        # 否则 ThreadPoolExecutor.__exit__ 的 shutdown(wait=True)
+        # 会把剩余几十批全部跑完才放行, UI 卡死数分钟
+        for f in futmap:
+            f.cancel()
+        raise
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
     out: List[List[float]] = []
     for i in range(total):
         out.extend(results[i])
