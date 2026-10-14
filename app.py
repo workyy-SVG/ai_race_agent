@@ -20,6 +20,7 @@ import os
 import re
 import json
 import io
+import base64
 import math
 import tempfile
 from pathlib import Path
@@ -844,6 +845,21 @@ def validate_analysis(a):
     if isinstance(a.get("score_missing"), list):
         out["score_missing"] = [str(x)[:30] for x in a["score_missing"]][:12]
 
+    # -- 标准化原始指标（ROE / 营收增速 等，供「象限定位」散点图取数）--
+    #    注意：这里必须显式透传，否则 metrics_raw 会在校验环节被丢掉，
+    #    导致散点图永远拿不到数据（历史 bug）。
+    _mraw = a.get("metrics_raw")
+    if isinstance(_mraw, dict):
+        _mraw_clean = {}
+        for _k, _v in list(_mraw.items())[:40]:
+            _num = _safe_num(_v)
+            if _num is not None:
+                _mraw_clean[str(_k)[:30]] = _num
+        if _mraw_clean:
+            out["metrics_raw"] = _mraw_clean
+    if a.get("score_source"):
+        out["score_source"] = str(a["score_source"])[:60]
+
     return out, issues
 
 
@@ -936,6 +952,30 @@ def _fig_to_png_bytes(fig, dpi=140) -> bytes:
     plt.close(fig)
     buf.seek(0)
     return buf.getvalue()
+
+
+def show_png(png: bytes, alt: str = "chart") -> bool:
+    """把 PNG 字节以内联 base64 的方式画到页面上。
+
+    为什么不用 st.image：st.image(bytes) 会走 Streamlit 的媒体文件端点
+    (/media/<hash>.png)，该请求在部分部署环境下会被浏览器扩展 / 代理 /
+    会话校验拦截，表现为页面上只剩一个碎图占位符（图表等于消失）。
+    内联 data-URI 把图片直接写进 DOM，不产生任何额外网络请求，最稳。
+    """
+    if not png:
+        return False
+    try:
+        b64 = base64.b64encode(png).decode("ascii")
+    except Exception:
+        return False
+    st.markdown(
+        f'<div class="chart-frame">'
+        f'<img alt="{alt}" src="data:image/png;base64,{b64}" '
+        f'style="width:100%;height:auto;display:block;border-radius:12px;">'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    return True
 
 
 def render_score_radar(scores: dict, total: float | None = None) -> bytes | None:
@@ -1931,7 +1971,7 @@ with tab1:
                 # 横向柱状图（更适合长指标名 + 暗色）
                 _hb_png = render_horizontal_bar(chart_data)
                 if _hb_png:
-                    st.image(_hb_png, use_container_width=True)
+                    show_png(_hb_png, alt="关键财务指标横向对比图")
                 st.markdown(
                     build_chart_insight(chart_data),
                     unsafe_allow_html=True,
@@ -1946,7 +1986,7 @@ with tab1:
                 st.markdown("##### 🍩 指标占比与分布")
                 _donut_png = render_metric_donut(chart_data_right)
                 if _donut_png:
-                    st.image(_donut_png, use_container_width=True)
+                    show_png(_donut_png, alt="指标占比圆环图")
             metrics = analysis.get("metrics") or []
             if metrics:
                 st.markdown("##### 📋 指标明细")
@@ -1972,7 +2012,7 @@ with tab1:
                 st.markdown("##### 🎯 四维评分雷达")
                 _radar_png = render_score_radar(scores, total if isinstance(total, (int, float)) else None)
                 if _radar_png:
-                    st.image(_radar_png, use_container_width=True)
+                    show_png(_radar_png, alt="四维评分雷达图")
                 st.markdown(build_radar_insight(scores), unsafe_allow_html=True)
         with _radar_right:
             st.markdown("##### 📈 年报趋势（仅年报口径）")
@@ -2011,6 +2051,41 @@ with tab1:
         _mraw = analysis.get("metrics_raw") or {}
         _roe_v = _mraw.get("roe")
         _growth_v = _mraw.get("revenue_yoy")
+
+        # 兜底补齐：在线/文本两种模式下指标命名不完全一致，
+        # 缺哪一项就从「指标明细表 + 年报趋势」里补回，保证散点图尽量画得出来。
+        def _num_from_text(x):
+            if isinstance(x, (int, float)) and not isinstance(x, bool):
+                return float(x)
+            try:
+                return float(str(x).replace("%", "").replace(",", "").strip())
+            except (TypeError, ValueError):
+                return None
+
+        if not isinstance(_roe_v, (int, float)):
+            for _m in (analysis.get("metrics") or []):
+                if "ROE" in str(_m.get("item") or "").upper():
+                    _roe_v = _num_from_text(_m.get("value"))
+                    if isinstance(_roe_v, (int, float)):
+                        break
+            if not isinstance(_roe_v, (int, float)):
+                for _r in (_trend_annual or []):
+                    _roe_v = _num_from_text(_r.get("roe"))
+                    if isinstance(_roe_v, (int, float)):
+                        break
+        if not isinstance(_growth_v, (int, float)):
+            _rev_by_year = []
+            for _r in (_trend_annual or []):
+                _yr = re.sub(r"\D", "", str(_r.get("period") or ""))[:4]
+                _rv = _num_from_text(_r.get("revenue"))
+                if _yr and _rv is not None:
+                    _rev_by_year.append((int(_yr), _rv))
+            if len(_rev_by_year) >= 2:
+                _rev_by_year.sort()
+                _p, _l = _rev_by_year[-2][1], _rev_by_year[-1][1]
+                if _p:
+                    _growth_v = round((_l / _p - 1) * 100, 2)
+
         if isinstance(_roe_v, (int, float)) and isinstance(_growth_v, (int, float)):
             st.markdown("##### 🎯 ROE × 营收增速 · 象限定位")
             _rl, _gl = _industry_base(industry)
@@ -2021,7 +2096,7 @@ with tab1:
                     industry=industry,
                 )
                 if _scat_png:
-                    st.image(_scat_png, use_container_width=True)
+                    show_png(_scat_png, alt="ROE×营收增速四象限定位图")
             with _q_right:
                 st.markdown(
                     f'<div class="quad-note">'

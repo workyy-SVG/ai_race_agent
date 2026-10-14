@@ -9,25 +9,13 @@ pandas>=1.4.0
 matplotlib>=3.7.0
 numpy>=1.24.0
 
-# 千问 DashScope（用于"双模型协同"的二次校验与润色，很轻，保留）
+# 千问 DashScope（"双模型协同"润色 + RAG 的 Embedding 调用）
 dashscope>=1.20.0
 
-# ===========================================================================
-# RAG（chromadb）暂时摘除，原因：
-#   1) 依赖树极重：onnxruntime / kubernetes / grpcio / opentelemetry x3 /
-#      tokenizers / fastapi / uvicorn / posthog / orjson / mmh3 / bcrypt ...
-#      在 Streamlit Community Cloud 免费实例上首次构建常需 15-20 分钟，
-#      并且容易触发构建超时反复重来。
-#   2) chroma_store/ 已被 .gitignore 忽略且当前为空 -> 云端本来就没有向量库，
-#      检索恒返回 0 条，摘掉不损失任何可演示能力。
-#   3) app.py 对 rag_engine 做了 try/except 可选导入：
-#          try:    import rag_engine as rag
-#          except ImportError: rag = None
-#      缺依赖时 rag = None，界面只显示「🟡 rag_engine 模块未加载」，
-#      主分析链路（DeepSeek 结构化分析 + 千问润色 + 图表）完全不受影响。
-#
-# 需要恢复 RAG 时：取消下面这一行注释，并接受构建变慢。
-# chromadb>=0.5.0
-# ===========================================================================
+# RAG 向量库（rag_engine.py 顶层 import chromadb / pypdf）
+# 说明：Streamlit Community Cloud 用 uv 安装，整棵依赖树（含 onnxruntime、
+# kubernetes、grpcio、opentelemetry 等 114 个包）实测约 16 秒装完，
+# 不是构建慢的原因，故保留。
+chromadb>=0.5.0
 
-# 注：tiktoken 已移除 —— 全项目代码未 import（仅早期排查脚本引用过）。
+# 注：tiktoken 不再声明 —— 全项目代码未 import（仅早期排查脚本引用过）。
