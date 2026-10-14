@@ -115,6 +115,13 @@ BASE_SYSTEM_PROMPT = """你是一名专业、严谨的金融投研分析师。�
 # ============ 全局样式（金融主题：深藏青 + 金色） ============
 CUSTOM_CSS = """
 <style>
+  /* ===== 全局背景：浅色渐变（摆脱纯白单调） ===== */
+  .stApp {
+    background: linear-gradient(170deg, #F3F6FB 0%, #E9EEF7 40%, #EEF2F9 100%);
+  }
+  header[data-testid="stHeader"] { background: transparent; }
+  .block-container { padding-top: 1.4rem; }
+
   /* ===== 顶栏横幅 ===== */
   .hero {
     background: linear-gradient(120deg, #0A1F44 0%, #123A6B 60%, #0A1F44 100%);
@@ -122,6 +129,7 @@ CUSTOM_CSS = """
     padding: 22px 28px 18px 28px;
     margin-bottom: 6px;
     color: #ffffff;
+    box-shadow: 0 4px 14px rgba(10, 31, 68, 0.18);
   }
   .hero h1 {
     color: #ffffff;
@@ -139,10 +147,11 @@ CUSTOM_CSS = """
 
   /* ===== 通用卡片 ===== */
   div[data-testid="stMetric"] {
-    background: #F6F8FC;
+    background: #FFFFFF;
     border: 1px solid #E2E8F2;
     border-radius: 12px;
     padding: 12px 14px 6px 14px;
+    box-shadow: 0 1px 4px rgba(10, 31, 68, 0.06);
   }
   div[data-testid="stMetric"] label {
     color: #5A6B84;
@@ -153,6 +162,40 @@ CUSTOM_CSS = """
     font-weight: 800;
   }
 
+  /* ===== Expander 卡片化（浮在渐变背景上，解决"排版乱"观感） ===== */
+  div[data-testid="stExpander"] {
+    background: #FFFFFF;
+    border: 1px solid #E2E8F2;
+    border-radius: 12px;
+    box-shadow: 0 1px 4px rgba(10, 31, 68, 0.05);
+    margin-bottom: 4px;
+  }
+  div[data-testid="stExpander"] details {
+    background: transparent;
+    border: none;
+  }
+  div[data-testid="stExpander"] summary {
+    font-weight: 700;
+    color: #0A1F44;
+    padding: 10px 4px;
+  }
+
+  /* ===== 行业选择 radio 药丸化 ===== */
+  div[role="radiogroup"] label {
+    background: #FFFFFF;
+    border: 1px solid #D8E0EC;
+    border-radius: 999px;
+    padding: 5px 12px;
+    margin: 3px 2px;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  div[role="radiogroup"] label:hover { border-color: #17417E; }
+  div[role="radiogroup"] label:has(input:checked) {
+    background: #0A1F44;
+    border-color: #0A1F44;
+  }
+  div[role="radiogroup"] label:has(input:checked) div { color: #E8B84B !important; }
+
   /* ===== 按钮 ===== */
   .stButton > button[kind="primary"] {
     background: linear-gradient(90deg, #0A1F44, #17417E);
@@ -160,6 +203,7 @@ CUSTOM_CSS = """
     border: none;
     border-radius: 8px;
     font-weight: 600;
+    box-shadow: 0 2px 6px rgba(10, 31, 68, 0.22);
   }
   .stButton > button[kind="primary"]:hover {
     background: linear-gradient(90deg, #17417E, #2A5AA8);
@@ -180,12 +224,16 @@ CUSTOM_CSS = """
     color: #E8B84B !important;
   }
 
-  /* ===== 侧边栏 ===== */
+  /* ===== 侧边栏：深蓝渐变 + 金色点缀 ===== */
   section[data-testid="stSidebar"] {
-    background-color: #0A1F44;
+    background: linear-gradient(180deg, #081A38 0%, #0E2C58 52%, #0A1F44 100%);
   }
   section[data-testid="stSidebar"] * {
     color: #D7E1F0 !important;
+  }
+  section[data-testid="stSidebar"] h3 {
+    border-left: 4px solid #E8B84B;
+    padding-left: 8px;
   }
   section[data-testid="stSidebar"] .stButton > button {
     background: transparent;
@@ -193,17 +241,90 @@ CUSTOM_CSS = """
     color: #D7E1F0;
     border-radius: 8px;
   }
+  section[data-testid="stSidebar"] .stButton > button:hover {
+    border-color: #E8B84B;
+    color: #E8B84B !important;
+  }
+  /* 侧边栏品牌头 */
+  .sb-brand {
+    background: linear-gradient(120deg, #123A6B, #17417E);
+    border: 1px solid rgba(232, 184, 75, 0.4);
+    border-radius: 12px;
+    padding: 12px 14px;
+    color: #FFFFFF !important;
+    font-weight: 800;
+    font-size: 15.5px;
+    letter-spacing: 0.5px;
+  }
+  .sb-brand .sb-sub {
+    display: block;
+    color: #C9D6E8 !important;
+    font-size: 11px;
+    font-weight: 500;
+    margin-top: 4px;
+    letter-spacing: 0.3px;
+  }
+  /* 侧边栏内容卡片 */
+  .sb-card {
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid rgba(215, 225, 240, 0.14);
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin: 8px 0;
+  }
+  .sb-card .sb-title, .sb-title {
+    color: #E8B84B !important;
+    font-weight: 700;
+    font-size: 13px;
+    margin-bottom: 6px;
+    letter-spacing: 0.5px;
+  }
+  .sb-card ol, .sb-card ul {
+    margin: 0;
+    padding-left: 18px;
+    color: #D7E1F0 !important;
+    font-size: 12.5px;
+    line-height: 1.8;
+  }
+  .sb-chip {
+    display: inline-block;
+    background: rgba(232, 184, 75, 0.12);
+    border: 1px solid rgba(232, 184, 75, 0.32);
+    color: #F0D492 !important;
+    border-radius: 999px;
+    padding: 1px 9px;
+    font-size: 11px;
+    margin: 2px 2px;
+    white-space: nowrap;
+  }
+  /* 侧边栏额度进度条 */
+  .sb-quota-head { font-size: 12px; margin-bottom: 4px; }
+  .sb-quota-head b { color: #E8B84B !important; }
+  .sb-quota-bar {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.12);
+    border-radius: 999px;
+    overflow: hidden;
+  }
+  .sb-quota-bar div {
+    height: 100%;
+    background: linear-gradient(90deg, #E8B84B, #F5D98B);
+    border-radius: 999px;
+  }
 
   /* ===== 提示条 ===== */
   div[data-testid="stSuccess"] {
     background-color: #EAF3EA;
     border-left: 4px solid #2E7D32;
+    border-radius: 0 10px 10px 0;
   }
   div[data-testid="stWarning"] {
     border-left: 4px solid #E8B84B;
+    border-radius: 0 10px 10px 0;
   }
   div[data-testid="stError"] {
     border-left: 4px solid #C0392B;
+    border-radius: 0 10px 10px 0;
   }
 
   /* ===== 页脚 ===== */
@@ -841,29 +962,42 @@ st.markdown(
 )
 
 with st.sidebar:
-    st.markdown("### 🧭 导航")
+    # 品牌头（金色描边卡片，替代裸标题）
     st.markdown(
-        """
-        **快速上手**
-        1. 下方选择行业知识库
-        2. 输入股票代码（如 600519）
-        3. 点「🔍 获取数据」自动取数
-        4. 点「🚀 开始结构化分析」
-
-        **当前版本能力**
-        - 🌐 在线自动取数（巨潮+东财）
-        - 📄 年报 PDF 云端解析
-        - 四维评分 + 总分
-        - 指标柱状图 + 多年趋势
-        - 一键研报导出
-        - 双公司对比
-        - 六大行业知识库
-        - 多轮追问对话
-        """
+        '<div class="sb-brand">📊 金融智能投研 Agent'
+        '<span class="sb-sub">规则评分引擎 · RAG 按页检索 · 双模型协同</span></div>',
+        unsafe_allow_html=True,
     )
-    st.markdown("---")
+
+    # 快速上手（卡片）
+    st.markdown(
+        '<div class="sb-card"><div class="sb-title">🧭 快速上手</div>'
+        "<ol>"
+        "<li>选择行业知识库</li>"
+        "<li>输入股票代码（如 600519）</li>"
+        "<li>点「🔍 获取数据」自动取数</li>"
+        "<li>点「🚀 开始结构化分析」</li>"
+        "</ol></div>",
+        unsafe_allow_html=True,
+    )
+
+    # 当前版本能力（徽章墙，比 8 行列表紧凑）
+    st.markdown(
+        '<div class="sb-card"><div class="sb-title">⚙️ 当前版本能力</div>'
+        '<span class="sb-chip">🌐 在线取数</span>'
+        '<span class="sb-chip">📄 年报解析</span>'
+        '<span class="sb-chip">📚 RAG 检索</span>'
+        '<span class="sb-chip">四维评分</span>'
+        '<span class="sb-chip">📈 趋势图表</span>'
+        '<span class="sb-chip">📝 研报导出</span>'
+        '<span class="sb-chip">双公司对比</span>'
+        '<span class="sb-chip">多轮追问</span>'
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
     # 双模型开关 (Plan B)
-    st.markdown("### 🤖 双模型协同")
+    st.markdown('<div class="sb-title" style="margin:12px 0 2px 2px;">🤖 双模型协同</div>', unsafe_allow_html=True)
     use_dual_model = st.toggle(
         "启用 千问 润色 + RAG",
         value=True,
@@ -876,7 +1010,7 @@ with st.sidebar:
     else:
         st.caption("🟡 llm_qwen 模块未加载")
     if rag is not None:
-        st.caption(f"📚 RAG 引擎已加载 · Top-K=6")
+        st.caption("📚 RAG 引擎已加载 · Top-K=6")
     else:
         st.caption("🟡 rag_engine 模块未加载")
     st.markdown("---")
@@ -884,7 +1018,15 @@ with st.sidebar:
         st.markdown("👤 当前访问：**🎤 评委演示模式（免登录）**")
     else:
         st.markdown(f"👤 当前登录：**{APP_USER}**")
-    st.caption(f"🔋 今日剩余分析额度：**{max(DAILY_LIMIT - _read_usage(), 0)} / {DAILY_LIMIT}** 次")
+    # 额度：数字 + 可视化进度条（金色渐变，用满变红）
+    _used = _read_usage()
+    _ratio = min(_used / max(DAILY_LIMIT, 1), 1.0)
+    _bar_color = "linear-gradient(90deg,#E8B84B,#F5D98B)" if _ratio < 0.8 else "linear-gradient(90deg,#D9662F,#E8B84B)"
+    st.markdown(
+        f'<div class="sb-quota-head">🔋 今日剩余分析额度 <b>{max(DAILY_LIMIT - _used, 0)} / {DAILY_LIMIT}</b></div>'
+        f'<div class="sb-quota-bar"><div style="width:{_ratio * 100:.0f}%;background:{_bar_color};"></div></div>',
+        unsafe_allow_html=True,
+    )
     if st.button("退出登录", use_container_width=True):
         st.session_state["authenticated"] = False
         st.session_state["demo_mode"] = False
