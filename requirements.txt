@@ -4,6 +4,11 @@ pypdf>=4.0.0
 requests>=2.31.0
 pandas>=1.4.0
 
+# 绘图（app.py 顶层直接 import，必须显式声明，
+# 否则一旦云端基础镜像预装的版本变动就会 ImportError 崩掉）
+matplotlib>=3.7.0
+numpy>=1.24.0
+
 # RAG + 双模型 (Plan B)
 dashscope>=1.20.0
 chromadb>=0.5.0

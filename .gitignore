@@ -181,6 +181,8 @@ cython_debug/
 .cursorindexingignore
 # 本地自检脚本（不部署）
 _selfcheck.py
+# 本地临时排查脚本（不部署、不入库）
+_check*.py
 materials/
 *.log
 # 本地向量库缓存与实验输出（运行时生成，不入库）
