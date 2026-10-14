@@ -147,17 +147,22 @@ CUSTOM_CSS = """
                 0 0 0 1px rgba(217, 164, 65, 0.25) inset;
   }
   .hero h1 {
-    color: #F8FAFC;
     font-size: 30px;
     font-weight: 800;
     margin: 0 0 4px 0;
     letter-spacing: 1px;
     text-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
   }
+  /* ⚠️ 深色横幅上的文字必须显式指定颜色并带 !important：
+     全站有 `p, li, span, div { color:#334155 }` 这类元素级规则，
+     一旦某个祖先/包装元素命中它，横幅文字就会变成 #334155 深灰，
+     压在深蓝底上实测对比度仅 1.5:1（几乎看不见）。
+     这里连子元素一起上色，避免任何包装元素把颜色带走。 */
+  .hero h1, .hero h1 *, .hero p, .hero p * { color: #F8FAFC !important; }
+  .hero p, .hero p * { color: #DBEAFE !important; font-size: 14px; margin: 0; }
+  .hero .tagline, .hero .tagline * { color: #A9C6E8 !important; font-size: 12px; margin-top: 6px; }
   .hero h1 .gold { color: #F5C563 !important; font-weight: 800; }
   .hero h1 .purple { color: #C9D9FF !important; font-weight: 800; }
-  .hero p { color: #DBEAFE; font-size: 14px; margin: 0; }
-  .hero .tagline { color: #93B5E0; font-size: 12px; margin-top: 6px; }
 
   /* ===== 通用卡片：白底 + 蓝边 ===== */
   div[data-testid="stMetric"] {
@@ -261,7 +266,21 @@ CUSTOM_CSS = """
     border-right: 2px solid rgba(30, 64, 175, 0.30);
     box-shadow: 6px 0 20px rgba(15, 35, 70, 0.06);
   }
-  section[data-testid="stSidebar"] * { color: #1E3A5F !important; }
+  /* ⚠️ 这里原来是 `section[data-testid="stSidebar"] * { color:#1E3A5F !important }`
+     —— 通配符 + !important 的特异性(0,1,1) 高于 `.sb-brand`(0,1,0)，
+     会把品牌卡里本该是白色的标题刷成深蓝 #1E3A5F，压在蓝色渐变卡上
+     实测对比度只有 1.83:1（截图里几乎看不见）。
+     改为只给 Streamlit 原生文本上色，自定义组件各自保留自己的配色。 */
+  section[data-testid="stSidebar"] p,
+  section[data-testid="stSidebar"] li,
+  section[data-testid="stSidebar"] label,
+  section[data-testid="stSidebar"] small,
+  section[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+  section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] *,
+  section[data-testid="stSidebar"] [data-testid="stWidgetLabel"],
+  section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] * {
+    color: #1E3A5F !important;
+  }
   section[data-testid="stSidebar"] h3 {
     border-left: 4px solid #1E40AF;
     padding-left: 8px;
@@ -277,21 +296,23 @@ CUSTOM_CSS = """
     border-color: #1E40AF;
     color: #1E40AF !important;
   }
-  /* 侧边栏品牌头 */
+  /* 侧边栏品牌头（深蓝渐变卡） */
   .sb-brand {
-    background: linear-gradient(120deg, #1E3A8A 0%, #2563EB 100%);
+    background: linear-gradient(120deg, #16266B 0%, #1E3A8A 48%, #1D4ED8 100%);
     border: 1px solid rgba(217, 164, 65, 0.65);
     border-radius: 12px;
     padding: 12px 14px;
-    color: #FFFFFF !important;
     font-weight: 800;
     font-size: 15.5px;
     letter-spacing: 0.5px;
     box-shadow: 0 6px 18px rgba(30, 64, 175, 0.40);
   }
-  .sb-brand .sb-sub {
+  /* 白字同时作用于子元素 —— 只写 .sb-brand 时，任何作用到子元素的
+     通配符规则都会把文字压成深色（本次事故的根因），故在此加固 */
+  .sb-brand, .sb-brand * { color: #FFFFFF !important; }
+  .sb-brand .sb-sub, .sb-brand .sb-sub * {
     display: block;
-    color: #F5C563 !important;
+    color: #FFDFA0 !important;   /* 11px 小字：金色提亮后对比度约 5:1 */
     font-size: 11px;
     font-weight: 600;
     margin-top: 4px;
@@ -384,9 +405,11 @@ CUSTOM_CSS = """
   .footer-note b { color: #D9A441; }
 
   /* ===== 双模型徽章 ===== */
+  /* 渐变右端原来是 #93B5E0（浅蓝），白字压上去只有 2.2:1 看不清；
+     改为深蓝渐变右端 #2563EB，白字对比度 5.2:1 */
   .dual-badge {
     display: inline-block;
-    background: linear-gradient(90deg, #1E40AF 0%, #93B5E0 100%);
+    background: linear-gradient(90deg, #1E3A8A 0%, #2563EB 100%);
     color: #FFFFFF !important;
     padding: 4px 12px;
     border-radius: 999px;
@@ -489,8 +512,8 @@ def check_login():
     st.markdown(
         """
         <div class="hero" style="text-align:center; max-width:560px; margin:40px auto 10px auto;">
-            <h1>📈 金融智能投研 <span class="gold">Agent</span></h1>
-            <p>AI 驱动的财报深度分析 · 结构化评分 · 双公司对比 · 行业知识库</p>
+            <h1 style="color:#F8FAFC !important;font-size:30px;font-weight:800;margin:0 0 4px 0;letter-spacing:1px;">📈 金融智能投研 <span class="gold" style="color:#F5C563 !important;">Agent</span></h1>
+            <p style="color:#DBEAFE !important;font-size:14px;margin:0;">AI 驱动的财报深度分析 · 结构化评分 · 双公司对比 · 行业知识库</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1798,9 +1821,9 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
 st.markdown(
     """
     <div class="hero">
-        <h1>📈 金融智能投研 <span class="gold">Agent</span></h1>
-        <p>输入股票代码即可自动取数，一键完成结构化分析、四维评分、趋势图表与研报生成</p>
-        <p class="tagline">在线取数（巨潮+东财）· 年报 PDF 解析 · 双公司对比 · 六大行业知识库 · 多轮追问</p>
+        <h1 style="color:#F8FAFC !important;font-size:30px;font-weight:800;margin:0 0 4px 0;letter-spacing:1px;">📈 金融智能投研 <span class="gold" style="color:#F5C563 !important;">Agent</span></h1>
+        <p style="color:#DBEAFE !important;font-size:14px;margin:0;">输入股票代码即可自动取数，一键完成结构化分析、四维评分、趋势图表与研报生成</p>
+        <p class="tagline" style="color:#A9C6E8 !important;font-size:12px;margin-top:6px;">在线取数（巨潮+东财）· 年报 PDF 解析 · 双公司对比 · 六大行业知识库 · 多轮追问</p>
     </div>
     """,
     unsafe_allow_html=True,
