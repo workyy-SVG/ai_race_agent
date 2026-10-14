@@ -277,19 +277,19 @@ CUSTOM_CSS = """
   }
   /* 侧边栏品牌头 */
   .sb-brand {
-    background: linear-gradient(120deg, #1B2B5E 0%, #614DFF 100%);
-    border: 1px solid rgba(217, 164, 65, 0.5);
+    background: linear-gradient(120deg, #1B2B5E 0%, #7C6AFF 100%);
+    border: 1px solid rgba(217, 164, 65, 0.65);
     border-radius: 12px;
     padding: 12px 14px;
-    color: #F8FAFC !important;
+    color: #FFFFFF !important;
     font-weight: 800;
     font-size: 15.5px;
     letter-spacing: 0.5px;
-    box-shadow: 0 2px 8px rgba(97, 77, 255, 0.3);
+    box-shadow: 0 6px 22px rgba(97, 77, 255, 0.5);
   }
   .sb-brand .sb-sub {
     display: block;
-    color: #D9A441 !important;
+    color: #F5C563 !important;
     font-size: 11px;
     font-weight: 600;
     margin-top: 4px;
@@ -297,14 +297,14 @@ CUSTOM_CSS = """
   }
   /* 侧边栏内容卡片 */
   .sb-card {
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(124, 106, 255, 0.10);
+    border: 1px solid rgba(124, 106, 255, 0.28);
     border-radius: 10px;
     padding: 10px 12px;
     margin: 8px 0;
   }
   .sb-card .sb-title, .sb-title {
-    color: #D9A441 !important;
+    color: #F5C563 !important;
     font-weight: 700;
     font-size: 13px;
     margin-bottom: 6px;
@@ -313,15 +313,15 @@ CUSTOM_CSS = """
   .sb-card ol, .sb-card ul {
     margin: 0;
     padding-left: 18px;
-    color: #CBD5E1 !important;
+    color: #D7E0EE !important;
     font-size: 12.5px;
     line-height: 1.8;
   }
   .sb-chip {
     display: inline-block;
-    background: rgba(97, 77, 255, 0.15);
-    border: 1px solid rgba(97, 77, 255, 0.4);
-    color: #B8AEFF !important;
+    background: rgba(124, 106, 255, 0.22);
+    border: 1px solid rgba(124, 106, 255, 0.55);
+    color: #C9BFFF !important;
     border-radius: 999px;
     padding: 1px 9px;
     font-size: 11px;
@@ -366,9 +366,10 @@ CUSTOM_CSS = """
 
   /* ===== 表格 (dataframe) ===== */
   .stDataFrame, [data-testid="stDataFrame"] {
-    background: #172033;
+    background: #111827;
     border-radius: 10px;
-    border: 1px solid rgba(97, 77, 255, 0.18);
+    border: 1px solid rgba(124, 106, 255, 0.28);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
   }
 
   /* ===== 页脚 ===== */
@@ -378,33 +379,33 @@ CUSTOM_CSS = """
     font-size: 12px;
     padding: 8px;
   }
-  .footer-note b { color: #D9A441; }
+  .footer-note b { color: #F5C563; }
 
   /* ===== 双模型徽章 (Plan B) ===== */
   .dual-badge {
     display: inline-block;
-    background: linear-gradient(90deg, #614DFF 0%, #B8AEFF 100%);
+    background: linear-gradient(90deg, #614DFF 0%, #C9BFFF 100%);
     color: #FFFFFF !important;
     padding: 4px 12px;
     border-radius: 999px;
     font-size: 12px;
-    font-weight: 600;
+    font-weight: 700;
     margin: 6px 0;
-    box-shadow: 0 2px 4px rgba(97, 77, 255, 0.3);
+    box-shadow: 0 4px 16px rgba(97, 77, 255, 0.5);
   }
 
   /* ===== 区块小标题：浅色 ===== */
-  h3, h4, h5 { color: #F8FAFC !important; font-weight: 700 !important; }
+  h3, h4, h5 { color: #FFFFFF !important; font-weight: 700 !important; }
   h3, h4 { letter-spacing: 0.3px; }
   p, li, span, div { color: #CBD5E1; }
-  small, .stCaption, [data-testid="stCaptionContainer"] { color: #64748B !important; }
-  code { background: #172033; color: #D9A441; padding: 1px 6px; border-radius: 4px; }
-  a { color: #B8AEFF !important; }
+  small, .stCaption, [data-testid="stCaptionContainer"] { color: #7C8CA6 !important; }
+  code { background: #111827; color: #F5C563; padding: 1px 6px; border-radius: 4px; }
+  a { color: #C9BFFF !important; }
 
   /* ===== RAG 检索结果卡 ===== */
   .rag-hit {
-    background: #172033;
-    border-left: 3px solid #614DFF;
+    background: #111827;
+    border-left: 3px solid #7C6AFF;
     border-radius: 8px;
     padding: 10px 12px;
     margin: 6px 0;
@@ -413,7 +414,7 @@ CUSTOM_CSS = """
     line-height: 1.7;
   }
   .rag-hit .rag-rank {
-    color: #D9A441;
+    color: #F5C563;
     font-weight: 700;
     margin-right: 8px;
   }
@@ -427,23 +428,40 @@ CUSTOM_CSS = """
 
   /* ===== 图表解读卡 ===== */
   .insight-card {
-    background: rgba(97, 77, 255, 0.08);
-    border: 1px solid rgba(97, 77, 255, 0.25);
-    border-left: 3px solid #D9A441;
+    background: linear-gradient(120deg, rgba(97, 77, 255, 0.16) 0%, rgba(17, 24, 39, 0.6) 100%);
+    border: 1px solid rgba(124, 106, 255, 0.4);
+    border-left: 4px solid #F5C563;
     border-radius: 10px;
     padding: 10px 14px;
     margin: 8px 0 14px 0;
-    color: #CBD5E1;
+    color: #D7E0EE;
     font-size: 13px;
     line-height: 1.75;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
   }
-  .insight-card b { color: #D9A441; }
-  .insight-card .up { color: #E63946; font-weight: 700; }
-  .insight-card .down { color: #22C55E; font-weight: 700; }
-  .insight-card .neutral { color: #94A3B8; }
+  .insight-card b { color: #F5C563; }
+  .insight-card .up { color: #FF5C68; font-weight: 700; }
+  .insight-card .down { color: #35D07F; font-weight: 700; }
+  .insight-card .neutral { color: #A9B7CC; }
 
   /* ===== 分割线 ===== */
-  hr { border: none; border-top: 1px dashed rgba(148, 163, 184, 0.3); }
+  hr { border: none; border-top: 1px dashed rgba(148, 163, 184, 0.28); }
+
+  /* ===== 散点图四象限说明卡 ===== */
+  .quad-note {
+    background: #111827;
+    border: 1px solid rgba(124, 106, 255, 0.28);
+    border-radius: 10px;
+    padding: 10px 14px;
+    margin: 6px 0 12px 0;
+    font-size: 12.5px;
+    line-height: 1.8;
+    color: #CBD5E1;
+  }
+  .quad-note .q-star { color: #FF5C68; font-weight: 700; }
+  .quad-note .q-cash { color: #F5C563; font-weight: 700; }
+  .quad-note .q-quest { color: #C9BFFF; font-weight: 700; }
+  .quad-note .q-dog { color: #A9B7CC; font-weight: 700; }
 </style>
 """
 
@@ -1028,6 +1046,138 @@ def render_horizontal_bar(chart_data: list) -> bytes | None:
                  color=_PAL["title"], fontsize=11, pad=10, fontweight="bold")
     ax.grid(axis="x", linestyle="--", alpha=0.4)
     return _fig_to_png_bytes(fig)
+
+
+# ---- 散点图行业基准线（分数与象限必须「同业对标」，不能全行业一把尺）----
+# 逻辑：银行天然高杠杆、薄利差，ROE 11% 已属优秀；新能源是高增长赛道，
+#      增速基准理应更高。用同一根 15%/10% 的尺子会给银行"误判成瘦狗"。
+_SCATTER_ROE_LINE = 15.0    # 兜底：通用 ROE 优秀线（长期 >15% 优秀）
+_SCATTER_GROW_LINE = 10.0   # 兜底：通用营收增速稳健线（10-20% 稳健）
+
+_INDUSTRY_BASE = {
+    "通用":   (15.0, 10.0),   # 通用制造/多元
+    "消费":   (18.0, 8.0),    # 高端消费 ROE 高、增速稳
+    "金融":   (11.0, 6.0),    # 银行/保险：ROE 11% 已属优秀，增速锚定息差
+    "新能源": (12.0, 20.0),   # 高增长赛道，增速基准上调
+    "医药":   (14.0, 12.0),   # 研发驱动，成长性权重高
+    "互联网": (14.0, 15.0),   # 平台型，增长与回报并重
+}
+
+
+def _industry_base(industry: str) -> tuple:
+    """按行业返回 (ROE 优秀线, 营收增速稳健线)；未收录行业走通用兜底。"""
+    return _INDUSTRY_BASE.get(industry or "通用", (_SCATTER_ROE_LINE, _SCATTER_GROW_LINE))
+
+
+def render_scatter_roe_growth(roe, revenue_yoy, name: str = "本公司",
+                              industry: str = "通用") -> bytes | None:
+    """ROE × 营收增速 四象限定位散点图（明星 / 现金牛 / 问题 / 瘦狗）。
+
+    X 轴 = ROE(%)，Y 轴 = 营收同比(%)。虚线随【行业】调整：
+    银行 ROE 线降到 11%（否则优秀的银行会被误判为瘦狗），
+    新能源增速线升到 20%（否则高增长赛道全成"问题型"）。
+    """
+    try:
+        roe = float(roe)
+        revenue_yoy = float(revenue_yoy)
+    except (TypeError, ValueError):
+        return None
+    roe_line, grow_line = _industry_base(industry)
+
+    fig, ax = plt.subplots(figsize=(5.6, 4.4), facecolor=_PAL["card"])
+    ax.set_facecolor(_PAL["card"])
+
+    x_lo, x_hi = min(0.0, roe) - 5.0, max(30.0, roe) + 6.0
+    y_lo, y_hi = min(-10.0, revenue_yoy) - 8.0, max(40.0, revenue_yoy) + 8.0
+
+    # 四象限底色（淡色块，区分区域）
+    ax.fill_between([roe_line, x_hi], grow_line, y_hi, color=_PAL["up"], alpha=0.07)
+    ax.fill_between([x_lo, roe_line], grow_line, y_hi, color=_PAL["purple"], alpha=0.08)
+    ax.fill_between([roe_line, x_hi], y_lo, grow_line, color=_PAL["gold"], alpha=0.08)
+    ax.fill_between([x_lo, roe_line], y_lo, grow_line, color=_PAL["neutral"], alpha=0.06)
+
+    # 基准线（行业自适应）
+    ax.axvline(roe_line, color=_PAL["neutral"], linestyle="--", linewidth=1.1, alpha=0.85)
+    ax.axhline(grow_line, color=_PAL["neutral"], linestyle="--", linewidth=1.1, alpha=0.85)
+    ax.text(roe_line + 0.4, y_hi - 1.2, f"ROE={roe_line:g}%",
+            color=_PAL["neutral"], fontsize=8, va="top")
+    ax.text(x_lo + 0.6, grow_line + 0.8, f"增速={grow_line:g}%",
+            color=_PAL["neutral"], fontsize=8, ha="left", va="bottom")
+
+    # 象限文字标注
+    xm_r, xm_l = (roe_line + x_hi) / 2, (x_lo + roe_line) / 2
+    ym_t, ym_b = y_hi - (y_hi - grow_line) * 0.32, y_lo + (grow_line - y_lo) * 0.32
+    ax.text(xm_r, ym_t, "明星\n高盈利·高增长", color=_PAL["up"], fontsize=9.5,
+            ha="center", va="center", fontweight="bold", alpha=0.9)
+    ax.text(xm_l, ym_t, "问题\n低盈利·高增长", color="#C9BFFF", fontsize=9.5,
+            ha="center", va="center", fontweight="bold", alpha=0.9)
+    ax.text(xm_r, ym_b, "现金牛\n高盈利·低增长", color=_PAL["gold"], fontsize=9.5,
+            ha="center", va="center", fontweight="bold", alpha=0.9)
+    ax.text(xm_l, ym_b, "瘦狗\n低盈利·低增长", color=_PAL["neutral"], fontsize=9.5,
+            ha="center", va="center", fontweight="bold", alpha=0.9)
+
+    # 本公司点位（金心紫边 + 标注）
+    ax.scatter([roe], [revenue_yoy], s=330, color=_PAL["gold"],
+               edgecolor=_PAL["purple"], linewidth=2.6, zorder=6)
+    ax.annotate(f"{name}\nROE {roe:.1f}% · 增速 {revenue_yoy:+.1f}%",
+                xy=(roe, revenue_yoy), xytext=(10, 12), textcoords="offset points",
+                color=_PAL["title"], fontsize=9.5, fontweight="bold",
+                bbox=dict(boxstyle="round,pad=0.32", fc="#111827", ec=_PAL["purple"], lw=1.0, alpha=0.95))
+
+    ax.set_xlim(x_lo, x_hi)
+    ax.set_ylim(y_lo, y_hi)
+    ax.set_xlabel("ROE 净资产收益率（%）", color=_PAL["text"], fontsize=9.5)
+    ax.set_ylabel("营收同比增速（%）", color=_PAL["text"], fontsize=9.5)
+    ax.tick_params(colors=_PAL["text"], labelsize=8.5)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    for _s in ("left", "bottom"):
+        ax.spines[_s].set_color("#2A3654")
+    ax.grid(linestyle=":", alpha=0.25)
+    ax.set_title(f"ROE × 营收增速 · 象限定位（{industry}基准）", color=_PAL["title"],
+                 fontsize=11.5, pad=10, fontweight="bold")
+    return _fig_to_png_bytes(fig, dpi=150)
+
+
+def build_quadrant_insight(roe, revenue_yoy, name: str = "该公司",
+                           industry: str = "通用") -> str:
+    """四象限定位自动解读（HTML，基准线按行业自适应）。"""
+    try:
+        roe = float(roe)
+        revenue_yoy = float(revenue_yoy)
+    except (TypeError, ValueError):
+        return ""
+    roe_line, grow_line = _industry_base(industry)
+    hi_roe = roe >= roe_line
+    hi_gro = revenue_yoy >= grow_line
+
+    if hi_roe and hi_gro:
+        quad, cls, desc = "明星型（高盈利 · 高增长）", "up", (
+            "盈利与成长双优，处于扩张与回报同向的稀缺区间，通常是市场愿意给予较高估值的形态。"
+        )
+    elif hi_roe and not hi_gro:
+        quad, cls, desc = "现金牛型（高盈利 · 低增长）", "neutral", (
+            "盈利扎实但增长放缓，现金流与分红能力是主要看点，需关注增长瓶颈是否来自行业天花板。"
+        )
+    elif (not hi_roe) and hi_gro:
+        quad, cls, desc = "问题型（低盈利 · 高增长）", "up", (
+            "增长快但资本回报偏低，应排查是否「增收不增利」——高杠杆扩张或低效投入往往会吞噬股东回报。"
+        )
+    else:
+        quad, cls, desc = "瘦狗型（低盈利 · 低增长）", "down", (
+            "盈利与增长双弱，需重点排查主业竞争力、资产质量与是否存在减值风险。"
+        )
+
+    parts = [
+        f"• 定位：<b>{name}</b> 落在 <span class=\"{cls}\">{quad}</span> 象限"
+        f"（ROE <b>{roe:.1f}%</b> vs {industry}优秀线 {roe_line:g}%；"
+        f"营收增速 <b>{revenue_yoy:+.1f}%</b> vs {industry}稳健线 {grow_line:g}%）。",
+        f"• 含义：{desc}",
+        f"• 对标口径：象限基准线随【行业知识库】切换（当前「{industry}」= ROE {roe_line:g}% / 增速 {grow_line:g}%）。"
+        f"银行业天然高杠杆薄利差，因此 ROE 门槛低于消费；新能源属高增长赛道，增速门槛高于传统制造——"
+        f"<b>同业对标才是有效的财务判断</b>。",
+    ]
+    return ('<div class="insight-card">📖 <b>象限解读</b><br>' + "<br>".join(parts) + "</div>")
 
 
 def build_chart_insight(chart_data: list) -> str:
@@ -1706,6 +1856,8 @@ with tab1:
                     analysis["score_reasons"] = sc["reasons"]
                     analysis["score_missing"] = sc["missing"]
                     analysis["score_engine"] = "规则引擎 v1"
+                    # 保存标准化原始指标（供 ROE×营收增速 散点图取数）
+                    analysis["metrics_raw"] = dict(_metrics_for_score or {})
                     analysis["score_source"] = (
                         "在线财务指标（最新报告期）" if st.session_state.get("single_online_code") else "文本抽取"
                     )
@@ -1855,6 +2007,45 @@ with tab1:
                 else:
                     st.info("趋势数据不足（需 ≥2 个年报期）。")
 
+        # ---- 【新增】ROE × 营收增速 四象限定位散点图 ----
+        _mraw = analysis.get("metrics_raw") or {}
+        _roe_v = _mraw.get("roe")
+        _growth_v = _mraw.get("revenue_yoy")
+        if isinstance(_roe_v, (int, float)) and isinstance(_growth_v, (int, float)):
+            st.markdown("##### 🎯 ROE × 营收增速 · 象限定位")
+            _rl, _gl = _industry_base(industry)
+            _q_left, _q_right = st.columns([3, 2])
+            with _q_left:
+                _scat_png = render_scatter_roe_growth(
+                    _roe_v, _growth_v, name=(analysis.get("company") or "本公司"),
+                    industry=industry,
+                )
+                if _scat_png:
+                    st.image(_scat_png, use_container_width=True)
+            with _q_right:
+                st.markdown(
+                    f'<div class="quad-note">'
+                    f'🎯 <b>四象限速览</b>（当前行业「{industry}」基准：ROE {_rl:g}% · 增速 {_gl:g}%）<br>'
+                    f'<span class="q-star">■ 明星</span> ROE≥{_rl:g}% 且 增速≥{_gl:g}%<br>'
+                    f'<span class="q-cash">■ 现金牛</span> ROE≥{_rl:g}% 且 增速&lt;{_gl:g}%<br>'
+                    f'<span class="q-quest">■ 问题</span> ROE&lt;{_rl:g}% 且 增速≥{_gl:g}%<br>'
+                    f'<span class="q-dog">■ 瘦狗</span> ROE&lt;{_rl:g}% 且 增速&lt;{_gl:g}%<br>'
+                    f'<span style="color:#7C8CA6">切换行业知识库按钮，基准线会随之调整。</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+            st.markdown(
+                build_quadrant_insight(_roe_v, _growth_v,
+                                       name=(analysis.get("company") or "该公司"),
+                                       industry=industry),
+                unsafe_allow_html=True,
+            )
+        else:
+            st.caption(
+                "ℹ️ 象限定位图需 ROE 与营收同比两项指标；当前数据不足未绘制"
+                "（完整分析模式下会自动补齐）。"
+            )
+
         colr, colh = st.columns(2)
         with colr:
             risks = analysis.get("risks") or []
@@ -1872,7 +2063,7 @@ with tab1:
         # ---- RAG 检索过程可视化（默认展开，让评委看到按页检索的实锤） ----
         _last_rag = st.session_state.get("rag_hits_last") or []
         if _last_rag:
-            with st.expander(f"📚 RAG 检索过程 · Top-{min(len(_last_rag), 8)} 年报相关章节（按相似度排序，可展开/折叠）", expanded=False):
+            with st.expander(f"📚 RAG 检索过程 · Top-{min(len(_last_rag), 8)} 年报相关章节（按相似度排序，已默认展开）", expanded=True):
                 st.caption("以下片段是分析时从年报全文中按问题检索得到的关键章节，AI 回答的页码引用即源于此。")
                 st.markdown(render_rag_hits_panel(_last_rag), unsafe_allow_html=True)
 
