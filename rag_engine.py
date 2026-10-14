@@ -6,8 +6,9 @@ RAG 引擎 (Plan B)
 设计要点:
 1. 文本切片采用"段落优先"策略: 先按换行聚合出段落, 再把超长段落切成 ~500 字 chunk
 2. Embedding 使用 DashScope text-embedding-v3 (中文效果优于 OpenAI text-3-small)
-3. 持久化目录: ./chroma_store/<code>_<year>_v1/, Streamlit Cloud 重启会被清空,
-   因此在 build_index() 入口加入 "磁盘不存在则重建" 的兜底逻辑
+3. 持久化目录: ./chroma_store/ (Chroma PersistentClient 目录, 内含 chroma.sqlite3
+   与一个 UUID 命名的段目录)。Streamlit Cloud 重启会清空该目录, 此时
+   get_or_create_collection 会天然返回空集合, count 判断即触发重建。
 4. 检索返回 Top-K=6, 附带 source / page / score, 供 LLM 阶段做引用归因
 
 CLI 自检: python rag_engine.py <股票代码>
@@ -65,12 +66,6 @@ def _collection_name(code: str, year: str) -> str:
     safe_code = re.sub(r"[^A-Za-z0-9]", "", code)
     safe_year = re.sub(r"[^0-9]", "", year)
     return f"report_{safe_code}_{safe_year}"
-
-
-def _chroma_dir(code: str, year: str) -> Path:
-    safe_code = re.sub(r"[^A-Za-z0-9]", "", code)
-    safe_year = re.sub(r"[^0-9]", "", year)
-    return CHROMA_ROOT / f"{safe_code}_{safe_year}_v1"
 
 
 # ---------------------------------------------------------------------------
@@ -279,13 +274,13 @@ def _build_index(
     """
     client = _get_chroma_client()
     cname = _collection_name(code, year)
-    # 如果磁盘目录不存在 → 删除老 collection, 重建 (Streamlit Cloud 兜底)
-    if not _chroma_dir(code, year).exists():
-        try:
-            client.delete_collection(cname)
-        except Exception:
-            pass
-
+    # 注意: 不要再用 "磁盘目录是否存在" 判断索引状态 —— Chroma 的
+    # PersistentClient(path=CHROMA_ROOT) 只会在根目录下生成 chroma.sqlite3
+    # 和一个 UUID 命名的段目录, 永远不会生成 <code>_<year>_v1/ 这样的目录,
+    # 所以以前那段 `if not _chroma_dir(...): delete_collection` 实际是
+    # "每次构建前先删库重建"(白白多跑 40-80 秒 Embedding)。
+    # 云端重启后 sqlite 本身消失 → get_or_create 天然返回空集合 →
+    # 下面 existing >= len(norm) 的判断自然会触发重建, 无需手动删。
     coll = client.get_or_create_collection(
         name=cname,
         metadata={"hnsw:space": "cosine", "code": code, "year": year},
@@ -374,9 +369,6 @@ def retrieve(
     try:
         client = _get_chroma_client()
         cname = _collection_name(code, year)
-        if not _chroma_dir(code, year).exists():
-            logger.warning("向量库目录不存在, 请先 build_index")
-            return []
         coll = client.get_collection(cname)
         qvec = _embed_query(query, model=embedding_model)
         res = coll.query(
@@ -404,7 +396,20 @@ def retrieve(
 
 
 def has_index(code: str, year: str) -> bool:
-    return _chroma_dir(code, year).exists()
+    """索引是否可用 —— 直接问 Chroma 集合里有多少条向量。
+
+    历史 bug: 原先用 `_chroma_dir(code, year).exists()`(即
+    ./chroma_store/<code>_<year>_v1/)判断, 但 Chroma 的 PersistentClient
+    只生成 chroma.sqlite3 + UUID 段目录, 从不生成该目录 ⇒ 判断恒为 False
+    ⇒ retrieve() 每次都在入口直接 return [] ⇒ **RAG 检索从未真正生效**
+    (应用照样会显示"向量库已就绪", 因为那只取决于 build 返回的 chunks 数)。
+    """
+    try:
+        client = _get_chroma_client()
+        coll = client.get_collection(_collection_name(code, year))
+        return coll.count() > 0
+    except Exception:
+        return False
 
 
 def format_citations(hits: List[Dict[str, Any]]) -> str:
