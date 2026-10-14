@@ -665,9 +665,6 @@ def build_summary_text(code: str, name: str = "", periods: int = 4) -> str:
             rt = p.get("report_type") or ""
             rt_label = f"（{rt}）" if rt and rt != "年报" else "（年报）"
             lines.append(f"### {p.get('report_name') or p.get('report_date')}{rt_label}")
-
-        for p in fina[:periods]:
-            lines.append(f"### {p.get('report_name') or p.get('report_date')}")
             rows = []
             if p.get("revenue") is not None:
                 rows.append(f"营业收入 {p['revenue']} 亿元" + (f"（同比 {p['revenue_yoy']}%）" if p.get("revenue_yoy") is not None else ""))

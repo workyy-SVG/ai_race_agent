@@ -745,6 +745,9 @@ def validate_analysis(a):
     # -- chart_data 与 metrics 交叉校准：同名金额指标以指标明细为准 --
     # （模型分别提取两处时可能口径不一致，如图表取到中报、明细取到年报，
     #   导致柱状图与明细表对不上；此处强制对齐明细表的数值）
+    # ⚠️ 期别感知：图表项常带「2026中报营业收入」这类期别前缀，而指标明细
+    #    通常是最新一期的「营业收入」。二者报告期不同时数值本来就应该不同，
+    #    绝不能用明细值覆盖历史期数据（否则柱状图每期柱子都变成同一个数）。
     if chart and metrics:
         m_lookup = {}
         for m in metrics:
@@ -756,6 +759,12 @@ def validate_analysis(a):
                 continue  # 只校准金额类，比率(%)不参与
             m_lookup[m["item"].replace(" ", "")] = mv
 
+        _PERIOD_RE = re.compile(r"20\d{2}\s*(?:年报|中报|一季报|三季报|半年报)")
+
+        def _period_of(s: str) -> str:
+            m_ = _PERIOD_RE.search(s)
+            return m_.group(0).replace(" ", "") if m_ else ""
+
         def _match_key(name: str):
             if name in m_lookup:
                 return name
@@ -766,14 +775,20 @@ def validate_analysis(a):
 
         fixed_chart = []
         for c in chart:
-            k = _match_key(c["item"].replace(" ", ""))
+            name = c["item"].replace(" ", "")
+            k = _match_key(name)
             if k is not None:
-                mv = m_lookup[k]
-                if abs(mv - c["value"]) > max(0.5, abs(c["value"]) * 0.05):
-                    issues.append(
-                        f"图表项「{c['item']}」({c['value']}) 与指标明细 ({mv}) 口径不一致，已按明细校准"
-                    )
-                    c = {"item": c["item"], "value": round(mv, 4)}
+                cp, kp = _period_of(name), _period_of(k)
+                if cp == kp:  # 报告期一致才允许用明细值校准
+                    mv = m_lookup[k]
+                    if abs(mv - c["value"]) > max(0.5, abs(c["value"]) * 0.05):
+                        issues.append(
+                            f"图表项「{c['item']}」({c['value']}) 与指标明细 ({mv}) 口径不一致，已按明细校准"
+                        )
+                        c = {"item": c["item"], "value": round(mv, 4)}
+                elif cp != kp and (cp or kp):
+                    # 期别不同（如中报 vs 年报）：数值差异属正常，跳过校准
+                    pass
             fixed_chart.append(c)
         chart = fixed_chart
     out["chart_data"] = chart
@@ -1015,6 +1030,85 @@ def render_score_radar(scores: dict, total: float | None = None) -> bytes | None
                      color=_PAL["title"], fontsize=12, pad=18, fontweight="bold")
     else:
         ax.set_title("四维评分雷达", color=_PAL["title"], fontsize=12, pad=18, fontweight="bold")
+    return _fig_to_png_bytes(fig)
+
+
+def _latest_period_items(chart_data: list) -> list:
+    """从 chart_data 中只挑出最新报告期的条目。
+
+    圆环图表示「同一时点的构成占比」，跨报告期混排（2025年报营收 +
+    2026中报净利润……）在语义上不成立，这里按期别前缀分组后取最新一期。
+    无期别前缀的条目（如「货币资金」）作为兜底整体返回。
+    """
+    pat = re.compile(r"(20\d{2})\s*(年报|中报|半年报|一季报|三季报)")
+    order = {"一季报": 3, "中报": 6, "半年报": 6, "三季报": 9, "年报": 12}
+    best_key, grouped = None, {}
+    plain = []
+    for d in chart_data or []:
+        name = str(d.get("item") or "").replace(" ", "")
+        m = pat.search(name)
+        if not m:
+            plain.append(d)
+            continue
+        key = (int(m.group(1)), order.get(m.group(2), 0))
+        grouped.setdefault(key, []).append(d)
+        if best_key is None or key > best_key:
+            best_key = key
+    if grouped:
+        return grouped[best_key]
+    return plain
+
+
+def render_trend_dual_axis(trend_rows: list) -> bytes | None:
+    """营收 / 归母净利润趋势（双 Y 轴）。
+
+    营收量级常为净利润的 5~30 倍，单轴折线会把净利线压扁成贴地直线，
+    改用左右双轴分别承载两个量级。
+    """
+    rows = []
+    for r in trend_rows or []:
+        rev = r.get("revenue") if isinstance(r.get("revenue"), (int, float)) else None
+        npf = r.get("net_profit") if isinstance(r.get("net_profit"), (int, float)) else None
+        if rev is not None or npf is not None:
+            rows.append((str(r.get("period", "")), rev, npf))
+    if len(rows) < 2:
+        return None
+    labels = [r[0] for r in rows]
+    x = list(range(len(rows)))
+    has_rev = any(r[1] is not None for r in rows)
+    has_np = any(r[2] is not None for r in rows)
+
+    fig, ax1 = plt.subplots(figsize=(5.4, 3.2), facecolor=_PAL["card"])
+    ax1.set_facecolor(_PAL["card"])
+    if has_rev:
+        ax1.plot(x, [r[1] for r in rows], color=_PAL["purple"], marker="o",
+                 linewidth=2, label="营业收入")
+        ax1.set_ylabel("营业收入（亿元）", color=_PAL["purple"], fontsize=9)
+        ax1.tick_params(axis="y", labelcolor=_PAL["purple"])
+    if has_np:
+        ax2 = ax1.twinx() if has_rev else ax1
+        ax2.plot(x, [r[2] for r in rows], color=_PAL["gold"], marker="s",
+                 linewidth=2, linestyle="--", label="归母净利润")
+        if has_rev:
+            ax2.set_ylabel("归母净利润（亿元）", color=_PAL["gold"], fontsize=9)
+            ax2.tick_params(axis="y", labelcolor=_PAL["gold"])
+            ax2.spines["top"].set_visible(False)
+        else:
+            ax1.set_ylabel("归母净利润（亿元）", color=_PAL["gold"], fontsize=9)
+
+    ax1.set_xticks(x)
+    ax1.set_xticklabels(labels, color=_PAL["text"], fontsize=9)
+    ax1.spines["top"].set_visible(False)
+    ax1.grid(axis="y", color="#E2E8F0", linewidth=0.6, alpha=0.8)
+    h1, l1 = ax1.get_legend_handles_labels()
+    if has_rev and has_np:
+        h2, l2 = ax2.get_legend_handles_labels()
+    else:
+        h2, l2 = [], []
+    ax1.legend(h1 + h2, l1 + l2, loc="upper left", frameon=False,
+               labelcolor=_PAL["text"], fontsize=9)
+    ax1.set_title("营收与净利润趋势（双轴）", color=_PAL["title"],
+                  fontsize=12, fontweight="bold", pad=10)
     return _fig_to_png_bytes(fig)
 
 
@@ -1985,8 +2079,10 @@ with tab1:
                 st.info("图表数据不足（缺少可画图的金额类指标）。")
         with right:
             # 圆环图（与柱状图不同视角，看占比与最大项）
+            # 只取最新报告期，避免跨期混排导致"占比"失去意义
             chart_data_right = analysis.get("chart_data") or []
             chart_data_right = [d for d in chart_data_right if isinstance(d.get("value"), (int, float))]
+            chart_data_right = _latest_period_items(chart_data_right)
             if len(chart_data_right) >= 2:
                 st.markdown("##### 🍩 指标占比与分布")
                 _donut_png = render_metric_donut(chart_data_right)
@@ -2030,25 +2126,18 @@ with tab1:
                     _trend_annual = []
             if len(_trend_annual) >= 2:
                 st.caption("数据直接来自财务指标接口的年报记录（REPORT_TYPE=年报）。")
-                tdf = pd.DataFrame(_trend_annual).set_index("period")
-                keep = [c for c in ["revenue", "net_profit"] if c in tdf.columns]
-                if keep:
-                    st.line_chart(
-                        tdf[keep], height=240,
-                        color=["#1E40AF", "#D9A441"],
-                    )
-                    st.markdown(build_trend_insight(_trend_annual), unsafe_allow_html=True)
+                _trend_png = render_trend_dual_axis(_trend_annual)
+                if _trend_png:
+                    show_png(_trend_png, alt="营收与净利润趋势图（双轴）")
+                st.markdown(build_trend_insight(_trend_annual), unsafe_allow_html=True)
             else:
                 # 手动模式：使用 LLM 抽取的 trend
                 trend = analysis.get("trend") or []
                 if len(trend) >= 2:
-                    tdf = pd.DataFrame(trend)
-                    if "period" in tdf.columns:
-                        tdf = tdf.set_index("period")
-                    keep = [c for c in ["revenue", "net_profit"] if c in tdf.columns]
-                    if keep:
-                        st.line_chart(tdf[keep], height=240, color=["#1E40AF", "#D9A441"])
-                        st.markdown(build_trend_insight(trend), unsafe_allow_html=True)
+                    _trend_png = render_trend_dual_axis(trend)
+                    if _trend_png:
+                        show_png(_trend_png, alt="营收与净利润趋势图（双轴）")
+                    st.markdown(build_trend_insight(trend), unsafe_allow_html=True)
                 else:
                     st.info("趋势数据不足（需 ≥2 个年报期）。")
 
