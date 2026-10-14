@@ -189,3 +189,14 @@ eval_results/
 llm_usage.txt
 # 使用日志（运行时生成，不入库）
 usage_log.jsonl
+
+# ==========================================================
+# 【安全】密钥文件绝对不入库
+#   secrets.toml 内含 DEEPSEEK_API_KEY / QWEN_API_KEY 等明文密钥，
+#   一旦 commit 推到公开仓库 = 密钥泄露（会被脚本扫描盗刷额度）。
+#   注意：secrets.toml.example（模板，无真实密钥）应当入库，不受影响。
+# ==========================================================
+.streamlit/secrets.toml
+.streamlit/secrets.toml.bak
+**/secrets.toml
+!**/secrets.toml.example
