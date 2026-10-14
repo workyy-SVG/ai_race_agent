@@ -878,6 +878,8 @@ def validate_analysis(a):
             out["metrics_raw"] = _mraw_clean
     if a.get("score_source"):
         out["score_source"] = str(a["score_source"])[:60]
+    if a.get("score_period"):
+        out["score_period"] = str(a["score_period"])[:40]
 
     return out, issues
 
@@ -1112,7 +1114,49 @@ def render_trend_dual_axis(trend_rows: list) -> bytes | None:
     return _fig_to_png_bytes(fig)
 
 
-def render_metric_donut(chart_data: list) -> bytes | None:
+def _donut_slice(chart_data: list):
+    """圆环图取数：必须是「同一层级、可加总」的一组数，否则占比没有意义。
+
+    返回 (items, title)。优先级：
+      1. 分产品/分业务收入构成（名称含"收入"但不是"营业收入/总收入"），≥2 项
+         —— 例：酱油收入/蚝油收入/调味酱收入，可加总还原为营收
+      2. 最新报告期的同层级条目
+    明确排除：
+      · 整体项（营业收入/总资产/合计…）与它的分项同时出现 → 会重复计入
+      · 利润类（归母净利润/扣非…）与收入类混算 → 不是同一层级的"构成"
+    若凑不出一组同层级的数，返回空，宁可不画也不误导。
+    """
+    items = [d for d in (chart_data or []) if isinstance(d.get("value"), (int, float))]
+    if len(items) < 2:
+        return [], ""
+
+    def _name(d):
+        return str(d.get("item") or "").replace(" ", "")
+
+    def _is_total(n):
+        # 只认「总量」概念，避免把「营业成本」这类同层级科目误判为整体项
+        if n in ("营收", "收入", "合计", "总计"):
+            return True
+        return any(t in n for t in ("营业总收入", "营业收入", "总收入", "总营收"))
+
+    def _is_profit(n):
+        return any(t in n for t in ("净利润", "净利", "利润总额", "毛利", "扣非"))
+
+    # 1) 分产品 / 分业务收入构成
+    parts = [d for d in items if "收入" in _name(d) and not _is_total(_name(d))]
+    if len(parts) >= 2:
+        return parts, "收入构成占比"
+
+    # 2) 剔除整体项与利润项后，取最新报告期
+    rest = [d for d in items if not _is_total(_name(d)) and not _is_profit(_name(d))]
+    if len(rest) >= 2:
+        picked = _latest_period_items(rest)
+        return picked, "指标占比与分布"
+
+    return [], ""
+
+
+def render_metric_donut(chart_data: list, title: str = "关键财务指标占比") -> bytes | None:
     """关键指标圆环图（按指标类型分组：金额 vs 比率）。"""
     rows = [(d.get("item", ""), d.get("value", 0))
             for d in (chart_data or [])
@@ -1142,7 +1186,7 @@ def render_metric_donut(chart_data: list) -> bytes | None:
             color=_PAL["gold"], fontsize=11, fontweight="bold")
     ax.text(0, -0.18, f"{rows[max_idx][1]:,.1f}", ha="center", va="center",
             color=_PAL["title"], fontsize=12, fontweight="bold")
-    ax.set_title("关键财务指标占比", color=_PAL["title"], fontsize=12, pad=10, fontweight="bold")
+    ax.set_title(title, color=_PAL["title"], fontsize=12, pad=10, fontweight="bold")
     # 图例放右侧
     ax.legend(wedges, labels, loc="center left",
               bbox_to_anchor=(1.02, 0.5), frameon=False,
@@ -1327,16 +1371,36 @@ def build_chart_insight(chart_data: list) -> str:
     if not rows:
         return '<div class="insight-card">📊 暂无足够数据可解读。</div>'
     rows_sorted = sorted(rows, key=lambda x: x[1], reverse=True)
-    total = sum(v for _, v in rows_sorted if v > 0)
     max_name, max_val = rows_sorted[0]
     min_name, min_val = rows_sorted[-1]
-    max_share = (max_val / total * 100) if total else 0
-    lines = [
-        f"• <b>{max_name}</b> 数值最高（<b>{max_val:,.2f}</b>），"
-        f"占总指标金额的 <b>{max_share:.1f}%</b>，是该公司当前阶段的核心量级。",
-        f"• <b>{min_name}</b> 数值最低（{min_val:,.2f}），"
-        f"与最高项相差 <b>{max_val - min_val:,.2f}</b>，指标结构呈明显梯度。",
-    ]
+    lines = []
+    # ⚠️ 占比只在「同一层级、可加总」时才成立。
+    #    若图表里既有「营业收入」整体项又有其分项（酱油收入…）+ 利润项，
+    #    直接相加会把整体和部分重复计入，占比失去意义 —— 此时只描述量级，不给占比。
+    _same_level, _lv_title = _donut_slice(
+        [{"item": _n, "value": _v} for _n, _v in rows_sorted]
+    )
+    _share_ok = False
+    if len(_same_level) >= 2:
+        _lv_total = sum(float(d.get("value") or 0) for d in _same_level)
+        if _lv_total > 0 and str(max_name) in [str(d.get("item")) for d in _same_level]:
+            _lv_share = max_val / _lv_total * 100
+            lines.append(
+                f"• <b>{max_name}</b> 数值最高（<b>{max_val:,.2f}</b>），"
+                f"占「{_lv_title}」合计的 <b>{_lv_share:.1f}%</b>，是该公司当前阶段的核心量级。"
+            )
+            _share_ok = True
+    if _share_ok:
+        lines.append(
+            f"• 最低项 <b>{min_name}</b>（{min_val:,.2f}），"
+            f"与最高项相差 <b>{max_val - min_val:,.2f}</b>，金额分布呈明显梯度。"
+        )
+    else:
+        lines.append(
+            f"• <b>{max_name}</b> 数值最高（<b>{max_val:,.2f}</b>）；"
+            f"<b>{min_name}</b> 最低（{min_val:,.2f}），"
+            f"两者相差 <b>{max_val - min_val:,.2f}</b>，指标结构呈明显梯度。"
+        )
     # 中位对比
     if len(rows_sorted) >= 3:
         mid = rows_sorted[len(rows_sorted) // 2]
@@ -1345,10 +1409,11 @@ def build_chart_insight(chart_data: list) -> str:
             f"{len(rows_sorted) // 2 + 1} 位，分布偏度可通过最大/最小比 "
             f"<b>{(max_val / min_val) if min_val else 0:.1f}×</b> 看出。"
         )
-    if len(rows_sorted) >= 2 and total > 0:
+    if not _share_ok:
         lines.append(
-            f"• 本期可量化指标合计 <b>{total:,.2f}</b> 亿元（仅含已提取金额类项），"
-            f"为后续趋势分析提供基线。"
+            "• 说明：本图同时包含整体项（如营业收入）与其构成项/利润项，"
+            "用于比较量级；<b>不同层级的数值不可直接相加</b>，"
+            "占比分析请看右侧圆环图。"
         )
     body = "<br>".join(lines)
     return f'<div class="insight-card">📖 <b>图表解读</b>（自动生成，基于本期数据）<br>{body}</div>'
@@ -1724,7 +1789,7 @@ with st.sidebar:
     else:
         st.caption("🟡 llm_qwen 模块未加载")
     if rag is not None:
-        st.caption("📚 RAG 引擎已加载 · Top-K=6")
+        st.caption("📚 RAG 引擎已加载 · 按页检索 · Top-K=8（分析）/ 6（追问）")
     else:
         st.caption("🟡 rag_engine 模块未加载")
     st.markdown("---")
@@ -1751,15 +1816,30 @@ with st.sidebar:
     )
 
 # ---- 行业知识库：主界面横向按钮（不再藏在侧边栏下拉框里） ----
-# 默认索引：用户手动选过就沿用；否则取在线取数自动识别的行业
+# ⚠️ 关键：st.radio 一旦指定 key，index 参数在第二次渲染起会被忽略，
+#    值完全由 st.session_state[key] 决定。所以「自动匹配行业」不能只靠 index，
+#    必须在渲染前显式写 session_state，否则会一直停留在上一只股票的行业
+#    （例：先分析招商银行选了"金融"，再分析海天味业时仍停在"金融"，
+#      导致评分走银行口径、偿债能力变成"数据不足"）。
 _auto_matched = st.session_state.get("single_auto_industry", "")
-_user_selected = st.session_state.get("industry", "")
-_default_industry = (
-    _user_selected
-    if _user_selected in INDUSTRY_KB
-    else (_auto_matched if _auto_matched in INDUSTRY_KB else "通用")
-)
-_default_idx = list(INDUSTRY_KB.keys()).index(_default_industry)
+_manual_pick = st.session_state.get("industry_manual", "")
+_applied_auto = st.session_state.get("_industry_auto_applied", "")
+
+if _auto_matched and _auto_matched != _applied_auto:
+    # 换公司 → 行业自动跟随（并作废之前的手动选择）
+    st.session_state["industry_widget"] = _auto_matched
+    st.session_state["_industry_auto_applied"] = _auto_matched
+    st.session_state["industry_manual"] = ""
+    _manual_pick = ""
+elif "industry_widget" not in st.session_state:
+    st.session_state["industry_widget"] = (
+        _manual_pick if _manual_pick in INDUSTRY_KB else "通用"
+    )
+
+_default_industry = st.session_state.get("industry_widget", "通用")
+if _default_industry not in INDUSTRY_KB:
+    _default_industry = "通用"
+    st.session_state["industry_widget"] = "通用"
 
 # 如果已经在线取数，标题直接显示公司名称+代码+匹配行业
 _single_name = st.session_state.get("single_online_name", "")
@@ -1772,19 +1852,33 @@ if _single_name and _single_code:
 else:
     st.markdown("##### 📚 行业知识库 —— 请选择待分析公司所属行业（将自动注入该行业的分析框架与经验法则）")
 
+
+def _on_industry_change():
+    """用户手动点击才记录为「手动选择」；自动跟随写入的值不算手动。"""
+    _v = st.session_state.get("industry_widget", "")
+    if _v != st.session_state.get("single_auto_industry"):
+        st.session_state["industry_manual"] = _v
+
+
 industry = st.radio(
     "行业",
     list(INDUSTRY_KB.keys()),
-    index=_default_idx,
+    index=list(INDUSTRY_KB.keys()).index(_default_industry),
     horizontal=True,
     label_visibility="collapsed",
-    key="industry",
+    key="industry_widget",
+    on_change=_on_industry_change,
 )
 # 如果是自动匹配过来的，提示一下
 if _auto_matched and industry == _auto_matched:
     st.caption(f"🤖 已根据在线取数结果自动匹配行业：**{industry}**（如需切换，点击上方按钮即可）")
 else:
     st.caption(f"当前行业：**{industry}** · " + INDUSTRY_KB[industry].splitlines()[0].replace("【", "").replace("】", "·").strip(" -"))
+    if _auto_matched and industry != _auto_matched:
+        st.warning(
+            f"⚠️ 系统识别到的行业是 **{_auto_matched}**，当前却是 **{industry}**，"
+            f"评分基准与散点图基准会按「{industry}」计算，请确认是否选错。"
+        )
 
 def system_prompt_with_kb():
     return BASE_SYSTEM_PROMPT + "\n\n" + INDUSTRY_KB[industry]
@@ -1920,12 +2014,15 @@ with tab1:
                     "{\n"
                     '  "company": "公司名称，未知则填 目标公司",\n'
                     '  "summary": "一句话公司概况",\n'
-                    '  "metrics": [{"item": "指标名", "value": 数值, "unit": "单位", "comment": "一句话解读"}],\n'
-                    '  "chart_data": [{"item": "指标名", "value": 数值}],\n'
+                    '  "metrics": [{"item": "指标名（必须带报告期前缀，如「2025年报营业收入」）", "value": 数值, "unit": "单位", "comment": "一句话解读"}],\n'
+                    '  "chart_data": [{"item": "指标名（带报告期前缀）", "value": 数值}],\n'
                     '  "trend": [{"period": "2021年报", "revenue": 数值, "net_profit": 数值}],\n'
                     '  "risks": ["风险1", "风险2", "风险3"],\n'
                     '  "highlights": ["亮点1", "亮点2"]\n'
                     "}\n"
+                    "⚠️ 口径一致性（最重要）：metrics 与 chart_data 的所有条目**必须取自同一个报告期**，"
+                    "优先使用**最近一个年报**（如「2025年报」。若数据中只有中期报告则用最近一期并明确标注）；"
+                    "**禁止把年报、一季报、中报、三季报的数据混在同一张表或同一张图里**；\n"
                     "要求：metrics 提取 4-8 个关键财务指标；chart_data 最多 6 项且单位统一为亿元，"
                     "用于画柱状图（不要放比率类指标）；\n"
                     "trend 只放**同口径的年报期**数据（单位亿元），数据中没有多年年报则填空数组 []，"
@@ -1954,6 +2051,7 @@ with tab1:
                 # 3) 规则引擎评分（固定阈值 → 同样的数据永远得到同样的分数）
                 if scoring is not None:
                     _metrics_for_score = {}
+                    _score_period = ""
                     _oc = st.session_state.get("single_online_code", "")
                     if _oc:
                         try:
@@ -1961,7 +2059,16 @@ with tab1:
                                 _oc, periods=int(st.session_state.get("single_periods", 4) or 4)
                             )
                             if _fina:
-                                _metrics_for_score = _fina[0]  # 最新报告期的标准化指标
+                                # ⚠️ 口径统一：一律用【最近一个年报】评分。
+                                #    中期报告（一季报/中报/三季报）的金额是年初至今累计值，
+                                #    ROE 也是期间值（海天味业中报 ROE 10.07% vs 年报 19.59%），
+                                #    与年报不可比。混用会让同一页出现两个 ROE，评分也随之失真。
+                                _annual = [r for r in _fina if (r.get("report_type") or "") == "年报"]
+                                _pick = _annual[0] if _annual else _fina[0]
+                                _metrics_for_score = _pick
+                                _score_period = str(_pick.get("report_name") or "")
+                                if not _annual:
+                                    _score_period += "（无年报记录，暂用中期报告口径）"
                         except Exception:
                             _metrics_for_score = {}
                     if not _metrics_for_score:
@@ -1997,8 +2104,10 @@ with tab1:
                     analysis["score_engine"] = "规则引擎 v1"
                     # 保存标准化原始指标（供 ROE×营收增速 散点图取数）
                     analysis["metrics_raw"] = dict(_metrics_for_score or {})
+                    analysis["score_period"] = _score_period
                     analysis["score_source"] = (
-                        "在线财务指标（最新报告期）" if st.session_state.get("single_online_code") else "文本抽取"
+                        f"在线财务指标（{_score_period}）" if _score_period
+                        else ("在线财务指标（最新报告期）" if _oc else "文本抽取")
                     )
 
                 # 4) 严格校验（字段/类型/范围/缺失值），异常项修复或剔除
@@ -2046,6 +2155,20 @@ with tab1:
                 + (f" · 数据来源：{analysis.get('score_source')}" if analysis.get("score_source") else "")
                 + " —— 同样的数据必然得到同样的分数，大模型仅负责解读"
             )
+            _sp = analysis.get("score_period") or ""
+            _mraw_show = analysis.get("metrics_raw") or {}
+            if _sp:
+                _sp_txt = f"🎯 **评分基准期：{_sp}**"
+                if isinstance(_mraw_show.get("roe"), (int, float)):
+                    _sp_txt += f" · ROE(加权) {_mraw_show['roe']:g}%"
+                if isinstance(_mraw_show.get("revenue_yoy"), (int, float)):
+                    _sp_txt += f" · 营收同比 {_mraw_show['revenue_yoy']:g}%"
+                _sp_txt += "（一律采用年报口径：中期报告为年初至今累计值，与年报不可比）"
+                st.markdown(_sp_txt)
+                st.caption(
+                    "ℹ️ 下方「指标明细」表由大模型从原始数据中提取，可能与评分基准期不同；"
+                    "如两者报告期不一致，以标注的报告期为准。"
+                )
             _reasons = analysis.get("score_reasons") or {}
             _missing = analysis.get("score_missing") or []
             if _reasons or _missing:
@@ -2078,16 +2201,20 @@ with tab1:
             else:
                 st.info("图表数据不足（缺少可画图的金额类指标）。")
         with right:
-            # 圆环图（与柱状图不同视角，看占比与最大项）
-            # 只取最新报告期，避免跨期混排导致"占比"失去意义
-            chart_data_right = analysis.get("chart_data") or []
-            chart_data_right = [d for d in chart_data_right if isinstance(d.get("value"), (int, float))]
-            chart_data_right = _latest_period_items(chart_data_right)
+            # 圆环图（看同一层级可加总的一组数的构成占比）
+            # 只取「分产品收入构成」或「最新报告期的同层级条目」，
+            # 避免「整体营收 + 它的分项 + 净利润」混算导致占比失去意义
+            chart_data_right, _donut_title = _donut_slice(analysis.get("chart_data") or [])
             if len(chart_data_right) >= 2:
-                st.markdown("##### 🍩 指标占比与分布")
-                _donut_png = render_metric_donut(chart_data_right)
+                st.markdown(f"##### 🍩 {_donut_title}")
+                _donut_png = render_metric_donut(chart_data_right, title=_donut_title)
                 if _donut_png:
                     show_png(_donut_png, alt="指标占比圆环图")
+                _dn = "、".join(str(d.get("item") or "") for d in chart_data_right)
+                st.caption(f"构成项：{_dn}（同一层级、可加总，占比才有意义）")
+            else:
+                st.caption("ℹ️ 圆环图需要同一层级、可加总的一组数（如各产品收入构成）；"
+                           "当前指标含整体项与分项混排，占比无意义，已隐藏。")
             metrics = analysis.get("metrics") or []
             if metrics:
                 st.markdown("##### 📋 指标明细")
@@ -2181,7 +2308,11 @@ with tab1:
                     _growth_v = round((_l / _p - 1) * 100, 2)
 
         if isinstance(_roe_v, (int, float)) and isinstance(_growth_v, (int, float)):
-            st.markdown("##### 🎯 ROE × 营收增速 · 象限定位")
+            _sp_lbl = analysis.get("score_period") or ""
+            st.markdown(
+                "##### 🎯 ROE × 营收增速 · 象限定位"
+                + (f"（{_sp_lbl}口径）" if _sp_lbl else "")
+            )
             _rl, _gl = _industry_base(industry)
             _q_left, _q_right = st.columns([3, 2])
             with _q_left:

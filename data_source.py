@@ -147,10 +147,26 @@ def _yi(v):
 
 
 def _pct(v):
+    """东财字段里「本身就是百分数」的比率（ROE/资产负债率/毛利率/增速…）。"""
     n = _num(v)
     if n is None:
         return None
     return round(n, 2)
+
+
+def _ratio_pct(v):
+    """东财字段里「小数比率」的比率 → 百分数（×100）。
+
+    ⚠️ 同一张表里并非所有比率字段口径一致：实测（2026-10，多只个股交叉验证）
+      · ROEJQ / ZCFZL / XSMLL / XSJLL / TOTALOPERATEREVETZ … 已是百分数（19.59 / 15.99 / 41.04）
+      · JYXJLYYSR / XJLLB / YSZKYYSR … 是小数比率（0.0758 = 7.58% / 1.24 = 124%）
+    后者若直接当百分数用，会把一家现金流健康的公司算成「现金流失血」，
+    是评分出现严重偏差的根因，必须在此处统一换算。
+    """
+    n = _num(v)
+    if n is None:
+        return None
+    return round(n * 100, 2)
 
 
 def _r(v, nd: int = 2):
@@ -557,10 +573,10 @@ def _normalize_fina_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "debt_ratio": _pct(g("ZCFZL")),
         "current_ratio": _num(g("LD")),
         "quick_ratio": _num(g("SD")),
-        "cash_flow_ratio": _pct(g("XJLLB")),
+        "cash_flow_ratio": _ratio_pct(g("XJLLB")),
         # 经营质量
-        "ar_to_revenue": _pct(g("YSZKYYSR")),
-        "ocf_to_revenue": _pct(g("JYXJLYYSR")),
+        "ar_to_revenue": _ratio_pct(g("YSZKYYSR")),
+        "ocf_to_revenue": _ratio_pct(g("JYXJLYYSR")),
         "asset_turnover_days": _num(g("ZZCZZTS")),
         "inventory_turnover_days": _num(g("CHZZTS")),
         # 银行/保险专用
