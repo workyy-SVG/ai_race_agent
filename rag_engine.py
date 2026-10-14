@@ -157,17 +157,26 @@ def pdf_to_pages(pdf_path: str | Path) -> List[Dict[str, Any]]:
 # ---------------------------------------------------------------------------
 # Embedding
 # ---------------------------------------------------------------------------
-def _embed_batch(texts: List[str], model: str = EMBED_MODEL_DEFAULT) -> List[List[float]]:
+def _embed_batch(
+    texts: List[str],
+    model: str = EMBED_MODEL_DEFAULT,
+    progress_cb=None,
+) -> List[List[float]]:
     """批量 embedding. 注意: DashScope embedding 接口单次最多 10 条
     (超过会报 InternalError.Algo.InvalidParameter: batch size ... not be larger than 10).
-    v2: 6 路并发调用 (ThreadPoolExecutor), 414 chunks 约 40 批串行需 60-90 秒,
-    并发后约 15-25 秒; 返回顺序与输入顺序严格一致.
-    v3: 单批 25 秒超时 (future.result(timeout)), 防接口抽风时无限挂起."""
+    v2: 6 路并发调用, 返回顺序与输入顺序严格一致.
+    v3: 单批 25 秒超时 (future.result(timeout)), 防接口抽风时无限挂起.
+    v4: 8 路并发 + as_completed 进度回调 progress_cb(done, total),
+        40 万字年报 ~1000 chunks=100 批, 6 路约 50-70 秒 -> 8 路约 35-50 秒;
+        配合进度条消除"看似卡死"的观感."""
     if not texts:
         return []
     _ensure_dashscope_key()
     BATCH = 10
     batches = [texts[i:i + BATCH] for i in range(0, len(texts), BATCH)]
+    total = len(batches)
+    if progress_cb:
+        progress_cb(0, total)
 
     def _call_one(batch: List[str]) -> List[List[float]]:
         # 单批 25 秒超时; 注意必须 shutdown(wait=False), 否则 with 块退出
@@ -186,11 +195,20 @@ def _embed_batch(texts: List[str], model: str = EMBED_MODEL_DEFAULT) -> List[Lis
             )
         return [item["embedding"] for item in resp.output["embeddings"]]
 
-    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    # 结果按提交索引归位, 保证返回顺序与输入严格一致; 进度按完成数即时回报
+    results: Dict[int, List[List[float]]] = {}
+    done_cnt = 0
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futmap = {pool.submit(_call_one, b): i for i, b in enumerate(batches)}
+        for fut in as_completed(futmap):
+            results[futmap[fut]] = fut.result()
+            done_cnt += 1
+            if progress_cb:
+                progress_cb(done_cnt, total)
     out: List[List[float]] = []
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        for part in pool.map(_call_one, batches):  # map 保持输入顺序
-            out.extend(part)
+    for i in range(total):
+        out.extend(results[i])
     return out
 
 
@@ -227,6 +245,7 @@ def _build_index(
     year: str,
     texts: List,
     embedding_model: str = EMBED_MODEL_DEFAULT,
+    progress_cb=None,
 ) -> Tuple[chromadb.Collection, int]:
     """构建索引并写入 Chroma, 同时持久化到磁盘.
     texts: List[str] 或 List[{"text", "page"}] (v2 按页切片).
@@ -259,7 +278,7 @@ def _build_index(
         logger.info("索引已存在 (%s 条), 跳过构建", existing)
         return coll, existing
 
-    vectors = _embed_batch([n["text"] for n in norm], model=embedding_model)
+    vectors = _embed_batch([n["text"] for n in norm], model=embedding_model, progress_cb=progress_cb)
     ids = [f"{code}_{year}_{i:04d}" for i in range(len(norm))]
     metadatas = [
         {"code": code, "year": year, "chunk_idx": i, "page": n["page"]}
@@ -280,8 +299,11 @@ def build_index_from_pdf(
     code: str,
     year: str,
     embedding_model: str = EMBED_MODEL_DEFAULT,
+    progress_cb=None,
 ) -> Dict[str, Any]:
     """从 PDF 解析 -> 按页切片 -> 索引.
+
+    progress_cb(done, total): embedding 批次进度回调（可选，供 UI 进度条）。
 
     Returns: {"ok": bool, "chunks": int, "pages": int, "msg": str, "collection": str}
     """
@@ -292,7 +314,7 @@ def build_index_from_pdf(
         chunks = split_chunks_paged(pages)
         if not chunks:
             return {"ok": False, "chunks": 0, "pages": len(pages), "msg": "切片结果为空", "collection": ""}
-        coll, cnt = _build_index(code, year, chunks, embedding_model)
+        coll, cnt = _build_index(code, year, chunks, embedding_model, progress_cb=progress_cb)
         # 【扫描件检测】文本 <50 字的页占比 >30% 时提示（pypdf 读不到图片层文字）
         _low = sum(1 for p in pages if len((p.get("text") or "").strip()) < 50)
         _low_ratio = _low / max(len(pages), 1)

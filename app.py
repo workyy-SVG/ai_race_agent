@@ -506,6 +506,41 @@ def validate_analysis(a):
     chart = chart[:6]
     if isinstance(raw_chart, list) and len(raw_chart) > 0 and not chart:
         issues.append("chart_data 全部非法（非数值），图表已隐藏")
+
+    # -- chart_data 与 metrics 交叉校准：同名金额指标以指标明细为准 --
+    # （模型分别提取两处时可能口径不一致，如图表取到中报、明细取到年报，
+    #   导致柱状图与明细表对不上；此处强制对齐明细表的数值）
+    if chart and metrics:
+        m_lookup = {}
+        for m in metrics:
+            try:
+                mv = float(m["value"])
+            except (TypeError, ValueError):
+                continue
+            if m.get("unit", "") not in ("", "亿元", "亿"):
+                continue  # 只校准金额类，比率(%)不参与
+            m_lookup[m["item"].replace(" ", "")] = mv
+
+        def _match_key(name: str):
+            if name in m_lookup:
+                return name
+            for k in m_lookup:
+                if k and (k in name or name in k):
+                    return k
+            return None
+
+        fixed_chart = []
+        for c in chart:
+            k = _match_key(c["item"].replace(" ", ""))
+            if k is not None:
+                mv = m_lookup[k]
+                if abs(mv - c["value"]) > max(0.5, abs(c["value"]) * 0.05):
+                    issues.append(
+                        f"图表项「{c['item']}」({c['value']}) 与指标明细 ({mv}) 口径不一致，已按明细校准"
+                    )
+                    c = {"item": c["item"], "value": round(mv, 4)}
+            fixed_chart.append(c)
+        chart = fixed_chart
     out["chart_data"] = chart
 
     # -- trend: 数值 + 期别标签，去重 --
@@ -751,8 +786,21 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
                                 ):
                                     import time as _time
                                     _t0 = _time.time()
-                                    with st.spinner("正在构建年报向量索引（6 路并发 Embedding，约 15-25 秒）……"):
-                                        _st = rag.build_index_from_pdf(_pdf_path, code, _yr)
+                                    # 实时进度条：40 万字完整年报约 100+ 批 Embedding，
+                                    # 静态 spinner 会像卡死；逐批回报消除"没反应"的观感
+                                    _pbar = st.progress(
+                                        0.0, text="正在构建年报向量索引（8 路并发 Embedding）……"
+                                    )
+
+                                    def _pcb(done: int, total: int):
+                                        _pbar.progress(
+                                            min(done / max(total, 1), 1.0),
+                                            text=f"正在构建年报向量索引… 批次 {done}/{total}"
+                                                 f"（完整年报约需 30-50 秒，请勿关闭页面）",
+                                        )
+
+                                    _st = rag.build_index_from_pdf(_pdf_path, code, _yr, progress_cb=_pcb)
+                                    _pbar.empty()
                                     log_event(
                                         "rag_build", ok=bool(_st.get("ok")),
                                         dur=_time.time() - _t0,
