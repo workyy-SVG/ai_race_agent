@@ -1061,14 +1061,34 @@ def _latest_period_items(chart_data: list) -> list:
     return plain
 
 
+def _trend_chrono(trend_rows: list) -> list:
+    """把趋势数据按报告期「由早到晚」排序。
+
+    ⚠️ 关键：`build_annual_trend()` 走东财接口是按 REPORT_DATE **倒序** 返回的
+    （2025年报在最前、2021年报在最后）。若直接拿去绘图/解读，会出现三处错误：
+
+      1. X 轴时间倒置 —— 2025 在最左、2021 在最右，与阅读习惯相反；
+      2. 「最新一期同比」实际算的是**最早一期**（rev[-1] vs rev[-2]）；
+      3. 峰值/谷值、复合增速的起点终点颠倒，文案与图形互相矛盾。
+
+    统一在此处升序排序，绘图与文字解读都从这里取数。
+    无法解析出年份的条目保留原相对顺序放在最前。
+    """
+    def _yr(r):
+        m = re.search(r"(20\d{2})", str(r.get("period") or ""))
+        return int(m.group(1)) if m else 0
+
+    return sorted(trend_rows or [], key=_yr)
+
+
 def render_trend_dual_axis(trend_rows: list) -> bytes | None:
     """营收 / 归母净利润趋势（双 Y 轴）。
 
     营收量级常为净利润的 5~30 倍，单轴折线会把净利线压扁成贴地直线，
-    改用左右双轴分别承载两个量级。
+    改用左右双轴分别承载两个量级。X 轴按时间由早到晚排列。
     """
     rows = []
-    for r in trend_rows or []:
+    for r in _trend_chrono(trend_rows):
         rev = r.get("revenue") if isinstance(r.get("revenue"), (int, float)) else None
         npf = r.get("net_profit") if isinstance(r.get("net_profit"), (int, float)) else None
         if rev is not None or npf is not None:
@@ -1112,6 +1132,36 @@ def render_trend_dual_axis(trend_rows: list) -> bytes | None:
     ax1.set_title("营收与净利润趋势（双轴）", color=_PAL["title"],
                   fontsize=12, fontweight="bold", pad=10)
     return _fig_to_png_bytes(fig)
+
+
+def _drop_subtotals(chart_data: list) -> list:
+    """柱状图取数：剔除与「整体项」重复计量的「部分项」。
+
+    模型抽 chart_data 时常常把「营业总收入」和它的构成「主营业务收入」
+    一起塞进同一张柱状图（实测海天味业 288.7 vs 274.0，两根柱子几乎一样高），
+    评审看到会直接判定为数据错误。同一张图里若已存在整体项，
+    则丢弃其典型分项（主营业务收入 / 「其中…」），保留整体口径。
+    仅在剩余条目仍 ≥2 项时才真正丢弃，避免把图削到画不出来。
+    """
+    items = [d for d in (chart_data or []) if isinstance(d.get("value"), (int, float))]
+
+    def _n(d):
+        return str(d.get("item") or "").replace(" ", "")
+
+    _total_marks = ("营业总收入", "总营业收入", "营业收入", "营业总收入")
+    has_total = any(
+        (any(t in _n(d) for t in _total_marks) and "主营业务收入" not in _n(d))
+        for d in items
+    )
+    if not has_total:
+        return items
+    _part_marks = ("主营业务收入", "其中")
+    parts = [d for d in items if any(t in _n(d) for t in _part_marks)]
+    if not parts:
+        return items
+    _part_ids = {id(d) for d in parts}
+    keep = [d for d in items if id(d) not in _part_ids]
+    return keep if len(keep) >= 2 else items
 
 
 def _donut_slice(chart_data: list):
@@ -1410,18 +1460,34 @@ def build_chart_insight(chart_data: list) -> str:
             f"<b>{(max_val / min_val) if min_val else 0:.1f}×</b> 看出。"
         )
     if not _share_ok:
-        lines.append(
-            "• 说明：本图同时包含整体项（如营业收入）与其构成项/利润项，"
-            "用于比较量级；<b>不同层级的数值不可直接相加</b>，"
-            "占比分析请看右侧圆环图。"
-        )
+        # 说明文字要贴合图上真实内容，不能一口咬定「含构成项」——
+        # 图里可能只有「营业收入 + 归母净利润」这类不同科目，并不存在分项。
+        _names_all = [str(_n) for _n, _v in rows_sorted]
+        _has_income = any("收入" in _nm for _nm in _names_all)
+        _has_profit = any(("净利润" in _nm or "利润" in _nm) for _nm in _names_all)
+        if _has_income and _has_profit:
+            _note = (
+                "• 说明：本图混合了<b>收入类</b>（如营业收入）与<b>利润类</b>"
+                "（如归母净利润）科目，仅用于比较量级；"
+                "<b>不同科目的金额不可直接相加</b>，占比分析请看右侧圆环图。"
+            )
+        else:
+            _note = (
+                "• 说明：本图为不同科目的金额量级对比，"
+                "<b>不可直接相加求占比</b>，占比分析请看右侧圆环图。"
+            )
+        lines.append(_note)
     body = "<br>".join(lines)
     return f'<div class="insight-card">📖 <b>图表解读</b>（自动生成，基于本期数据）<br>{body}</div>'
 
 
 def build_trend_insight(trend_rows: list) -> str:
-    """多年趋势自动解读（涨跌/峰值/谷值/累计涨幅）。"""
-    rows = [r for r in (trend_rows or []) if isinstance(r.get("revenue"), (int, float))]
+    """多年趋势自动解读（涨跌/峰值/谷值/累计涨幅）。
+
+    ⚠️ 必须按时间升序解读，否则「最新一期同比」「复合增速」会把最早一期
+    当成最新一期来算（详见 _trend_chrono 的说明）。
+    """
+    rows = [r for r in _trend_chrono(trend_rows) if isinstance(r.get("revenue"), (int, float))]
     if len(rows) < 2:
         return '<div class="insight-card">📈 趋势数据不足（需 ≥2 个年报期）。</div>'
     rev = [float(r["revenue"]) for r in rows]
@@ -1515,12 +1581,12 @@ def render_rag_hits_panel(rag_hits: list) -> str:
             f'<span class="rag-rank">#{i}</span>'
             f'<span class="rag-page">📄 年报第 {page} 页</span>'
             f'&nbsp;|&nbsp;<span class="{sim_cls}">相似度 {sim:.2f}</span>'
-            f'<br><span style="color:#CBD5E1;font-size:12px;line-height:1.6;">{text}</span>'
+            f'<br><span style="color:#334155;font-size:12px;line-height:1.6;">{text}</span>'
             f'</div>'
         )
     return (
-        '<div style="margin: 10px 0 6px 0;color:#D9A441;font-weight:700;font-size:14px;">'
-        '📚 RAG 检索过程（Top-{} 相关章节 · 按相似度排序）</div>'
+        '<div style="margin: 10px 0 6px 0;color:#1E3A8A;font-weight:700;font-size:14px;">'
+        f'📚 RAG 检索过程（Top-{len(rows)} 相关章节 · 按相似度排序）</div>'
         + "".join(rows)
     )
 
@@ -2186,8 +2252,9 @@ with tab1:
 
         left, right = st.columns(2)
         with left:
-            chart_data = analysis.get("chart_data") or []
-            chart_data = [d for d in chart_data if isinstance(d.get("value"), (int, float))]
+            # 剔除与整体项重复计量的分项（如「主营业务收入」vs「营业收入」），
+            # 否则同一张柱状图会出现两根几乎同高的柱子，看起来像数据错误
+            chart_data = _drop_subtotals(analysis.get("chart_data") or [])
             if chart_data:
                 st.markdown("##### 📊 关键财务指标（单位：亿元）")
                 # 横向柱状图（更适合长指标名 + 亮色）
@@ -2330,7 +2397,7 @@ with tab1:
                     f'<span class="q-cash">■ 现金牛</span> ROE≥{_rl:g}% 且 增速&lt;{_gl:g}%<br>'
                     f'<span class="q-quest">■ 问题</span> ROE&lt;{_rl:g}% 且 增速≥{_gl:g}%<br>'
                     f'<span class="q-dog">■ 瘦狗</span> ROE&lt;{_rl:g}% 且 增速&lt;{_gl:g}%<br>'
-                    f'<span style="color:#7C8CA6">切换行业知识库按钮，基准线会随之调整。</span>'
+                    f'<span style="color:#64748B">切换行业知识库按钮，基准线会随之调整。</span>'
                     f'</div>',
                     unsafe_allow_html=True,
                 )

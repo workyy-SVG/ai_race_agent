@@ -169,6 +169,19 @@ def _ratio_pct(v):
     return round(n * 100, 2)
 
 
+def _rn(v, nd: int = 2):
+    """转数值并按 nd 位四舍五入（返回 float，供计算与展示）。
+
+    ⚠️ 东财原始值是完整浮点（如流动比率 3.85488210986），若直接透传，
+    前端会显示一长串脏数（实测海天味业「流动比率 3.85488 倍」出现在
+    评分依据里）。所有非金额数值都必须过这里。
+    """
+    n = _num(v)
+    if n is None:
+        return None
+    return round(n, nd)
+
+
 def _r(v, nd: int = 2):
     """通用四舍五入显示，去尾零。"""
     n = _num(v)
@@ -553,9 +566,9 @@ def _normalize_fina_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "report_date": str(g("REPORT_DATE") or "")[:10],
         "report_type": g("REPORT_TYPE") or "",
         # 每股指标
-        "eps": _num(g("EPSJB")),
-        "bps": _num(g("BPS")),
-        "cps": _num(g("MGJYXJJE")),
+        "eps": _rn(g("EPSJB")),
+        "bps": _rn(g("BPS")),
+        "cps": _rn(g("MGJYXJJE")),
         # 规模（亿元）
         "revenue": _yi(g("TOTALOPERATEREVE")),
         "net_profit": _yi(g("PARENTNETPROFIT")),
@@ -571,23 +584,23 @@ def _normalize_fina_row(row: Dict[str, Any]) -> Dict[str, Any]:
         "net_margin": _pct(g("XSJLL")),
         # 偿债（%）
         "debt_ratio": _pct(g("ZCFZL")),
-        "current_ratio": _num(g("LD")),
-        "quick_ratio": _num(g("SD")),
+        "current_ratio": _rn(g("LD")),
+        "quick_ratio": _rn(g("SD")),
         "cash_flow_ratio": _ratio_pct(g("XJLLB")),
         # 经营质量
         "ar_to_revenue": _ratio_pct(g("YSZKYYSR")),
         "ocf_to_revenue": _ratio_pct(g("JYXJLYYSR")),
-        "asset_turnover_days": _num(g("ZZCZZTS")),
-        "inventory_turnover_days": _num(g("CHZZTS")),
+        "asset_turnover_days": _rn(g("ZZCZZTS"), 1),
+        "inventory_turnover_days": _rn(g("CHZZTS"), 1),
         # 银行/保险专用
-        "npl_amount": _num(g("NON_PERFORMING_LOAN")),
-        "npl_ratio": _num(g("NONPERLOAN")),
-        "nim": _num(g("NET_INTEREST_MARGIN")),
-        "nis": _num(g("NET_INTEREST_SPREAD")),
-        "core_car": _num(g("FIRST_ADEQUACY_RATIO")),
-        "loan_provision_ratio": _num(g("LOAN_PROVISION_RATIO")),
+        "npl_amount": _yi(g("NON_PERFORMING_LOAN")),
+        "npl_ratio": _rn(g("NONPERLOAN")),
+        "nim": _rn(g("NET_INTEREST_MARGIN")),
+        "nis": _rn(g("NET_INTEREST_SPREAD")),
+        "core_car": _rn(g("FIRST_ADEQUACY_RATIO")),
+        "loan_provision_ratio": _rn(g("LOAN_PROVISION_RATIO")),
         "provision_coverage": _provision_coverage(g("LOAN_PROVISION_RATIO"), g("NONPERLOAN")),
-        "liquidity_coverage": _num(g("LIQUIDITY_COVERAGE_RATIO")),
+        "liquidity_coverage": _rn(g("LIQUIDITY_COVERAGE_RATIO")),
         "total_deposits": _yi(g("TOTALDEPOSITS")),
         "gross_loans": _yi(g("GROSSLOANS")),
         "nbv": _yi(g("NBV_LIFE")),
