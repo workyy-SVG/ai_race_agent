@@ -117,33 +117,34 @@ BASE_SYSTEM_PROMPT = """你是一名专业、严谨的金融投研分析师。�
 CUSTOM_CSS = """
 <style>
   /* ==========================================================
-     金融智能投研 Agent · 深色主题 (v2)
-     主背景: #0F172A   卡片: #172033   品牌主色: #614DFF (电光紫)
-     资本金: #D9A441   涨: #E63946   跌: #22C55E
-     文字: #F8FAFC / #CBD5E1 / #64748B
+     金融智能投研 Agent · 亮色冷蓝白主题 (v3)
+     主背景: #EEF2F7   卡片: #FFFFFF   品牌主色: #1E40AF (深蓝)
+     资本金: #D9A441   涨: #DC2626   跌: #16A34A
+     文字: #0B1F3A / #334155 / #64748B
+     侧边栏: #DDE7F2 (比主背景深一档, 制造分区)
      ========================================================== */
 
-  /* ===== 全局背景：深海军蓝（不是纯黑#000）+ 双光斑提升层次 ===== */
+  /* ===== 全局背景：冷蓝灰 + 微弱光斑 ===== */
   .stApp {
     background:
-      radial-gradient(1250px 620px at 10% -10%, rgba(97, 77, 255, 0.22) 0%, rgba(97, 77, 255, 0) 58%),
-      radial-gradient(950px 520px at 94% 2%, rgba(217, 164, 65, 0.13) 0%, rgba(217, 164, 65, 0) 55%),
-      linear-gradient(170deg, #0F172A 0%, #131C30 58%, #0D1424 100%);
+      radial-gradient(1250px 620px at 10% -10%, rgba(30, 64, 175, 0.10) 0%, rgba(30, 64, 175, 0) 58%),
+      radial-gradient(950px 520px at 94% 2%, rgba(217, 164, 65, 0.10) 0%, rgba(217, 164, 65, 0) 55%),
+      linear-gradient(170deg, #EEF2F7 0%, #E5ECF4 58%, #DDE7F2 100%);
     background-attachment: fixed;
   }
   header[data-testid="stHeader"] { background: transparent; }
-  .block-container { padding-top: 1.4rem; color: #CBD5E1; }
+  .block-container { padding-top: 1.4rem; color: #334155; }
 
-  /* ===== 顶栏横幅：深蓝 + 电光紫 + 金色高亮（更艳更强光晕） ===== */
+  /* ===== 顶栏横幅：深蓝渐变 + 金色高光（科技投研感） ===== */
   .hero {
-    background: linear-gradient(120deg, #0A1F44 0%, #27387F 38%, #7C6AFF 100%);
-    border: 1px solid rgba(124, 106, 255, 0.6);
+    background: linear-gradient(120deg, #0B1F3A 0%, #1E3A8A 38%, #1E40AF 100%);
+    border: 1px solid rgba(219, 234, 254, 0.6);
     border-radius: 14px;
     padding: 22px 28px 18px 28px;
     margin-bottom: 14px;
     color: #F8FAFC;
-    box-shadow: 0 10px 38px rgba(97, 77, 255, 0.38),
-                0 0 0 1px rgba(217, 164, 65, 0.18) inset;
+    box-shadow: 0 10px 32px rgba(30, 64, 175, 0.30),
+                0 0 0 1px rgba(217, 164, 65, 0.25) inset;
   }
   .hero h1 {
     color: #F8FAFC;
@@ -151,32 +152,32 @@ CUSTOM_CSS = """
     font-weight: 800;
     margin: 0 0 4px 0;
     letter-spacing: 1px;
-    text-shadow: 0 2px 14px rgba(97, 77, 255, 0.55);
+    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
   }
   .hero h1 .gold { color: #F5C563 !important; font-weight: 800; }
-  .hero h1 .purple { color: #C9BFFF !important; font-weight: 800; }
-  .hero p { color: #D7E0EE; font-size: 14px; margin: 0; }
-  .hero .tagline { color: #9FB0C9; font-size: 12px; margin-top: 6px; }
+  .hero h1 .purple { color: #C9D9FF !important; font-weight: 800; }
+  .hero p { color: #DBEAFE; font-size: 14px; margin: 0; }
+  .hero .tagline { color: #93B5E0; font-size: 12px; margin-top: 6px; }
 
-  /* ===== 通用卡片：主卡片降到 #111827（与 #0F172A 拉开层次） ===== */
+  /* ===== 通用卡片：白底 + 蓝边 ===== */
   div[data-testid="stMetric"] {
-    background: linear-gradient(140deg, #111827 0%, #1A2440 100%);
-    border: 1px solid rgba(124, 106, 255, 0.38);
+    background: linear-gradient(140deg, #FFFFFF 0%, #F8FAFC 100%);
+    border: 1px solid #D6E0EC;
     border-radius: 12px;
     padding: 14px 16px 8px 16px;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5),
-                0 0 22px rgba(97, 77, 255, 0.14);
+    box-shadow: 0 4px 14px rgba(15, 35, 70, 0.06),
+                0 0 0 1px rgba(30, 64, 175, 0.04) inset;
   }
   div[data-testid="stMetric"] label {
-    color: #A9B7CC !important;
+    color: #64748B !important;
     font-weight: 600;
   }
   div[data-testid="stMetric"] div {
-    color: #FFFFFF !important;
+    color: #0B1F3A !important;
     font-weight: 800;
   }
   div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
-    background: linear-gradient(90deg, #FFFFFF 0%, #C9BFFF 100%);
+    background: linear-gradient(90deg, #0B1F3A 0%, #1E40AF 100%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -185,100 +186,100 @@ CUSTOM_CSS = """
 
   /* ===== Expander / 区块卡片化 ===== */
   div[data-testid="stExpander"] {
-    background: #111827;
-    border: 1px solid rgba(124, 106, 255, 0.28);
+    background: #FFFFFF;
+    border: 1px solid #D6E0EC;
     border-radius: 12px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.42);
+    box-shadow: 0 2px 10px rgba(15, 35, 70, 0.05);
     margin-bottom: 4px;
   }
   div[data-testid="stExpander"] details { background: transparent; border: none; }
   div[data-testid="stExpander"] summary {
     font-weight: 700;
-    color: #FFFFFF !important;
+    color: #0B1F3A !important;
     padding: 10px 4px;
   }
-  div[data-testid="stExpander"] summary * { color: #FFFFFF !important; }
-  div[data-testid="stExpander"] summary:hover { color: #C9BFFF !important; }
+  div[data-testid="stExpander"] summary * { color: #0B1F3A !important; }
+  div[data-testid="stExpander"] summary:hover { color: #1E40AF !important; }
 
-  /* ===== 行业选择 radio 药丸化（暗色版 · 更艳） ===== */
+  /* ===== 行业选择 radio 药丸化（亮色版） ===== */
   div[role="radiogroup"] label {
-    background: #111827;
-    border: 1px solid rgba(148, 163, 184, 0.35);
+    background: #FFFFFF;
+    border: 1px solid #D6E0EC;
     border-radius: 999px;
     padding: 5px 12px;
     margin: 3px 2px;
     transition: all .18s ease;
-    color: #CBD5E1 !important;
+    color: #475569 !important;
   }
   div[role="radiogroup"] label:hover {
-    border-color: #7C6AFF;
-    box-shadow: 0 0 12px rgba(124, 106, 255, 0.35);
+    border-color: #1E40AF;
+    box-shadow: 0 0 12px rgba(30, 64, 175, 0.18);
   }
   div[role="radiogroup"] label:has(input:checked) {
-    background: linear-gradient(90deg, #614DFF, #8C7BFF);
-    border-color: #8C7BFF;
-    box-shadow: 0 0 16px rgba(124, 106, 255, 0.55);
+    background: linear-gradient(90deg, #1E40AF, #2563EB);
+    border-color: #1E40AF;
+    box-shadow: 0 0 16px rgba(30, 64, 175, 0.40);
   }
   div[role="radiogroup"] label:has(input:checked) div { color: #F5C563 !important; font-weight: 700; }
 
-  /* ===== 按钮：主按钮电光紫（强光晕） ===== */
+  /* ===== 按钮：主按钮深蓝渐变（强光晕） ===== */
   .stButton > button[kind="primary"] {
-    background: linear-gradient(90deg, #614DFF, #8C7BFF);
+    background: linear-gradient(90deg, #1E40AF, #2563EB);
     color: #FFFFFF;
     border: none;
     border-radius: 8px;
     font-weight: 700;
-    box-shadow: 0 4px 18px rgba(97, 77, 255, 0.5);
+    box-shadow: 0 4px 16px rgba(30, 64, 175, 0.45);
   }
   .stButton > button[kind="primary"]:hover {
-    background: linear-gradient(90deg, #4A37DD, #7C6AFF);
+    background: linear-gradient(90deg, #1E3A8A, #1E40AF);
     color: #F5C563;
-    box-shadow: 0 6px 24px rgba(97, 77, 255, 0.7);
+    box-shadow: 0 6px 22px rgba(30, 64, 175, 0.65);
   }
-  .stButton > button { color: #CBD5E1; }
+  .stButton > button { color: #334155; }
 
-  /* ===== 标签页：暗色 ===== */
+  /* ===== 标签页：亮色 ===== */
   .stTabs [data-baseweb="tab-list"] { gap: 8px; }
   .stTabs [data-baseweb="tab"] {
-    background-color: #111827;
+    background-color: #FFFFFF;
     border-radius: 10px 10px 0 0;
     padding: 8px 20px;
     font-weight: 600;
-    color: #94A3B8;
-    border: 1px solid rgba(124, 106, 255, 0.2);
+    color: #64748B;
+    border: 1px solid #D6E0EC;
   }
   .stTabs [aria-selected="true"] {
-    background: linear-gradient(180deg, #7C6AFF, #4A37DD) !important;
+    background: linear-gradient(180deg, #2563EB, #1E40AF) !important;
     color: #F5C563 !important;
-    border-color: #8C7BFF !important;
-    box-shadow: 0 -2px 18px rgba(97, 77, 255, 0.5);
+    border-color: #1E40AF !important;
+    box-shadow: 0 -2px 16px rgba(30, 64, 175, 0.40);
   }
 
-  /* ===== 侧边栏：深海军蓝 + 金色边条（与主背景区分） ===== */
+  /* ===== 侧边栏：冷蓝灰 + 蓝边条（与主背景区分） ===== */
   section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #0A1F44 0%, #1B2B5E 55%, #0F1B3D 100%);
-    border-right: 2px solid rgba(217, 164, 65, 0.35);
-    box-shadow: 6px 0 26px rgba(0, 0, 0, 0.35);
+    background: linear-gradient(180deg, #DDE7F2 0%, #E8EFF7 55%, #DDE7F2 100%);
+    border-right: 2px solid rgba(30, 64, 175, 0.30);
+    box-shadow: 6px 0 20px rgba(15, 35, 70, 0.06);
   }
-  section[data-testid="stSidebar"] * { color: #CBD5E1 !important; }
+  section[data-testid="stSidebar"] * { color: #1E3A5F !important; }
   section[data-testid="stSidebar"] h3 {
-    border-left: 4px solid #D9A441;
+    border-left: 4px solid #1E40AF;
     padding-left: 8px;
-    color: #F8FAFC !important;
+    color: #0B1F3A !important;
   }
   section[data-testid="stSidebar"] .stButton > button {
-    background: transparent;
-    border: 1px solid rgba(148, 163, 184, 0.4);
-    color: #CBD5E1;
+    background: #FFFFFF;
+    border: 1px solid #D6E0EC;
+    color: #334155;
     border-radius: 8px;
   }
   section[data-testid="stSidebar"] .stButton > button:hover {
-    border-color: #D9A441;
-    color: #D9A441 !important;
+    border-color: #1E40AF;
+    color: #1E40AF !important;
   }
   /* 侧边栏品牌头 */
   .sb-brand {
-    background: linear-gradient(120deg, #1B2B5E 0%, #7C6AFF 100%);
+    background: linear-gradient(120deg, #1E3A8A 0%, #2563EB 100%);
     border: 1px solid rgba(217, 164, 65, 0.65);
     border-radius: 12px;
     padding: 12px 14px;
@@ -286,7 +287,7 @@ CUSTOM_CSS = """
     font-weight: 800;
     font-size: 15.5px;
     letter-spacing: 0.5px;
-    box-shadow: 0 6px 22px rgba(97, 77, 255, 0.5);
+    box-shadow: 0 6px 18px rgba(30, 64, 175, 0.40);
   }
   .sb-brand .sb-sub {
     display: block;
@@ -298,14 +299,14 @@ CUSTOM_CSS = """
   }
   /* 侧边栏内容卡片 */
   .sb-card {
-    background: rgba(124, 106, 255, 0.10);
-    border: 1px solid rgba(124, 106, 255, 0.28);
+    background: rgba(255, 255, 255, 0.7);
+    border: 1px solid #D6E0EC;
     border-radius: 10px;
     padding: 10px 12px;
     margin: 8px 0;
   }
   .sb-card .sb-title, .sb-title {
-    color: #F5C563 !important;
+    color: #1E40AF !important;
     font-weight: 700;
     font-size: 13px;
     margin-bottom: 6px;
@@ -314,26 +315,26 @@ CUSTOM_CSS = """
   .sb-card ol, .sb-card ul {
     margin: 0;
     padding-left: 18px;
-    color: #D7E0EE !important;
+    color: #334155 !important;
     font-size: 12.5px;
     line-height: 1.8;
   }
   .sb-chip {
     display: inline-block;
-    background: rgba(124, 106, 255, 0.22);
-    border: 1px solid rgba(124, 106, 255, 0.55);
-    color: #C9BFFF !important;
+    background: rgba(30, 64, 175, 0.10);
+    border: 1px solid rgba(30, 64, 175, 0.30);
+    color: #1E40AF !important;
     border-radius: 999px;
     padding: 1px 9px;
     font-size: 11px;
     margin: 2px 2px;
     white-space: nowrap;
   }
-  .sb-quota-head { font-size: 12px; margin-bottom: 4px; color: #CBD5E1 !important; }
+  .sb-quota-head { font-size: 12px; margin-bottom: 4px; color: #475569 !important; }
   .sb-quota-head b { color: #D9A441 !important; }
   .sb-quota-bar {
     height: 6px;
-    background: rgba(255, 255, 255, 0.08);
+    background: rgba(15, 35, 70, 0.08);
     border-radius: 999px;
     overflow: hidden;
   }
@@ -341,36 +342,36 @@ CUSTOM_CSS = """
 
   /* ===== 提示条 ===== */
   div[data-testid="stSuccess"] {
-    background-color: rgba(34, 197, 94, 0.12);
-    border-left: 4px solid #22C55E;
-    color: #DCFCE7 !important;
+    background-color: rgba(22, 163, 74, 0.10);
+    border-left: 4px solid #16A34A;
+    color: #14532D !important;
     border-radius: 0 10px 10px 0;
   }
   div[data-testid="stWarning"] {
-    background-color: rgba(217, 164, 65, 0.12);
+    background-color: rgba(217, 164, 65, 0.15);
     border-left: 4px solid #D9A441;
-    color: #FEF3C7 !important;
+    color: #78350F !important;
     border-radius: 0 10px 10px 0;
   }
   div[data-testid="stError"] {
-    background-color: rgba(230, 57, 70, 0.12);
-    border-left: 4px solid #E63946;
-    color: #FEE2E2 !important;
+    background-color: rgba(220, 38, 38, 0.10);
+    border-left: 4px solid #DC2626;
+    color: #7F1D1D !important;
     border-radius: 0 10px 10px 0;
   }
   div[data-testid="stInfo"] {
-    background-color: rgba(97, 77, 255, 0.1);
-    border-left: 4px solid #614DFF;
-    color: #E0E7FF !important;
+    background-color: rgba(30, 64, 175, 0.08);
+    border-left: 4px solid #1E40AF;
+    color: #1E3A8A !important;
     border-radius: 0 10px 10px 0;
   }
 
   /* ===== 表格 (dataframe) ===== */
   .stDataFrame, [data-testid="stDataFrame"] {
-    background: #111827;
+    background: #FFFFFF;
     border-radius: 10px;
-    border: 1px solid rgba(124, 106, 255, 0.28);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    border: 1px solid #D6E0EC;
+    box-shadow: 0 2px 10px rgba(15, 35, 70, 0.05);
   }
 
   /* ===== 页脚 ===== */
@@ -380,89 +381,92 @@ CUSTOM_CSS = """
     font-size: 12px;
     padding: 8px;
   }
-  .footer-note b { color: #F5C563; }
+  .footer-note b { color: #D9A441; }
 
-  /* ===== 双模型徽章 (Plan B) ===== */
+  /* ===== 双模型徽章 ===== */
   .dual-badge {
     display: inline-block;
-    background: linear-gradient(90deg, #614DFF 0%, #C9BFFF 100%);
+    background: linear-gradient(90deg, #1E40AF 0%, #93B5E0 100%);
     color: #FFFFFF !important;
     padding: 4px 12px;
     border-radius: 999px;
     font-size: 12px;
     font-weight: 700;
     margin: 6px 0;
-    box-shadow: 0 4px 16px rgba(97, 77, 255, 0.5);
+    box-shadow: 0 4px 14px rgba(30, 64, 175, 0.40);
   }
 
-  /* ===== 区块小标题：浅色 ===== */
-  h3, h4, h5 { color: #FFFFFF !important; font-weight: 700 !important; }
+  /* ===== 区块小标题：深色 ===== */
+  h3, h4, h5 { color: #0B1F3A !important; font-weight: 700 !important; }
   h3, h4 { letter-spacing: 0.3px; }
-  p, li, span, div { color: #CBD5E1; }
-  small, .stCaption, [data-testid="stCaptionContainer"] { color: #7C8CA6 !important; }
-  code { background: #111827; color: #F5C563; padding: 1px 6px; border-radius: 4px; }
-  a { color: #C9BFFF !important; }
+  p, li, span, div { color: #334155; }
+  small, .stCaption, [data-testid="stCaptionContainer"] { color: #64748B !important; }
+  code { background: #E0E9F5; color: #1E3A8A; padding: 1px 6px; border-radius: 4px; }
+  a { color: #1E40AF !important; }
 
   /* ===== RAG 检索结果卡 ===== */
   .rag-hit {
-    background: #111827;
-    border-left: 3px solid #7C6AFF;
+    background: #FFFFFF;
+    border-left: 3px solid #1E40AF;
+    border-top: 1px solid #D6E0EC;
+    border-right: 1px solid #D6E0EC;
+    border-bottom: 1px solid #D6E0EC;
     border-radius: 8px;
     padding: 10px 12px;
     margin: 6px 0;
-    color: #CBD5E1;
+    color: #334155;
     font-size: 12.5px;
     line-height: 1.7;
   }
   .rag-hit .rag-rank {
-    color: #F5C563;
+    color: #D9A441;
     font-weight: 700;
     margin-right: 8px;
   }
   .rag-hit .rag-page {
-    color: #B8AEFF;
+    color: #1E40AF;
     font-weight: 700;
   }
-  .rag-hit .rag-sim-high { color: #22C55E; font-weight: 700; }
+  .rag-hit .rag-sim-high { color: #16A34A; font-weight: 700; }
   .rag-hit .rag-sim-mid { color: #D9A441; font-weight: 700; }
   .rag-hit .rag-sim-low { color: #94A3B8; font-weight: 700; }
 
   /* ===== 图表解读卡 ===== */
   .insight-card {
-    background: linear-gradient(120deg, rgba(97, 77, 255, 0.16) 0%, rgba(17, 24, 39, 0.6) 100%);
-    border: 1px solid rgba(124, 106, 255, 0.4);
-    border-left: 4px solid #F5C563;
+    background: linear-gradient(120deg, rgba(30, 64, 175, 0.08) 0%, rgba(255, 255, 255, 0.6) 100%);
+    border: 1px solid #D6E0EC;
+    border-left: 4px solid #D9A441;
     border-radius: 10px;
     padding: 10px 14px;
     margin: 8px 0 14px 0;
-    color: #D7E0EE;
+    color: #334155;
     font-size: 13px;
     line-height: 1.75;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    box-shadow: 0 2px 10px rgba(15, 35, 70, 0.05);
   }
-  .insight-card b { color: #F5C563; }
-  .insight-card .up { color: #FF5C68; font-weight: 700; }
-  .insight-card .down { color: #35D07F; font-weight: 700; }
-  .insight-card .neutral { color: #A9B7CC; }
+  .insight-card b { color: #1E3A8A; }
+  .insight-card .up { color: #DC2626; font-weight: 700; }
+  .insight-card .down { color: #16A34A; font-weight: 700; }
+  .insight-card .neutral { color: #64748B; }
 
   /* ===== 分割线 ===== */
-  hr { border: none; border-top: 1px dashed rgba(148, 163, 184, 0.28); }
+  hr { border: none; border-top: 1px dashed rgba(30, 64, 175, 0.20); }
 
   /* ===== 散点图四象限说明卡 ===== */
   .quad-note {
-    background: #111827;
-    border: 1px solid rgba(124, 106, 255, 0.28);
+    background: #FFFFFF;
+    border: 1px solid #D6E0EC;
     border-radius: 10px;
     padding: 10px 14px;
     margin: 6px 0 12px 0;
     font-size: 12.5px;
     line-height: 1.8;
-    color: #CBD5E1;
+    color: #334155;
   }
-  .quad-note .q-star { color: #FF5C68; font-weight: 700; }
-  .quad-note .q-cash { color: #F5C563; font-weight: 700; }
-  .quad-note .q-quest { color: #C9BFFF; font-weight: 700; }
-  .quad-note .q-dog { color: #A9B7CC; font-weight: 700; }
+  .quad-note .q-star { color: #DC2626; font-weight: 700; }
+  .quad-note .q-cash { color: #D9A441; font-weight: 700; }
+  .quad-note .q-quest { color: #1E40AF; font-weight: 700; }
+  .quad-note .q-dog { color: #94A3B8; font-weight: 700; }
 </style>
 """
 
@@ -882,29 +886,30 @@ import matplotlib.pyplot as plt
 import numpy as np
 from io import BytesIO
 
-# 暗色主题色板（与全站一致）
+# 亮色冷蓝白主题色板（与全站一致）
 _PAL = {
-    "purple": "#614DFF",
-    "gold":   "#D9A441",
-    "up":     "#E63946",
-    "down":   "#22C55E",
+    "purple": "#1E40AF",   # 兼容旧引用（v3 起语义为「深蓝」）
+    "blue":   "#1E40AF",   # 品牌主色：深蓝（科技投研感）
+    "gold":   "#D9A441",   # 资本金
+    "up":     "#DC2626",   # 涨
+    "down":   "#16A34A",   # 跌
     "neutral":"#94A3B8",
-    "card":   "#172033",
-    "text":   "#CBD5E1",
-    "title":  "#F8FAFC",
+    "card":   "#FFFFFF",   # matplotlib 卡片底色（亮色版）
+    "text":   "#334155",   # matplotlib 正文色
+    "title":  "#0B1F3A",   # matplotlib 标题色
 }
 
-# matplotlib 暗色全局设置（含中文字体自动探测）
+# matplotlib 亮色全局设置（含中文字体自动探测）
 plt.rcParams.update({
     "figure.facecolor":  _PAL["card"],
     "axes.facecolor":    _PAL["card"],
-    "axes.edgecolor":    "#2A3654",
+    "axes.edgecolor":    "#D6E0EC",   # 浅色边框
     "axes.labelcolor":   _PAL["text"],
     "axes.titlecolor":   _PAL["title"],
     "xtick.color":       _PAL["text"],
     "ytick.color":       _PAL["text"],
     "text.color":        _PAL["text"],
-    "grid.color":        "#2A3654",
+    "grid.color":        "#E2E8F0",   # 浅色网格
     "grid.alpha":        0.6,
     "font.size":         10,
 })
@@ -998,8 +1003,8 @@ def render_score_radar(scores: dict, total: float | None = None) -> bytes | None
     ax.set_yticklabels(["2", "4", "6", "8", "10"], color=_PAL["neutral"], fontsize=8)
     ax.set_xticks(angles)
     ax.set_xticklabels(items, color=_PAL["text"], fontsize=11, fontweight="bold")
-    ax.grid(color="#2A3654", alpha=0.7)
-    ax.spines["polar"].set_color("#2A3654")
+    ax.grid(color="#E2E8F0", alpha=0.7)
+    ax.spines["polar"].set_color("#D6E0EC")
 
     ax.plot(angles_c, vals_c, color=_PAL["purple"], linewidth=2.2, marker="o",
             markersize=7, markerfacecolor=_PAL["gold"], markeredgecolor=_PAL["purple"])
@@ -1073,8 +1078,8 @@ def render_horizontal_bar(chart_data: list) -> bytes | None:
     ax.set_xlabel("数值（亿元）", color=_PAL["neutral"], fontsize=9)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.spines["left"].set_color("#2A3654")
-    ax.spines["bottom"].set_color("#2A3654")
+    ax.spines["left"].set_color("#D6E0EC")
+    ax.spines["bottom"].set_color("#D6E0EC")
     ax.tick_params(axis="y", colors=_PAL["text"], labelsize=10)
     ax.tick_params(axis="x", colors=_PAL["neutral"], labelsize=9)
     for bar, v in zip(bars, vals):
@@ -1149,7 +1154,7 @@ def render_scatter_roe_growth(roe, revenue_yoy, name: str = "本公司",
     ym_t, ym_b = y_hi - (y_hi - grow_line) * 0.32, y_lo + (grow_line - y_lo) * 0.32
     ax.text(xm_r, ym_t, "明星\n高盈利·高增长", color=_PAL["up"], fontsize=9.5,
             ha="center", va="center", fontweight="bold", alpha=0.9)
-    ax.text(xm_l, ym_t, "问题\n低盈利·高增长", color="#C9BFFF", fontsize=9.5,
+    ax.text(xm_l, ym_t, "问题\n低盈利·高增长", color="#1E40AF", fontsize=9.5,
             ha="center", va="center", fontweight="bold", alpha=0.9)
     ax.text(xm_r, ym_b, "现金牛\n高盈利·低增长", color=_PAL["gold"], fontsize=9.5,
             ha="center", va="center", fontweight="bold", alpha=0.9)
@@ -1162,7 +1167,7 @@ def render_scatter_roe_growth(roe, revenue_yoy, name: str = "本公司",
     ax.annotate(f"{name}\nROE {roe:.1f}% · 增速 {revenue_yoy:+.1f}%",
                 xy=(roe, revenue_yoy), xytext=(10, 12), textcoords="offset points",
                 color=_PAL["title"], fontsize=9.5, fontweight="bold",
-                bbox=dict(boxstyle="round,pad=0.32", fc="#111827", ec=_PAL["purple"], lw=1.0, alpha=0.95))
+                bbox=dict(boxstyle="round,pad=0.32", fc="#F1F5F9", ec=_PAL["purple"], lw=1.0, alpha=0.95))
 
     ax.set_xlim(x_lo, x_hi)
     ax.set_ylim(y_lo, y_hi)
@@ -1172,7 +1177,7 @@ def render_scatter_roe_growth(roe, revenue_yoy, name: str = "本公司",
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     for _s in ("left", "bottom"):
-        ax.spines[_s].set_color("#2A3654")
+        ax.spines[_s].set_color("#D6E0EC")
     ax.grid(linestyle=":", alpha=0.25)
     ax.set_title(f"ROE × 营收增速 · 象限定位（{industry}基准）", color=_PAL["title"],
                  fontsize=11.5, pad=10, fontweight="bold")
@@ -1968,7 +1973,7 @@ with tab1:
             chart_data = [d for d in chart_data if isinstance(d.get("value"), (int, float))]
             if chart_data:
                 st.markdown("##### 📊 关键财务指标（单位：亿元）")
-                # 横向柱状图（更适合长指标名 + 暗色）
+                # 横向柱状图（更适合长指标名 + 亮色）
                 _hb_png = render_horizontal_bar(chart_data)
                 if _hb_png:
                     show_png(_hb_png, alt="关键财务指标横向对比图")
@@ -2030,7 +2035,7 @@ with tab1:
                 if keep:
                     st.line_chart(
                         tdf[keep], height=240,
-                        color=["#614DFF", "#D9A441"],
+                        color=["#1E40AF", "#D9A441"],
                     )
                     st.markdown(build_trend_insight(_trend_annual), unsafe_allow_html=True)
             else:
@@ -2042,7 +2047,7 @@ with tab1:
                         tdf = tdf.set_index("period")
                     keep = [c for c in ["revenue", "net_profit"] if c in tdf.columns]
                     if keep:
-                        st.line_chart(tdf[keep], height=240, color=["#614DFF", "#D9A441"])
+                        st.line_chart(tdf[keep], height=240, color=["#1E40AF", "#D9A441"])
                         st.markdown(build_trend_insight(trend), unsafe_allow_html=True)
                 else:
                     st.info("趋势数据不足（需 ≥2 个年报期）。")

@@ -9,23 +9,23 @@ headless = true
 gatherUsageStats = false
 
 # ==========================================================
-# 深色金融主题（与 app.py 内 CUSTOM_CSS 色卡严格对齐）
-#   主背景 #0F172A · 卡片 #111827 · 品牌主色 #614DFF(电光紫)
-#   资本金 #D9A441 · 涨 #E63946 · 跌 #22C55E
-#   文字 #F8FAFC / #CBD5E1 / #64748B
+# 亮色冷蓝白主题（与 app.py 内 CUSTOM_CSS 色卡严格对齐）
+#   主背景 #EEF2F7 · 卡片 #FFFFFF · 品牌主色 #1E40AF(深蓝)
+#   资本金 #D9A441 · 涨 #DC2626 · 跌 #16A34A
+#   文字 #0B1F3A / #334155 / #64748B
 # 说明：theme 是 Streamlit 原生组件的底层变量（radio/input/
-#       dataframe/selectbox 等都会读它）。必须设成深色，
-#       否则自定义 CSS 与原生组件会「半深半浅」互相打架。
+#       dataframe/selectbox 等都会读它）。必须设成亮色，
+#       否则自定义 CSS 与原生组件会「半亮半深」互相打架。
 # ==========================================================
 [theme]
-base = "dark"
-primaryColor = "#614DFF"              # 品牌主色：电光紫（按钮/高亮/AI 标识）
-backgroundColor = "#0F172A"           # 主背景：深海军蓝（非纯黑，护眼）
-secondaryBackgroundColor = "#111827"  # 卡片背景：比主背景亮一档，做出层次
-textColor = "#F8FAFC"                 # 一级文字：纯白
+base = "light"
+primaryColor = "#1E40AF"              # 品牌主色：深蓝（按钮/高亮/AI 标识）
+backgroundColor = "#EEF2F7"           # 主背景：冷蓝灰
+secondaryBackgroundColor = "#FFFFFF"  # 卡片背景：纯白
+textColor = "#0B1F3A"                 # 一级文字：深海军
 font = "sans serif"
 
-# 侧边栏单独加深，与主内容区形成左右分区
+# 侧边栏单独加深（淡蓝灰），与主内容区形成左右分区
 [theme.sidebar]
-backgroundColor = "#0A1F44"
-secondaryBackgroundColor = "#11224A"
+backgroundColor = "#DDE7F2"
+secondaryBackgroundColor = "#E8EFF7"
