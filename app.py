@@ -133,15 +133,16 @@ CUSTOM_CSS = """
   header[data-testid="stHeader"] { background: transparent; }
   .block-container { padding-top: 1.4rem; color: #CBD5E1; }
 
-  /* ===== 顶栏横幅：深蓝 + 电光紫 + 金色高亮 ===== */
+  /* ===== 顶栏横幅：深蓝 + 电光紫 + 金色高亮（更艳更强光晕） ===== */
   .hero {
-    background: linear-gradient(120deg, #0A1F44 0%, #1B2B5E 40%, #614DFF 100%);
-    border: 1px solid rgba(97, 77, 255, 0.4);
+    background: linear-gradient(120deg, #0A1F44 0%, #27387F 38%, #7C6AFF 100%);
+    border: 1px solid rgba(124, 106, 255, 0.6);
     border-radius: 14px;
     padding: 22px 28px 18px 28px;
     margin-bottom: 14px;
     color: #F8FAFC;
-    box-shadow: 0 4px 18px rgba(97, 77, 255, 0.22);
+    box-shadow: 0 10px 38px rgba(97, 77, 255, 0.38),
+                0 0 0 1px rgba(217, 164, 65, 0.18) inset;
   }
   .hero h1 {
     color: #F8FAFC;
@@ -149,97 +150,114 @@ CUSTOM_CSS = """
     font-weight: 800;
     margin: 0 0 4px 0;
     letter-spacing: 1px;
+    text-shadow: 0 2px 14px rgba(97, 77, 255, 0.55);
   }
-  .hero h1 .gold { color: #D9A441 !important; font-weight: 800; }
-  .hero h1 .purple { color: #B8AEFF !important; font-weight: 800; }
-  .hero p { color: #CBD5E1; font-size: 14px; margin: 0; }
-  .hero .tagline { color: #94A3B8; font-size: 12px; margin-top: 6px; }
+  .hero h1 .gold { color: #F5C563 !important; font-weight: 800; }
+  .hero h1 .purple { color: #C9BFFF !important; font-weight: 800; }
+  .hero p { color: #D7E0EE; font-size: 14px; margin: 0; }
+  .hero .tagline { color: #9FB0C9; font-size: 12px; margin-top: 6px; }
 
-  /* ===== 通用卡片：白底 → 深色卡片 ===== */
+  /* ===== 通用卡片：主卡片降到 #111827（与 #0F172A 拉开层次） ===== */
   div[data-testid="stMetric"] {
-    background: linear-gradient(140deg, #172033 0%, #1A2440 100%);
-    border: 1px solid rgba(97, 77, 255, 0.22);
+    background: linear-gradient(140deg, #111827 0%, #1A2440 100%);
+    border: 1px solid rgba(124, 106, 255, 0.38);
     border-radius: 12px;
     padding: 14px 16px 8px 16px;
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5),
+                0 0 22px rgba(97, 77, 255, 0.14);
   }
   div[data-testid="stMetric"] label {
-    color: #94A3B8 !important;
+    color: #A9B7CC !important;
     font-weight: 600;
   }
   div[data-testid="stMetric"] div {
-    color: #F8FAFC !important;
+    color: #FFFFFF !important;
     font-weight: 800;
   }
+  div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
+    background: linear-gradient(90deg, #FFFFFF 0%, #C9BFFF 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  div[data-testid="stMetricDelta"] svg { fill: #D9A441; }
 
   /* ===== Expander / 区块卡片化 ===== */
   div[data-testid="stExpander"] {
-    background: #172033;
-    border: 1px solid rgba(97, 77, 255, 0.18);
+    background: #111827;
+    border: 1px solid rgba(124, 106, 255, 0.28);
     border-radius: 12px;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.42);
     margin-bottom: 4px;
   }
   div[data-testid="stExpander"] details { background: transparent; border: none; }
   div[data-testid="stExpander"] summary {
     font-weight: 700;
-    color: #F8FAFC !important;
+    color: #FFFFFF !important;
     padding: 10px 4px;
   }
-  div[data-testid="stExpander"] summary * { color: #F8FAFC !important; }
+  div[data-testid="stExpander"] summary * { color: #FFFFFF !important; }
+  div[data-testid="stExpander"] summary:hover { color: #C9BFFF !important; }
 
-  /* ===== 行业选择 radio 药丸化（暗色版） ===== */
+  /* ===== 行业选择 radio 药丸化（暗色版 · 更艳） ===== */
   div[role="radiogroup"] label {
-    background: #172033;
-    border: 1px solid rgba(148, 163, 184, 0.3);
+    background: #111827;
+    border: 1px solid rgba(148, 163, 184, 0.35);
     border-radius: 999px;
     padding: 5px 12px;
     margin: 3px 2px;
-    transition: border-color .15s ease, background .15s ease;
+    transition: all .18s ease;
     color: #CBD5E1 !important;
   }
-  div[role="radiogroup"] label:hover { border-color: #614DFF; }
-  div[role="radiogroup"] label:has(input:checked) {
-    background: linear-gradient(90deg, #614DFF, #7B6AFF);
-    border-color: #614DFF;
+  div[role="radiogroup"] label:hover {
+    border-color: #7C6AFF;
+    box-shadow: 0 0 12px rgba(124, 106, 255, 0.35);
   }
-  div[role="radiogroup"] label:has(input:checked) div { color: #D9A441 !important; font-weight: 700; }
+  div[role="radiogroup"] label:has(input:checked) {
+    background: linear-gradient(90deg, #614DFF, #8C7BFF);
+    border-color: #8C7BFF;
+    box-shadow: 0 0 16px rgba(124, 106, 255, 0.55);
+  }
+  div[role="radiogroup"] label:has(input:checked) div { color: #F5C563 !important; font-weight: 700; }
 
-  /* ===== 按钮：主按钮电光紫 ===== */
+  /* ===== 按钮：主按钮电光紫（强光晕） ===== */
   .stButton > button[kind="primary"] {
-    background: linear-gradient(90deg, #614DFF, #7B6AFF);
+    background: linear-gradient(90deg, #614DFF, #8C7BFF);
     color: #FFFFFF;
     border: none;
     border-radius: 8px;
-    font-weight: 600;
-    box-shadow: 0 2px 6px rgba(97, 77, 255, 0.35);
+    font-weight: 700;
+    box-shadow: 0 4px 18px rgba(97, 77, 255, 0.5);
   }
   .stButton > button[kind="primary"]:hover {
-    background: linear-gradient(90deg, #4A37DD, #614DFF);
-    color: #D9A441;
+    background: linear-gradient(90deg, #4A37DD, #7C6AFF);
+    color: #F5C563;
+    box-shadow: 0 6px 24px rgba(97, 77, 255, 0.7);
   }
   .stButton > button { color: #CBD5E1; }
 
   /* ===== 标签页：暗色 ===== */
   .stTabs [data-baseweb="tab-list"] { gap: 8px; }
   .stTabs [data-baseweb="tab"] {
-    background-color: #172033;
+    background-color: #111827;
     border-radius: 10px 10px 0 0;
     padding: 8px 20px;
     font-weight: 600;
     color: #94A3B8;
-    border: 1px solid rgba(97, 77, 255, 0.15);
+    border: 1px solid rgba(124, 106, 255, 0.2);
   }
   .stTabs [aria-selected="true"] {
-    background: linear-gradient(180deg, #614DFF, #4A37DD) !important;
-    color: #D9A441 !important;
-    border-color: #614DFF !important;
+    background: linear-gradient(180deg, #7C6AFF, #4A37DD) !important;
+    color: #F5C563 !important;
+    border-color: #8C7BFF !important;
+    box-shadow: 0 -2px 18px rgba(97, 77, 255, 0.5);
   }
 
   /* ===== 侧边栏：深海军蓝 + 金色边条（与主背景区分） ===== */
   section[data-testid="stSidebar"] {
     background: linear-gradient(180deg, #0A1F44 0%, #1B2B5E 55%, #0F1B3D 100%);
-    border-right: 2px solid rgba(217, 164, 65, 0.25);
+    border-right: 2px solid rgba(217, 164, 65, 0.35);
+    box-shadow: 6px 0 26px rgba(0, 0, 0, 0.35);
   }
   section[data-testid="stSidebar"] * { color: #CBD5E1 !important; }
   section[data-testid="stSidebar"] h3 {
