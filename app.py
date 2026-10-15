@@ -10,7 +10,7 @@
   3. 财务指标柱状图 + 多年趋势图
   4. 一键生成完整研报并支持下载
   5. 双公司横向对比模式（支持在线取数）
-  6. 内置行业知识库（主界面横向按钮选择，分析时自动注入行业框架）
+  6. 内置行业财务基准库（主界面横向按钮选择；为四维评分/散点/象限提供同业对标基准）
   7. 【修】追问对话：上下文实时刷新、可连续多轮提问
 
 密钥说明：所有敏感信息从 Streamlit Secrets / 环境变量读取，代码中不含任何 key。
@@ -61,37 +61,41 @@ APP_PASSWORD = _get_secret("APP_PASSWORD", "zzy2026")
 
 MAX_CHARS = 12000  # 送入大模型的财报文本最大长度（控制费用与时延）
 
-# ============ 行业知识库（内置静态知识，分析时自动注入） ============
+# ============ 行业财务基准库（同业对标参数 · 内置静态知识，分析时自动注入） ============
+# 定位说明：这是「金融引擎的参数层」，不是「多行业内容平台」。
+# 每个行业条目只提供【财务口径】的对标基准 + 风险因子，用于差异化评分与象限判定。
+# ⚠️ 扩展时请守住三条红线：不讲行业业务/技术科普、不输出行业研究报告、
+#    不取消行业基准差异化（一把尺子量所有行业 = 银行 ROE 11% 被误判成瘦狗）。
 INDUSTRY_KB = {
-    "通用": """【行业知识库 · 通用框架】
+    "通用": """【行业财务基准 · 通用框架】
 - 分析重点：盈利能力（毛利率/净利率/ROE）、成长性（营收与净利润增速）、偿债能力（资产负债率/流动比率）、经营质量（经营现金流/净利润比）。
 - 常见风险信号：应收账款增速远超营收、存货异常堆积、有息负债率高、经营现金流持续为负、毛利率异常高于同行。
 - 经验法则：ROE 长期 >15% 属优秀；资产负债率 >70% 需警惕（金融/地产行业除外）；经营现金流/净利润 长期 <0.5 说明利润质量存疑。""",
 
-    "消费": """【行业知识库 · 消费/白酒/食品饮料】
+    "消费": """【行业财务基准 · 消费/白酒/食品饮料】
 - 商业模式核心：品牌溢价决定毛利率（高端白酒毛利率可达 80%+，普通食品约 20-40%）。
 - 关键指标：预收账款/合同负债（反映渠道信心）、存货中的基酒（白酒越陈越值钱，不算减值风险）、大单品占比。
 - 风险信号：渠道压货（应收+存货双高）、提价失灵、消费税政策变化、年轻群体消费习惯迁移。""",
 
-    "金融": """【行业知识库 · 银行/保险/金融】
+    "金融": """【行业财务基准 · 银行/保险/金融】
 - 银行不看毛利率，核心看：净息差（NIM）、不良贷款率、拨备覆盖率、资本充足率、ROA。
 - 经验区间：不良率 <1.5% 较健康；拨备覆盖率 >150% 属审慎；净息差 2% 左右为行业常态。
 - 风险信号：不良率连续上行、房地产/城投敞口过大、核心一级资本充足率逼近监管红线。
 - 保险公司关注：新业务价值(NBV)增速、内涵价值(EV)、综合成本率（财险 <100% 才盈利）。""",
 
-    "新能源": """【行业知识库 · 新能源/制造业】
+    "新能源": """【行业财务基准 · 新能源/制造业】
 - 商业模式核心：技术迭代快、重资产、周期性强（产能扩张→价格战→出清）。
 - 关键指标：产能利用率、单位成本下降曲线、在手订单、资本开支/折旧比、市占率变化。
 - 风险信号：产品价格年降幅 >15%、应收账款回款期拉长、扩产周期撞上行业价格战、技术路线切换（如固态电池替代液态）。
 - 光伏/锂电特别关注：硅料/碳酸锂价格周期、欧美贸易政策。""",
 
-    "医药": """【行业知识库 · 医药生物】
+    "医药": """【行业财务基准 · 医药生物】
 - 商业模式核心：研发管线决定长期价值，销售能力决定当期业绩。
 - 关键指标：研发费用率（创新药企 15-30%）、核心产品收入占比、集采风险敞口、在研管线进度（I/II/III期）。
 - 风险信号：单一产品收入占比 >80%、核心品种纳入集采、研发管线多年无进展、销售费用率畸高（合规风险）。
 - 经验法则：创新药看管线估值，仿制药看成本与规模，器械看渠道与集采。""",
 
-    "互联网": """【行业知识库 · 互联网/科技】
+    "互联网": """【行业财务基准 · 互联网/科技】
 - 商业模式核心：网络效应与规模经济，用户数据是核心资产。
 - 关键指标：MAU/DAU 增长与留存、ARPU（单用户价值）、获客成本(CAC)/用户终身价值(LTV)比、云业务增速与利润率。
 - 风险信号：用户增长停滞但获客成本飙升、监管反垄断处罚、数据合规风险、研发资本化比例异常。
@@ -111,7 +115,9 @@ BASE_SYSTEM_PROMPT = """你是一名专业、严谨的金融投研分析师。�
 - 所有数字必须引用用户提供的数据，禁止凭空编造。
 - 数据不足时明确写出"缺少XX数据，无法判断"。
 - 语言专业但通俗易懂，使用 markdown 小标题组织内容。
-- 结合下方行业知识库中的经验法则进行分析。"""
+- 结合下方【行业财务基准】中的同业对标基准、关键指标与风险信号展开分析；
+  注意不同行业的合理区间本就不同（例如银行业 ROE 11% 已属优秀，白酒业 ROE 11% 则明显落后），
+  切勿用同一把尺子衡量所有行业。"""
 
 # ============ 全局样式（金融主题：深藏青 + 金色） ============
 CUSTOM_CSS = """
@@ -490,6 +496,25 @@ CUSTOM_CSS = """
   .quad-note .q-cash { color: #D9A441; font-weight: 700; }
   .quad-note .q-quest { color: #1E40AF; font-weight: 700; }
   .quad-note .q-dog { color: #94A3B8; font-weight: 700; }
+
+  /* ===== 同业对标基准条（行业选择器下方） =====
+     说明: 只用类选择器, 不用通配符 + !important
+     (通配符特异性 (0,1,1) 会压掉组件自身配色, 见 MEMORY 设计约定 16) */
+  .base-bar {
+    background: #FFFFFF;
+    border: 1px solid #BFDBFE;
+    border-left: 3px solid #1E40AF;
+    border-radius: 8px;
+    padding: 9px 14px;
+    margin: 4px 0 12px 0;
+    font-size: 13px;
+    line-height: 1.75;
+    color: #1E3A8A;
+    text-align: left;
+  }
+  .base-bar b { color: #1E40AF; }
+  .base-bar .bb-num { color: #B45309; font-weight: 700; }
+  .base-bar .bb-note { color: #64748B; }
 </style>
 """
 
@@ -513,7 +538,7 @@ def check_login():
         """
         <div class="hero" style="text-align:center; max-width:560px; margin:40px auto 10px auto;">
             <h1 style="color:#F8FAFC !important;font-size:30px;font-weight:800;margin:0 0 4px 0;letter-spacing:1px;">📈 金融智能投研 <span class="gold" style="color:#F5C563 !important;">Agent</span></h1>
-            <p style="color:#DBEAFE !important;font-size:14px;margin:0;">AI 驱动的财报深度分析 · 结构化评分 · 双公司对比 · 行业知识库</p>
+            <p style="color:#DBEAFE !important;font-size:14px;margin:0;">AI 驱动的财报深度分析 · 结构化评分 · 双公司对比 · 同业对标基准</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1429,7 +1454,7 @@ def build_quadrant_insight(roe, revenue_yoy, name: str = "该公司",
         f"（ROE <b>{roe:.1f}%</b> vs {industry}优秀线 {roe_line:g}%；"
         f"营收增速 <b>{revenue_yoy:+.1f}%</b> vs {industry}稳健线 {grow_line:g}%）。",
         f"• 含义：{desc}",
-        f"• 对标口径：象限基准线随【行业知识库】切换（当前「{industry}」= ROE {roe_line:g}% / 增速 {grow_line:g}%）。"
+        f"• 对标口径：象限基准线随【行业财务基准库】切换（当前「{industry}」= ROE {roe_line:g}% / 增速 {grow_line:g}%）。"
         f"银行业天然高杠杆薄利差，因此 ROE 门槛低于消费；新能源属高增长赛道，增速门槛高于传统制造——"
         f"<b>同业对标才是有效的财务判断</b>。",
     ]
@@ -1708,7 +1733,7 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
                     st.session_state[f"{key_prefix}_online_name"] = name
                     st.session_state[f"{key_prefix}_online_code"] = code
                     st.session_state[f"{key_prefix}_online_org"] = hits[0].get("orgId", "")
-                    # 自动匹配行业知识库（不再直接修改已渲染的 industry radio，
+                    # 自动匹配行业财务基准库（不再直接修改已渲染的 industry radio，
                     # 而是保存到 session_state 由顶部 radio 在下一轮渲染时读取）
                     gi = ds.guess_industry(name)
                     if gi:
@@ -1823,7 +1848,7 @@ st.markdown(
     <div class="hero">
         <h1 style="color:#F8FAFC !important;font-size:30px;font-weight:800;margin:0 0 4px 0;letter-spacing:1px;">📈 金融智能投研 <span class="gold" style="color:#F5C563 !important;">Agent</span></h1>
         <p style="color:#DBEAFE !important;font-size:14px;margin:0;">输入股票代码即可自动取数，一键完成结构化分析、四维评分、趋势图表与研报生成</p>
-        <p class="tagline" style="color:#A9C6E8 !important;font-size:12px;margin-top:6px;">在线取数（巨潮+东财）· 年报 PDF 解析 · 双公司对比 · 六大行业知识库 · 多轮追问</p>
+        <p class="tagline" style="color:#A9C6E8 !important;font-size:12px;margin-top:6px;">在线取数（巨潮+东财）· 年报 PDF 解析 · 双公司对比 · 六大行业财务基准库 · 多轮追问</p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -1841,7 +1866,7 @@ with st.sidebar:
     st.markdown(
         '<div class="sb-card"><div class="sb-title">🧭 快速上手</div>'
         "<ol>"
-        "<li>选择行业知识库</li>"
+        "<li>选择行业财务基准（同业对标）</li>"
         "<li>输入股票代码（如 600519）</li>"
         "<li>点「🔍 获取数据」自动取数</li>"
         "<li>点「🚀 开始结构化分析」</li>"
@@ -1904,7 +1929,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-# ---- 行业知识库：主界面横向按钮（不再藏在侧边栏下拉框里） ----
+# ---- 行业财务基准库：主界面横向按钮（不再藏在侧边栏下拉框里） ----
 # ⚠️ 关键：st.radio 一旦指定 key，index 参数在第二次渲染起会被忽略，
 #    值完全由 st.session_state[key] 决定。所以「自动匹配行业」不能只靠 index，
 #    必须在渲染前显式写 session_state，否则会一直停留在上一只股票的行业
@@ -1935,11 +1960,11 @@ _single_name = st.session_state.get("single_online_name", "")
 _single_code = st.session_state.get("single_online_code", "")
 if _single_name and _single_code:
     st.markdown(
-        f"##### 📚 行业知识库 —— 当前分析对象：**{_single_name}（{_single_code}）** → **{_default_industry}**\n"
-        f"*将自动注入该行业的分析框架与经验法则*"
+        f"##### 📚 行业财务基准库（同业对标） —— 当前分析对象：**{_single_name}（{_single_code}）** → **{_default_industry}**\n"
+        f"*将按该行业基准做差异化评分与象限判定，基准条见下方*"
     )
 else:
-    st.markdown("##### 📚 行业知识库 —— 请选择待分析公司所属行业（将自动注入该行业的分析框架与经验法则）")
+    st.markdown("##### 📚 行业财务基准库（同业对标） —— 请选择待分析公司所属行业（将按该行业基准做差异化评分）")
 
 
 def _on_industry_change():
@@ -1962,12 +1987,28 @@ industry = st.radio(
 if _auto_matched and industry == _auto_matched:
     st.caption(f"🤖 已根据在线取数结果自动匹配行业：**{industry}**（如需切换，点击上方按钮即可）")
 else:
-    st.caption(f"当前行业：**{industry}** · " + INDUSTRY_KB[industry].splitlines()[0].replace("【", "").replace("】", "·").strip(" -"))
+    # 行业细分范围由下方「同业对标基准条」呈现，这里只报当前行业，避免文案重复
+    st.caption(f"当前行业：**{industry}**")
     if _auto_matched and industry != _auto_matched:
         st.warning(
             f"⚠️ 系统识别到的行业是 **{_auto_matched}**，当前却是 **{industry}**，"
             f"评分基准与散点图基准会按「{industry}」计算，请确认是否选错。"
         )
+
+# ---- 同业对标基准条：把「对标」这个动作直接摆到用户面前 ----
+# 同一组财务数据只有在对标了行业基准后才具备可比性（银行 ROE 11% 已属优秀，
+# 白酒 ROE 11% 则严重落后）——「同业对标」是金融分析的规定动作，必须显式标注。
+_base_roe, _base_grow = _industry_base(industry)
+st.markdown(
+    f'<div class="base-bar">'
+    f'📐 <b>同业对标基准（{industry}）</b>'
+    f'· ROE 优秀线 <span class="bb-num">{_base_roe:g}%</span>'
+    f'· 营收增速稳健线 <span class="bb-num">{_base_grow:g}%</span>'
+    f'<br><span class="bb-note">四维评分、四象限定位与散点基准线均按该行业口径计算；'
+    f'切换行业按钮，全部基准随之调整。</span>'
+    f'</div>',
+    unsafe_allow_html=True,
+)
 
 def system_prompt_with_kb():
     return BASE_SYSTEM_PROMPT + "\n\n" + INDUSTRY_KB[industry]
@@ -2420,7 +2461,7 @@ with tab1:
                     f'<span class="q-cash">■ 现金牛</span> ROE≥{_rl:g}% 且 增速&lt;{_gl:g}%<br>'
                     f'<span class="q-quest">■ 问题</span> ROE&lt;{_rl:g}% 且 增速≥{_gl:g}%<br>'
                     f'<span class="q-dog">■ 瘦狗</span> ROE&lt;{_rl:g}% 且 增速&lt;{_gl:g}%<br>'
-                    f'<span style="color:#64748B">切换行业知识库按钮，基准线会随之调整。</span>'
+                    f'<span style="color:#64748B">切换行业财务基准库按钮，基准线会随之调整。</span>'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
@@ -2770,11 +2811,17 @@ with tab3:
 | ⚖️ 双公司对比 | 「双公司对比」页 | 两家公司在线取数或手动输入，生成对比表与综合结论 |
 | 📝 研报导出 | 各页的下载按钮 | 分析结果可保存为 Markdown 报告（双模型润色） |
 
-**行业知识库：**
-页面顶部横向按钮可选择行业（通用、消费、金融、新能源、医药、互联网）。
-系统会自动将该行业的分析框架、关键指标、经验法则与风险信号注入分析过程，
-使结论更贴合行业特性，而不是泛泛而谈。银行/保险等特殊行业已内置专用指标
-（不良贷款率、拨备覆盖率、净息差、资本充足率等）。
+**行业财务基准库（同业对标）：**
+本引擎是**面向全行业上市公司的通用财务投研引擎**。页面顶部横向按钮可选择行业
+（通用、消费、金融、新能源、医药、互联网），每个行业对应一套**财务口径**的同业对标基准
+（ROE 优秀线 / 营收增速稳健线），四维评分、四象限定位与散点基准线全部按当前行业口径计算。
+
+之所以必须做行业对标：银行天然高杠杆、薄利差，ROE 11% 已属优秀；而白酒业 ROE 11% 则严重落后。
+若用同一把尺子衡量所有行业，银行会被误判为「瘦狗」、新能源会被误判为「问题型」——
+**同业对标才是有效的财务判断**。
+
+页面会实时显示当前基准（如「金融 = ROE 11% / 增速 6%」）。银行/保险等特殊行业另内置专用指标
+（不良贷款率、拨备覆盖率、核心一级资本充足率等），自动切换为金融专用评分口径。
 
 **数据来源：**
 - 财务数据与行情：东方财富公开接口

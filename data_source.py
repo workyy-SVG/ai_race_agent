@@ -632,7 +632,7 @@ _INDUSTRY_KEYWORDS = [
 
 
 def guess_industry(name: str) -> Optional[str]:
-    """按公司名称猜测行业知识库分类，无法判断返回 None。"""
+    """按公司名称猜测所属行业（用于匹配行业财务基准库），无法判断返回 None。"""
     if not name:
         return None
     for industry, kws in _INDUSTRY_KEYWORDS:
