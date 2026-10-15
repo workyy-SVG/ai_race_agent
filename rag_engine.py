@@ -116,18 +116,29 @@ def _split_paragraphs(text: str) -> List[str]:
     ⚠️ 原实现「长度 <20 全部丢弃」会把年报表格整段吃掉：
     财报里的关键行恰恰是短行 —— 「营业收入 100.5 亿元」「资产负债率 42.3%」
     「归母净利润 -3.2 亿元」。这些行被过滤后，检索再准也检索不到答案。
+
+    v2: 短且含数字的行保留；同时把紧邻在前的短标签行一起带上，
+        避免出现"只留下 100亿元，却不知道是哪一项的 100亿元"。
     """
     raw = re.split(r"\n\s*\n", text)
-    cleaned = []
+    cleaned: List[str] = []
+    pending: Optional[str] = None  # 暂存的"短且无数字"候选标签行（如「营业收入」）
     for p in raw:
         p = p.strip()
         if not p:
             continue
         if len(p) >= 20:
             cleaned.append(p)
+            pending = None  # 长段落自己完整，不需要标签补位
         elif len(p) >= 4 and re.search(r"\d", p):
-            # 短但含数字 → 大概率是表格行/指标行，保留
+            if pending:  # 先把上一行的标签补回来，再放数值行
+                cleaned.append(pending)
+                pending = None
             cleaned.append(p)
+        elif 2 <= len(p) < 20:
+            # 短且无数字：可能是下一行的标签，暂存；若下一段不是数值行则丢弃
+            pending = p
+        # 其余（<2 字）视为碎屑直接丢
     return cleaned
 
 

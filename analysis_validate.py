@@ -342,7 +342,7 @@ def verify_evidence(
                 " ".join(str(x) for x in (analysis.get("risks") or [])),
                 " ".join(str(x) for x in (analysis.get("highlights") or [])),
             ])
-            for _pg in {int(x) for x in re.findall(r"第\s*(\d{1,4})\s*页", _blob)}:
+            for _pg in {int(x) for x in re.findall(r"第\s*(\d{1,6})\s*页", _blob)}:
                 if _pg < _lo or _pg > _hi:
                     issues.append(
                         f"正文引用了「第 {_pg} 页」，超出年报实际页数范围（{_lo}-{_hi}），引用不可核验"

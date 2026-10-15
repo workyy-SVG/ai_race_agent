@@ -23,12 +23,15 @@ from __future__ import annotations
 
 import time
 import json
+import logging
 from typing import Any, Dict, List, Optional
 
 try:
     import requests
 except ImportError:  # pragma: no cover
     requests = None  # type: ignore
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -39,6 +42,16 @@ _UA = (
     "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 )
 _TIMEOUT = 20
+
+# 传输安全标记：本次进程内真正发生过 https → http 降级的 URL（评审 7.3 第 1 条）。
+# 降级只是"HTTPS 被网络阻断"时的兜底，正常不应触发；一旦触发就在页面上说明，
+# 避免"数据其实走了明文连接却无人知晓"。
+_INSECURE_FALLBACKS: List[str] = []
+
+
+def insecure_fallbacks() -> List[str]:
+    """返回本次运行内发生过明文降级的接口 URL（供 UI 提示数据来源完整性）。"""
+    return list(_INSECURE_FALLBACKS)
 
 CNINFO_SEARCH = "http://www.cninfo.com.cn/new/information/topSearch/query"
 CNINFO_ANNOUNCE = "http://www.cninfo.com.cn/new/hisAnnouncement/query"
@@ -89,15 +102,27 @@ def _sess():
 
 
 def _get(url: str, params=None, referer="https://data.eastmoney.com/", tries: int = 2):
-    """GET，带重试与 http/https 自动降级。失败返回 None。"""
+    """GET，带重试与 http/https 自动降级。失败返回 None。
+
+    ⚠️ 传输安全（评审 7.3 第 1 条）：https → http 降级会削弱传输安全，
+       因此这里把它从"静默行为"改成"可观测行为"：
+         · 每次都先试 https，只有 https 失败才试 http（降级是最后手段）；
+         · 一旦真的发生降级，记录到 _INSECURE_FALLBACKS 并写 warning 日志，
+           页面/日志据此可以说明"本次数据来自降级连接"。
+       注：巨潮 cninfo 的公开接口本身是 http-only，不属于"降级"。
+    """
     if requests is None:
         return None
-    alt = url.replace("https://", "http://") if url.startswith("https://") else None
+    alt = url.replace("https://", "http://", 1) if url.startswith("https://") else None
     for attempt in range(tries):
         for u in ([url] if not alt else [url, alt]):
             try:
                 r = _sess().get(u, params=params, headers=_headers(referer), timeout=_TIMEOUT)
                 if r.status_code == 200 and r.text.strip():
+                    if alt and u == alt:
+                        if url not in _INSECURE_FALLBACKS:
+                            _INSECURE_FALLBACKS.append(url)
+                        logger.warning("数据接口发生 http 降级（明文连接）: %s", url)
                     return r
             except Exception:
                 continue

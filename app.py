@@ -1671,6 +1671,16 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
         if auto_ind:
             tip += f" · 建议行业：**{auto_ind}**"
         st.success(tip)
+        # 数据来源完整性：若发生过 https→http 降级，如实说明（评审 7.3）
+        try:
+            _insec = ds.insecure_fallbacks()
+        except Exception:
+            _insec = []
+        if _insec:
+            st.caption(
+                f"⚠️ 本次取数中有 {len(_insec)} 个接口由 HTTPS 降级为 HTTP（明文连接），"
+                "数据来自公开接口，仅供参考；如长期出现请检查网络是否拦截了 HTTPS。"
+            )
         with st.expander("查看获取到的原始数据", expanded=False):
             st.markdown(text)
 
