@@ -248,7 +248,11 @@ if _ind is not None:
 print("=== P1-05 / P1-06 统一业务流程与证据卡 ===")
 _check("app.py 调用 pipeline.analyze_core（页面与评测同一条链路）",
        "_pipeline.analyze_core(" in SRC)
-_check("app.py 引入 pipeline 模块", "import pipeline as _pipeline" in SRC)
+_check("app.py 以健壮方式引入 pipeline（三级加载：常规 import → 绝对路径 → 兜底）",
+       "def _load_pipeline()" in SRC and "_load_pipeline()" in SRC)
+_check("app.py 不再静默吞掉 pipeline 的加载异常（防回归）",
+       "except ImportError:\n    _pipeline = None" not in SRC
+       and "_PIPELINE_ERROR" in SRC)
 _check("app.py 渲染证据卡（正向定位页码/原文）", "证据卡" in SRC)
 _check("app.py 有年度时间轴区块", "render_year_timeline(" in SRC)
 _check("app.py 有 N 公司对比图函数调用", "fig_compare_group_n(" in SRC)

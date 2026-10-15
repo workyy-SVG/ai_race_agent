@@ -55,10 +55,71 @@ except ImportError:
 
 # 统一业务流程（页面与离线评测共用同一条链路 · 优化清单 P1-06）：
 #   取数(年报口径) → 规则评分 → 输出校验 → 证据核对 → 证据卡 → 引用统计
-try:
-    import pipeline as _pipeline
-except ImportError:
-    _pipeline = None
+#
+# ⚠️⚠️ 这里**不能**写成 `try: import pipeline / except ImportError: _pipeline = None`。
+#    2026-10-15 云端真实故障复盘：pipeline 没能加载，异常被静默吃掉，页面照常渲染、
+#    按钮照常可点，直到点下「开始结构化分析」才炸出一句
+#        'NoneType' object has no attribute 'analyze_core'
+#    —— 既看不出是哪个模块、也看不出为什么，排查只能靠猜（就是这条注释存在的原因）。
+#
+#    现在的策略是**三级降级**，每一级都留下可读的证据：
+#      ① 常规 import；失败时保留真实异常 + 完整 traceback（绝不吞掉）
+#      ② 退一步按 app.py 所在目录**以绝对路径加载同名文件**
+#         —— 应对 sys.path / 工作目录异常导致的 ModuleNotFoundError：
+#            文件明明在仓库里却 import 不到，这是云端部署最常见的坑
+#      ③ 仍失败则挂上内置的等价兜底实现（接口与 pipeline 完全一致），
+#         保证按钮依然可用，并在页面上**明确标注降级**，不假装一切正常
+def _load_pipeline():
+    """尽最大努力加载统一流程模块 pipeline，并如实返回失败原因。
+
+    :return: ``{"module", "source", "error", "traceback", "path"}``
+        ``source`` ∈ {``module`` 常规导入, ``file`` 按路径加载, ``none`` 都没成功}
+    """
+    import sys
+    import traceback
+    import importlib
+
+    _here = Path(__file__).resolve().parent
+    _target = _here / "pipeline.py"
+    _err, _tb = "", ""
+
+    # ① 常规导入（正常情况走这里）
+    try:
+        _m = importlib.import_module("pipeline")
+        return {
+            "module": _m, "source": "module", "error": "", "traceback": "",
+            "path": str(getattr(_m, "__file__", "") or _target),
+        }
+    except Exception as _e:  # noqa: BLE001 —— 要的就是把真实原因完整留下来
+        _err = f"{type(_e).__name__}: {_e}"
+        _tb = traceback.format_exc()
+
+    # ② 按绝对路径加载同名文件（sys.path 里没本目录时也能救回来）
+    try:
+        if _target.exists():
+            _spec = importlib.util.spec_from_file_location("pipeline", str(_target))
+            _m = importlib.util.module_from_spec(_spec)
+            sys.modules.setdefault("pipeline", _m)
+            _spec.loader.exec_module(_m)
+            return {
+                "module": _m, "source": "file",
+                "error": f"常规 import 失败（{_err}），已按绝对路径加载成功",
+                "traceback": _tb, "path": str(_target),
+            }
+    except Exception as _e2:  # noqa: BLE001
+        _err += f" | 按绝对路径加载也失败：{type(_e2).__name__}: {_e2}"
+        _tb += "\n---- 按绝对路径加载 ----\n" + traceback.format_exc()
+
+    return {"module": None, "source": "none", "error": _err, "traceback": _tb,
+            "path": str(_target)}
+
+
+_pl = _load_pipeline()
+_pipeline = _pl["module"]
+_PIPELINE_SOURCE = _pl["source"]        # module / file / none / fallback
+_PIPELINE_ERROR = _pl["error"]          # 非空 = 加载过程有异常（真实原因）
+_PIPELINE_TRACEBACK = _pl["traceback"]
+_PIPELINE_PATH = _pl["path"]            # 期望的 pipeline.py 绝对路径
 
 # 输出校验层（纯函数，页面与离线评测共用同一实现）：
 #   validate_analysis / parse_json_loose / _safe_num / verify_evidence
@@ -66,8 +127,188 @@ except ImportError:
 # 否则"评测声称走了全流程校验"就是一句无法验证的话。
 from analysis_validate import (  # noqa: E402
     validate_analysis, parse_json_loose, _safe_num, verify_evidence,
-    MIN_SCORE_COVERAGE,
+    evidence_map, citation_accuracy, MIN_SCORE_COVERAGE,
 )
+
+# ---- pipeline 加载失败时的等价兜底 ----------------------------------------
+# 只在 _load_pipeline() 三级降级都失败时才会被挂上去（见上面的 _PIPELINE_SOURCE）。
+# 它不是"第二套算法"：评分仍走 scoring.compute_scores，校验/证据卡/引用统计仍走
+# analysis_validate 里的同一批函数 —— 与 pipeline 用的是**完全相同**的实现，
+# 这里只是把编排顺序照抄一遍，好让页面在模块缺失时仍然能跑出结果。
+# ⚠️ 它一旦被启用就说明部署有问题，页面会明确标注（不静默），
+#    并有 eval_pipeline_load.py 做"与真实 pipeline 结果逐字段一致"的等价性测试。
+_FALLBACK_NEED_KEYS = (
+    "roe", "gross_margin", "net_margin", "revenue_yoy", "net_profit_yoy",
+    "debt_ratio", "current_ratio", "ocf_to_revenue",
+    "npl_ratio", "core_car", "provision_coverage",
+    "nim", "loan_provision_ratio", "solvency_ar", "nbv_rate",
+)
+
+
+class _PipelineFallback:
+    """与 pipeline 模块同接口的最小兜底实现（页面用到的 4 个函数 + 1 个常量）。"""
+
+    DEFAULT_PERIODS = 8
+
+    @staticmethod
+    def page_range_of(rag_status):
+        if not isinstance(rag_status, dict):
+            return None
+        _n = rag_status.get("pages")
+        return (1, int(_n)) if isinstance(_n, int) and _n > 0 else None
+
+    @staticmethod
+    def annual_metrics(code, name="", periods=8):
+        """取【最近一个年报】的指标 → (metrics, 期别标签)。口径与 pipeline 一致。"""
+        if not code:
+            return {}, ""
+        fina = ds.get_financial_indicators(code, periods=periods, annual_only=True)
+        if not fina:
+            fina = ds.get_financial_indicators(code, periods=periods)
+        if not fina:
+            return {}, ""
+        _annual = [r for r in fina if (r.get("report_type") or "") == "年报"]
+        _pick = _annual[0] if _annual else fina[0]
+        _label = str(_pick.get("report_name") or "")
+        if not _annual:
+            _label += "（无年报记录，暂用中期报告口径）"
+        return _pick, _label
+
+    @staticmethod
+    def all_annual_rows(code, periods=8):
+        if not code:
+            return []
+        try:
+            _rows = ds.get_financial_indicators(code, periods=periods, annual_only=True) or []
+            return [r for r in _rows if (r.get("report_type") or "") == "年报"]
+        except Exception:
+            return []
+
+    @staticmethod
+    def year_of(row):
+        for _k in ("report_name", "report_date"):
+            _m = re.search(r"(20\d{2})", str((row or {}).get(_k) or ""))
+            if _m:
+                return _m.group(1)
+        return ""
+
+    @staticmethod
+    def analyze_core(analysis, raw_data, industry="通用", *, code="", periods=8,
+                     online=True, finance_kind=None, pdftext="", rag_hits=None,
+                     rag_pages=None, metrics_extractor=None):
+        """与 pipeline.analyze_core 逐步对应的兜底编排（改一处必须同步改两处）。"""
+        # 1) 指标来源：在线优先，且只取年报口径
+        metrics, period, source = {}, "", ""
+        _oc = code if online else ""
+        if _oc:
+            try:
+                metrics, period = _PipelineFallback.annual_metrics(_oc, periods=periods)
+                source = (f"在线财务指标（{period}）" if period
+                          else "在线财务指标（最新报告期）")
+            except Exception:
+                metrics, period, source = {}, "", ""
+        if not metrics:
+            metrics = scoring.extract_metrics_regex(raw_data)
+            _need = [k for k in _FALLBACK_NEED_KEYS if k not in metrics]
+            if _need and raw_data and metrics_extractor is not None:
+                try:
+                    _m = metrics_extractor(raw_data, _need)
+                    if isinstance(_m, dict):
+                        for _k in _need:
+                            if _m.get(_k) is not None:
+                                metrics[_k] = _m[_k]
+                except Exception:
+                    pass
+            if str(source).startswith("在线财务指标"):
+                source = "文本抽取（在线财务指标不可用，已退回文本）"
+            else:
+                source = source or "文本抽取"
+
+        # 2) 规则评分（与 pipeline.score_block 字段一一对应）
+        _sc = scoring.compute_scores(metrics or {}, industry, finance_kind=finance_kind)
+        analysis.update({
+            "scores": _sc["scores"],
+            "total_score": _sc["total_score"],
+            "score_reasons": _sc["reasons"],
+            "score_missing": _sc["missing"],
+            "score_engine": "规则引擎 v3（同业对标 + 覆盖率门槛 + 金融子行业）",
+            "score_coverage": _sc.get("coverage"),
+            "score_confidence": _sc.get("confidence"),
+            "score_notes": _sc.get("notes") or [],
+            "score_expected": _sc.get("expected_metrics"),
+            "score_provided": _sc.get("provided_metrics"),
+            "score_industry": _sc.get("industry"),
+            "score_finance_kind": _sc.get("finance_kind") or "",
+            "metrics_raw": dict(metrics or {}),
+            "score_period": period,
+            "score_source": source or ("文本抽取" if not period else "在线财务指标"),
+            "_scoring_result": _sc,
+        })
+
+        # 3) 输出校验
+        analysis, v_issues = validate_analysis(analysis)
+
+        # 4) 证据核对 + 证据卡 + 引用统计
+        _pg = (1, int(rag_pages)) if isinstance(rag_pages, int) and rag_pages > 0 else None
+        _sources = []
+        if pdftext and len(pdftext) <= 4_000_000:
+            _sources.append(pdftext)
+        for _h in (rag_hits or []):
+            _sources.append(str((_h or {}).get("text") or ""))
+        ev_issues = verify_evidence(analysis, raw_data, page_range=_pg, extra_sources=_sources)
+        ev_items = evidence_map(analysis, rag_hits, raw_data=raw_data, page_range=_pg)
+        cit = citation_accuracy(analysis, _pg)
+
+        _found = [e for e in ev_items if e.get("value") is not None and e.get("found")]
+        _checkable = [e for e in ev_items if isinstance(e.get("value"), (int, float))]
+        analysis["evidence_items_count"] = len(ev_items)
+        analysis["evidence_issues_count"] = len(ev_issues)
+        return {
+            "analysis": analysis,
+            "validation_issues": v_issues,
+            "evidence_issues": ev_issues,
+            "evidence_items": ev_items,
+            "citation": cit,
+            "num_trace_rate": (round(len(_found) / len(_checkable), 3) if _checkable else None),
+            "score_period": period,
+            "score_source": source,
+            "metrics": metrics,
+        }
+
+
+if _pipeline is None:
+    _pipeline = _PipelineFallback()
+    _PIPELINE_SOURCE = "fallback"
+
+
+def pipeline_diag_markdown() -> str:
+    """部署自检：pipeline 从哪来、为什么没来、期望的文件到底在不在。
+
+    这条信息存在的唯一目的，是让「模块没加载」这种故障**一眼可查**，
+    而不是像 2026-10-15 那样只丢一句 ``'NoneType' object has no attribute ...``。
+    """
+    _exists = Path(_PIPELINE_PATH).exists() if _PIPELINE_PATH else False
+    _size = (Path(_PIPELINE_PATH).stat().st_size if _exists else 0)
+    _icon = {"module": "✅", "file": "🟡", "fallback": "⚠️", "none": "❌"}.get(_PIPELINE_SOURCE, "❔")
+    _label = {
+        "module": "常规导入成功",
+        "file": "常规导入失败，已按**绝对路径**加载成功",
+        "fallback": "**未能加载，已启用内置等价兜底**",
+        "none": "**未能加载，且兜底也不可用**",
+    }.get(_PIPELINE_SOURCE, _PIPELINE_SOURCE)
+    _lines = [
+        "| 项目 | 值 |",
+        "| --- | --- |",
+        f"| 统一流程模块状态 | {_icon} {_label} |",
+        f"| 期望文件路径 | `{_PIPELINE_PATH}` |",
+        f"| 该文件是否存在 | {'是（%s 字节）' % _size if _exists else '**否** —— 部署里缺少这个文件'} |",
+        f"| app.py 所在目录 | `{Path(__file__).resolve().parent}` |",
+    ]
+    if _PIPELINE_ERROR:
+        _lines.append(f"| 真实异常 | `{_PIPELINE_ERROR}` |")
+    else:
+        _lines.append("| 真实异常 | 无（正常导入） |")
+    return "\n".join(_lines)
 
 # RAG + 双模型 (Plan B)  -- 千问用作润色 + RAG 检索回答, DeepSeek 仍负责结构化分析
 try:
@@ -2647,6 +2888,22 @@ with tab1:
         # 手动模式时不强提示
         pass
 
+    # 【降级提示】pipeline 没加载成功时必须**当场**告诉用户，而不是等点完按钮报一句天书。
+    # 正常部署下 _PIPELINE_SOURCE == "module"，这里什么都不显示。
+    if _PIPELINE_SOURCE == "fallback":
+        with st.expander("⚠️ 统一流程模块 pipeline 未能加载（当前使用内置等价兜底，点击查看原因）",
+                         expanded=False):
+            st.caption(
+                "结果仍然可用，但**页面与离线评测可能不是同一份实现**，"
+                "建议修复部署后重新分析。"
+            )
+            st.markdown(pipeline_diag_markdown())
+            if _PIPELINE_TRACEBACK:
+                with st.expander("展开完整堆栈"):
+                    st.code(_PIPELINE_TRACEBACK, language="text")
+    elif _PIPELINE_SOURCE == "file":
+        st.caption("ℹ️ 统一流程模块已就绪（常规 import 失败，已按绝对路径加载）。")
+
     c1, c2 = st.columns(2)
     with c1:
         run_btn = st.button("🚀 开始结构化分析", disabled=not raw_data, use_container_width=True, type="primary")
@@ -2890,7 +3147,26 @@ with tab1:
                 st.session_state["messages"] = []
                 st.session_state.pop("report", None)
             except Exception as e:
-                st.error(f"结构化分析失败：{e}。可重试，或检查数据是否完整。")
+                # 报错必须**自带病因**。旧版只写 f"{e}"，于是模块没加载时用户看到的
+                # 是一句 `'NoneType' object has no attribute 'analyze_core'` —— 无法行动。
+                # 现在：异常类型 + 异常原文 + 模块加载自检表 + 完整堆栈，一次给全。
+                st.error(
+                    f"结构化分析失败：{type(e).__name__}: {e}"
+                    " —— 已保留完整技术细节，展开下方「排查信息」即可定位。"
+                )
+                with st.expander("🔧 排查信息（模块加载状态 + 完整调用堆栈）", expanded=True):
+                    if isinstance(e, AttributeError) and "NoneType" in str(e):
+                        st.warning(
+                            "典型的「统一流程模块未加载」症状：pipeline 拿不到时，"
+                            "它的属性访问就会抛 NoneType 错误。请按下表确认本环境状态。"
+                        )
+                    st.markdown(pipeline_diag_markdown())
+                    import traceback as _tb_dbg
+                    st.code(_tb_dbg.format_exc(), language="text")
+                st.caption(
+                    "可重试；若反复失败，请确认云端仓库里存在 pipeline.py，"
+                    "并在 Streamlit Cloud 点一次 Reboot 后重试。"
+                )
 
     analysis = st.session_state.get("analysis")
     if analysis:

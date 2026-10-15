@@ -423,15 +423,35 @@ def main() -> int:
         ],
         "failure_count": len(failures),
     }
-    json_path = os.path.join(OUT_DIR, f"regression_{ts}.json")
-    with io.open(json_path, "w", encoding="utf-8") as f:
-        json.dump(report, f, ensure_ascii=False, indent=2)
+    import tempfile as _tempfile
+
+    def _tempdir() -> str:
+        return _tempfile.gettempdir()
+
+    def _write_json(name: str, obj) -> str:
+        """把报告落盘；目录不可写时**自动退到临时目录**并说明。
+
+        只读文件系统 / 沙箱 / 只读容器下，写报告失败不应该让整份评测作废 ——
+        控制台里的准确率才是评测的结论，报告只是留存。
+        注意：这里不能只在建目录时 try，因为"目录建得出来、文件写不进去"
+        （只读挂载、目录权限受限）同样常见，必须把**写动作本身**也包住。
+        """
+        for _d in (OUT_DIR, os.path.join(_tempdir(), "ai_race_eval_results")):
+            try:
+                os.makedirs(_d, exist_ok=True)
+                _p = os.path.join(_d, name)
+                with io.open(_p, "w", encoding="utf-8") as f:
+                    json.dump(obj, f, ensure_ascii=False, indent=2)
+                return _p
+            except OSError:
+                continue
+        return ""
+
+    json_path = _write_json(f"regression_{ts}.json", report)
     if failures:
-        fail_path = os.path.join(OUT_DIR, f"regression_failures_{ts}.json")
-        with io.open(fail_path, "w", encoding="utf-8") as f:
-            json.dump(failures, f, ensure_ascii=False, indent=2)
-        print(f"失败样例已留存：{fail_path}")
-    print(f"评测报告：{json_path}")
+        fail_path = _write_json(f"regression_failures_{ts}.json", failures)
+        print(f"失败样例已留存：{fail_path or '（写入失败，上面控制台输出即为完整记录）'}")
+    print(f"评测报告：{json_path or '（写入失败，控制台输出即为完整记录）'}")
 
     return 1 if failures else 0
 
