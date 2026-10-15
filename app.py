@@ -489,9 +489,17 @@ CUSTOM_CSS = """
     padding: 22px 28px 18px 28px;
     margin-bottom: 14px;
     color: #F8FAFC;
+    /* 横幅内所有文字居中对齐（标题/说明/标签行三段整体居中） */
+    text-align: center;
     box-shadow: 0 10px 32px rgba(30, 64, 175, 0.30),
                 0 0 0 1px rgba(217, 164, 65, 0.25) inset;
   }
+  /* 关掉 Streamlit 自动给标题附加的「跳转到本节」锚点图标：
+     该图标由 Streamlit 渲染在标题内部（data-testid="stHeaderActionElements"），
+     在深蓝横幅底色上是一个几乎不可见的深色色块，且会破坏居中视觉。 */
+  .hero h1 a,
+  .hero a.anchor-link,
+  .hero [data-testid="stHeaderActionElements"] { display: none !important; }
   .hero h1 {
     font-size: 30px;
     font-weight: 800;
