@@ -2002,8 +2002,8 @@ _base_roe, _base_grow = _industry_base(industry)
 st.markdown(
     f'<div class="base-bar">'
     f'📐 <b>同业对标基准（{industry}）</b>'
-    f'· ROE 优秀线 <span class="bb-num">{_base_roe:g}%</span>'
-    f'· 营收增速稳健线 <span class="bb-num">{_base_grow:g}%</span>'
+    f' · ROE 优秀线 <span class="bb-num">{_base_roe:g}%</span>'
+    f' · 营收增速稳健线 <span class="bb-num">{_base_grow:g}%</span>'
     f'<br><span class="bb-note">四维评分、四象限定位与散点基准线均按该行业口径计算；'
     f'切换行业按钮，全部基准随之调整。</span>'
     f'</div>',
