@@ -21,6 +21,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 import json
 import logging
@@ -292,6 +293,117 @@ def _secucode(code: str) -> str:
 def _secid(code: str) -> str:
     """行情接口使用的 secid，如 1.600519（1=沪, 0=深）。"""
     return f"{'1' if _guess_market(code) == 'sh' else '0'}.{code}"
+
+
+# ============================================================
+# 一(补)、证券解析：把用户输入变成一个「确定」的目标公司
+# ============================================================
+# 为什么必须单独做这一步（对应验收清单 P0-01 / 关键验收场景「错误代码」）：
+#   巨潮 topSearch 是【模糊 / 前缀匹配】接口，实测（2026-10）：
+#     '00000'（5 位，不完整） → 10 条模糊结果，第一条是 000001 平安银行
+#     '60051'（5 位，不完整） → 9 条模糊结果，第一条是 600510 黑牡丹
+#     'abc'                   → 1 条完全无关的结果（180306 华夏安博仓储REIT）
+#     '999999'（不存在的代码）→ 0 条
+#   所以「取 hits[0]」会把用户没输入过的公司当成分析对象 —— 这是最严重的一类
+#   可信度缺陷（研究对象错误，下游所有结论都失效）。
+#   本函数的原则：**代码必须精确命中；名称多义时交给用户确认；绝不猜。**
+_CODE_RE = re.compile(r"^\d{6}$")
+_CJK_RE = re.compile(r"[\u4e00-\u9fff]")   # A 股简称必含中文，用于拦掉 'abc' 这类噪声输入
+
+
+def resolve_stock(keyword: str) -> Dict[str, Any]:
+    """把用户输入解析为唯一目标公司。返回结构固定，便于 UI 分支与单测。
+
+    Returns:
+        {
+          "ok": bool,                 # 是否已确定唯一目标
+          "code": str, "name": str, "orgId": str,
+          "candidates": [ {code,name,orgId}, ... ],  # 供用户确认的候选
+          "ambiguous": bool,          # True = 需要用户从候选中确认
+          "error": str,               # ok=False 且非 ambiguous 时的原因
+        }
+    """
+    kw = (keyword or "").strip()
+    blank = {"ok": False, "code": "", "name": "", "orgId": "", "candidates": [], "ambiguous": False}
+
+    if not kw:
+        return {**blank, "error": "请输入股票代码（6 位数字）或公司名称。"}
+
+    # ---- 1) 形态校验：全数字就必须是 6 位，否则直接拒绝，不去请求接口 ----
+    if kw.isdigit() and not _CODE_RE.match(kw):
+        return {**blank, "error": f"「{kw}」不是有效的股票代码：A 股代码应为 6 位数字（如 600519）。"}
+    if len(kw) < 2:
+        return {**blank, "error": f"「{kw}」太短，请输入完整的 6 位代码或公司名称。"}
+    # A 股简称一定含中文字符。纯英数关键词（如 'abc'）走搜索接口会被模糊匹配到
+    # 毫不相干的证券（实测 'abc' → 180306 华夏安博仓储REIT），因此直接拦掉。
+    # 注意：合法的 6 位代码本身不含中文，必须排除在本条之外。
+    if not _CODE_RE.match(kw) and not _CJK_RE.search(kw):
+        return {**blank, "error": f"「{kw}」既不是 6 位股票代码，也不像 A 股公司名称，请重新输入。"}
+
+    hits = search_stock(kw)
+    if not hits:
+        return {**blank, "error": f"未找到与「{kw}」对应的证券，请检查代码或名称是否正确。"}
+
+    # ---- 2) 6 位代码：必须精确命中，否则一律拒绝（不允许模糊降级） ----
+    if _CODE_RE.match(kw):
+        exact = [h for h in hits if h.get("code") == kw]
+        if exact:
+            h = exact[0]
+            return {"ok": True, "code": h["code"], "name": h.get("name", ""),
+                    "orgId": h.get("orgId", ""), "candidates": [], "ambiguous": False, "error": ""}
+        return {
+            **blank,
+            "candidates": hits[:8],
+            "error": (f"未找到代码为 {kw} 的证券。搜索接口返回的 {len(hits)} 条都是「相近匹配」"
+                      f"（如 {hits[0].get('name','')} {hits[0].get('code','')}），"
+                      f"已拒绝自动选择，以免分析错公司。"),
+        }
+
+    # ---- 3) 名称：完全同名优先；唯一命中直接采用；多条命中交给用户确认 ----
+    same = [h for h in hits if h.get("name") == kw]
+    if len(same) == 1:
+        h = same[0]
+        return {"ok": True, "code": h["code"], "name": h.get("name", ""),
+                "orgId": h.get("orgId", ""), "candidates": [], "ambiguous": False, "error": ""}
+
+    pool = same or hits
+    if len(pool) == 1:
+        h = pool[0]
+        return {"ok": True, "code": h["code"], "name": h.get("name", ""),
+                "orgId": h.get("orgId", ""), "candidates": [], "ambiguous": False, "error": ""}
+
+    return {
+        **blank,
+        "candidates": pool[:8],
+        "ambiguous": True,
+        "error": f"「{kw}」匹配到 {len(pool)} 家公司，需要你确认具体是哪一家。",
+    }
+
+
+# 数值合理性校验：接口口径变更 / 单位换算写错时，宁可给出可疑提示，也不要静默产出
+# 一个"看起来正常"的错误分数（对应验收清单里"东财字段口径靠硬编码摸出来"的风险）。
+_SANITY_RULES = {
+    "gross_margin":  (-100.0, 100.0, "毛利率"),
+    "net_margin":    (-200.0, 100.0, "净利率"),
+    "roe":           (-200.0, 100.0, "ROE"),
+    "debt_ratio":    (0.0, 200.0, "资产负债率"),
+    "ocf_to_revenue": (-1000.0, 1000.0, "经营现金流/营收"),
+    "npl_ratio":     (0.0, 30.0, "不良贷款率"),
+    "provision_coverage": (0.0, 1500.0, "拨备覆盖率"),
+    "core_car":      (0.0, 80.0, "核心一级资本充足率"),
+    "revenue_yoy":   (-100.0, 2000.0, "营收同比"),
+    "net_profit_yoy": (-2000.0, 5000.0, "净利润同比"),
+}
+
+
+def sanity_check_metrics(metrics: Dict[str, Any]) -> List[str]:
+    """对标准化后的指标做「数值合理性」兜底校验，返回可疑项说明（可能为空）。"""
+    out: List[str] = []
+    for k, (lo, hi, label) in _SANITY_RULES.items():
+        v = (metrics or {}).get(k)
+        if isinstance(v, (int, float)) and not (lo <= float(v) <= hi):
+            out.append(f"{label} {float(v):g}% 超出常见区间 [{lo:g}, {hi:g}]，疑似接口口径变更，请人工确认")
+    return out
 
 
 # ============================================================

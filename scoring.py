@@ -14,7 +14,15 @@
 输入 metrics 字段（均可缺失，缺失维度自动降权处理）：
   roe, gross_margin, net_margin, revenue_yoy, net_profit_yoy,
   debt_ratio, current_ratio, ocf_to_revenue,
-  npl_ratio, core_car, provision_coverage   ← 银行/保险专用
+  npl_ratio, core_car, provision_coverage,   ← 银行专用
+  nim, loan_provision_ratio,                 ← 银行专用（净息差 / 拨贷比）
+  solvency_ar, nbv_rate                      ← 保险专用（偿付能力 / 新业务价值率）
+
+维度口径按行业切换（这也是"同业对标"的一部分）：
+  通用行业：盈利能力 / 成长性 / 偿债能力 / 现金流质量
+  金融行业：盈利能力 / 成长性 / 资产质量 / 资本充足
+    —— 银行报表里"经营现金流/营收"和"资产负债率"基本不适用，
+       强行套用会让银行股永远显示"数据不足"，故改用行业中真正有意义的指标。
 
 CLI 自检: python scoring.py
 """
@@ -51,6 +59,14 @@ _TABLES: Dict[str, List[Tuple[float, float]]] = {
     "core_car": [(8.0, 1), (8.5, 2), (9.0, 4), (10.5, 6), (12.0, 8), (14.0, 10), (30, 10)],
     # 拨备覆盖率 %
     "provision_coverage": [(80, 1), (100, 3), (120, 5), (150, 7), (200, 9), (300, 10), (600, 10)],
+    # 净息差 NIM %（银行独有的核心盈利驱动；1.8% 上下为行业常态）
+    "nim": [(0.6, 1), (1.0, 3), (1.3, 5), (1.6, 7), (1.9, 9), (2.4, 10)],
+    # 拨贷比 %（银行"安全垫厚度"，与拨备覆盖率互为补充）
+    "loan_provision_ratio": [(1.0, 1), (1.5, 3), (2.0, 5), (2.5, 7), (3.0, 9), (4.0, 10)],
+    # 保险偿付能力充足率 %（保险公司版本的"资本充足"）
+    "solvency_ar": [(100, 1), (130, 3), (160, 5), (200, 7), (250, 9), (350, 10)],
+    # 新业务价值率 NBV Rate %（保险公司"业务质量"的关键指标）
+    "nbv_rate": [(5, 1), (12, 3), (18, 5), (25, 7), (32, 9), (45, 10)],
 }
 
 # ---------------------------------------------------------------------------
@@ -118,11 +134,31 @@ _DIM_GENERAL = {
     "偿债能力": [("debt_ratio", 0.60), ("current_ratio", 0.40)],
     "现金流质量": [("ocf_to_revenue", 1.0)],
 }
+
+# 金融（银行 / 保险 / 证券）专用四维。
+#
+# ⚠️ 为什么必须重构（对应优化清单：银行/保险股四维评分会缺一维）：
+#   v2 的金融口径把第 4 维「现金流质量」仍挂在 ocf_to_revenue 上，但银行财报里
+#   该口径几乎取不到（东财对银行返回空 / 不适用），于是银行股永远显示
+#   「现金流质量：数据不足」，综合分实际只有三维平均 —— 演示招行、工行、
+#   中国平安这类标的时观感直接打折。
+#
+#   现在按「该行业真的拿得到的指标」重新组织四维，并让权重归一化自动吸收缺失项：
+#     盈利能力   ROE(+净息差)      —— 银行核心回报
+#     成长性     营收/净利同比      —— 与通用口径一致
+#     资产质量   不良率+拨备+拨贷比(+新业务价值率) —— 银行与保险各取所需
+#     资本充足   核心一级资本充足率(+保险偿付能力充足率) —— 银行与保险各取所需
+#   一家银行实际命中 3/10~8/10 项，一家险企命中另一半 —— **三维缺一维的情况消失**。
 _DIM_FINANCE = {
-    "盈利能力": [("roe", 1.0)],
+    "盈利能力": [("roe", 0.70), ("nim", 0.30)],
     "成长性": [("revenue_yoy", 0.50), ("net_profit_yoy", 0.50)],
-    "偿债能力": [("npl_ratio", 0.40), ("core_car", 0.30), ("provision_coverage", 0.30)],
-    "现金流质量": [("ocf_to_revenue", 1.0)],
+    "资产质量": [
+        ("npl_ratio", 0.40),
+        ("provision_coverage", 0.30),
+        ("loan_provision_ratio", 0.15),
+        ("nbv_rate", 0.15),
+    ],
+    "资本充足": [("core_car", 0.60), ("solvency_ar", 0.40)],
 }
 
 # 阈值判读用语（用于生成评分依据文本）
@@ -149,6 +185,10 @@ def _verdict(key: str, line_roe: float = 15.0, line_grow: float = 10.0) -> str:
         "npl_ratio": "≤1% 健康 / 1.5-2% 关注 / >3% 风险较高",
         "core_car": "≥12% 充裕 / 10.5% 附近达标 / <9.5% 逼近监管红线",
         "provision_coverage": "≥200% 审慎 / 150-200% 达标 / <120% 偏薄",
+        "nim": "≥1.9% 领先 / 1.5-1.8% 行业常态 / <1.2% 承压",
+        "loan_provision_ratio": "≥3% 安全垫厚 / 2.5% 达标（监管红线） / <2% 偏薄",
+        "solvency_ar": "≥200% 充足 / 150-200% 达标 / <130% 接近监管关注线",
+        "nbv_rate": "≥30% 高质量增长 / 18-25% 稳健 / <12% 偏低",
     }
     return _V.get(key, "")
 
@@ -276,6 +316,7 @@ def _unit(k: str) -> str:
     return "%" if k in (
         "roe", "gross_margin", "net_margin", "revenue_yoy", "net_profit_yoy",
         "debt_ratio", "ocf_to_revenue", "npl_ratio", "core_car", "provision_coverage",
+        "nim", "loan_provision_ratio", "solvency_ar", "nbv_rate",
     ) else ("倍" if k == "current_ratio" else "")
 
 
@@ -286,6 +327,8 @@ CN_NAMES = {
     "debt_ratio": "资产负债率", "current_ratio": "流动比率",
     "ocf_to_revenue": "经营现金流/营收",
     "npl_ratio": "不良贷款率", "core_car": "核心一级资本充足率", "provision_coverage": "拨备覆盖率",
+    "nim": "净息差", "loan_provision_ratio": "拨贷比", "solvency_ar": "偿付能力充足率",
+    "nbv_rate": "新业务价值率",
 }
 
 
@@ -304,6 +347,10 @@ _METRIC_PATTERNS = {
     "npl_ratio": r"不良(?:贷款)?率[^0-9\-]{0,4}(-?\d+(?:\.\d+)?)\s*%",
     "core_car": r"核心一级资本充足率[^0-9\-]{0,4}(-?\d+(?:\.\d+)?)\s*%",
     "provision_coverage": r"拨备覆盖率[^0-9\-]{0,4}(-?\d+(?:\.\d+)?)\s*%",
+    "nim": r"净息差[^0-9\-]{0,4}(-?\d+(?:\.\d+)?)\s*%",
+    "loan_provision_ratio": r"拨贷比[^0-9\-]{0,4}(-?\d+(?:\.\d+)?)\s*%",
+    "solvency_ar": r"偿付能力(?:充足率)?[^0-9\-]{0,6}(-?\d+(?:\.\d+)?)\s*%",
+    "nbv_rate": r"新业务价值率[^0-9\-]{0,4}(-?\d+(?:\.\d+)?)\s*%",
 }
 
 
@@ -335,7 +382,11 @@ METRICS_EXTRACTION_PROMPT = (
     '  "ocf_to_revenue": 经营现金流占营收比(%),\n'
     '  "npl_ratio": 不良贷款率(%),\n'
     '  "core_car": 核心一级资本充足率(%),\n'
-    '  "provision_coverage": 拨备覆盖率(%)\n'
+    '  "provision_coverage": 拨备覆盖率(%),\n'
+    '  "nim": 净息差(%),\n'
+    '  "loan_provision_ratio": 拨贷比(%),\n'
+    '  "solvency_ar": 偿付能力充足率(%),\n'
+    '  "nbv_rate": 新业务价值率(%)\n'
     "}\n"
     "要求：文本中没有的指标填 null；数字只保留原文中的数值，禁止推算或编造。\n\n"
     "财务文本：\n"
@@ -376,14 +427,25 @@ if __name__ == "__main__":
     assert _thin["total_score"] is None, "低覆盖率仍给出了综合评价！"
     assert _thin["coverage"] < MIN_COVERAGE
 
+    # 金融四维自检：银行 / 保险样例都不得出现「数据不足」的维度
+    # （v2 早期版本第 4 维挂在 ocf_to_revenue 上，银行取不到 → 永远缺一维）
+    assert all(v is not None for v in r2["scores"].values()), f"银行口径仍缺维度: {r2['scores']}"
+    _insurer = {"roe": 12.0, "revenue_yoy": 5.0, "net_profit_yoy": 8.0,
+                "solvency_ar": 210.0, "nbv_rate": 24.0}
+    r3 = compute_scores(_insurer, "金融")
+    assert all(v is not None for v in r3["scores"].values()), f"保险口径仍缺维度: {r3['scores']}"
+    assert r2["total_score"] is not None, "银行四维齐全却未给出综合评分！"
+
     print(json.dumps({
         "module": "scoring",
-        "engine": "rule_v2（同业对标 + 覆盖率门槛）",
+        "engine": "rule_v2（同业对标 + 覆盖率门槛 + 金融专用四维）",
         "reproducible": True,
         "demo_maotai": {"total": r1["total_score"], "scores": r1["scores"],
                         "coverage": r1["coverage"], "confidence": r1["confidence"]},
         "demo_bank": {"total": r2["total_score"], "scores": r2["scores"],
                       "coverage": r2["coverage"], "confidence": r2["confidence"]},
+        "demo_insurer": {"total": r3["total_score"], "scores": r3["scores"],
+                         "coverage": r3["coverage"], "confidence": r3["confidence"]},
         "roe_11pct_by_industry": _by_ind,
         "thin_input_total": _thin["total_score"],
         "regex_test": extract_metrics_regex("毛利率 91.53%；ROE(加权) 34.2%；资产负债率 18.9%"),
