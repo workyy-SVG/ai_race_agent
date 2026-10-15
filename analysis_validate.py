@@ -21,7 +21,10 @@ from __future__ import annotations
 import re
 import json
 import math
-from typing import Any, Dict, List, Optional, Tuple
+import hashlib
+from bisect import bisect_left
+from collections import OrderedDict
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 try:  # 覆盖率门槛与评分引擎同源，避免两处阈值打架
     import scoring as _scoring
@@ -293,47 +296,121 @@ def validate_analysis(a):
 # ===========================================================================
 # 证据核对：把"看起来专业"的数字与引用，与真正拿到的来源对一遍
 # ===========================================================================
+_NUM_TOKEN_RE = re.compile(r"\d[\d,]*(?:\.\d+)?")
+# 单位换算链。模型按提示词统一输出「亿元」，而年报原表通常以「元 / 千元 / 万元」列示，
+# 直接做字符串包含会 100% 误报 —— 实测：
+#   「2025年报经营活动现金流净额 = 60.59」（亿元）
+#   年报原文写作 6,058,908,000（元）
+# 于是出现"每个指标都被判成模型推算"的满屏黄条。允许换算后比对才是正确的对账方式。
+_UNIT_SCALES = (1.0, 1e2, 1e3, 1e4, 1e5, 1e8, 1e-2, 1e-3, 1e-4, 1e-5, 1e-8)
+# 相对容差：大到能吸收"把 6,058,908,000 元写成 60.59 亿元"（1 位小数舍入 ≈ 8e-4），
+# 小到不会把 99999 与 100.5 这种量级完全不同的数字撮合成匹配。
+_REL_TOL = 1.5e-3
+_NUM_CACHE: "OrderedDict[str, List[float]]" = OrderedDict()
+
+
+def _extract_numbers(text: str) -> List[float]:
+    """抽出文本中所有数字（自动去掉千分位），**返回升序的绝对值列表**（供二分查找）。
+
+    年报全文几十万字，每次核对都重扫一遍会明显拖慢分析；按内容指纹缓存最近 4 份文本。
+    """
+    if not text:
+        return []
+    _key = hashlib.md5(text.encode("utf-8", errors="ignore")).hexdigest()
+    _hit = _NUM_CACHE.get(_key)
+    if _hit is not None:
+        _NUM_CACHE.move_to_end(_key)
+        return _hit
+    _out: List[float] = []
+    for _m in _NUM_TOKEN_RE.finditer(text):
+        try:
+            _out.append(abs(float(_m.group(0).replace(",", ""))))
+        except ValueError:
+            continue
+    _out.sort()
+    _NUM_CACHE[_key] = _out
+    while len(_NUM_CACHE) > 4:
+        _NUM_CACHE.popitem(last=False)
+    return _out
+
+
+def number_has_source(
+    value: Any, text: str, numbers: Optional[List[float]] = None
+) -> bool:
+    """判断某个数值能否在来源文本中找到出处。三道关，任一通过即算"有据可依"：
+
+      ① 原文直配：`60.59` / `60.6` / `6,059` 这类写法直接出现在文本里；
+      ② 单位链换算：`60.59`（亿元）能对上原文的 `6,058,908,000`（元）；
+      ③ 舍入容差：模型把 `60.589` 写成 `60.59` 也算命中。
+
+    目的只有一个 —— 既不放过真正凭空编造的数字（如 99999 亿元营收），
+    也不因为"模型统一换算成亿元、原文是元"就对着年报原文狂报误警。
+    """
+    try:
+        _v = abs(float(value))
+    except (TypeError, ValueError):
+        return True
+    if _v == 0:
+        return True  # 0 不做核对：原文里遍地是 0，比对没有意义
+    for _s in (f"{_v:g}", f"{_v:.1f}", f"{_v:.2f}", f"{_v:,.2f}"):
+        if _s and _s in text:
+            return True
+        _trim = _s.rstrip("0").rstrip(".")
+        if _trim and _trim in text:
+            return True
+    _nums = numbers if numbers is not None else _extract_numbers(text)
+    if not _nums:
+        return False
+    for _k in _UNIT_SCALES:
+        _t = _v * _k
+        _tol = max(_t * _REL_TOL, 0.005)
+        _i = bisect_left(_nums, _t - _tol)
+        if _i < len(_nums) and _nums[_i] <= _t + _tol:
+            return True
+    return False
+
+
 def verify_evidence(
     analysis: Dict[str, Any],
     raw_data: str = "",
     page_range: Optional[Tuple[int, int]] = None,
+    extra_sources: Optional[Sequence[str]] = None,
 ) -> List[str]:
     """核对分析里的关键数值与页码引用是否有据可依，返回问题清单（空 = 全部通过）。
 
-    · 数值：指标明细 / 图表里的数值应能在原始数据文本中找到（容忍千分位与舍入写法）
+    · 数值：指标明细 / 图表里的数值应能在**来源文本**中找到
+      （容忍千分位、单位换算与两位小数舍入）
     · 页码：正文引用的「第 X 页」不应超出年报实际页数
     只报告、不改数 —— "改还是留"由分析者判断，程序只负责把疑点摆出来。
+
+    ⚠️ ``extra_sources`` 是这次修复的关键：营业成本 / 管理费用 / 经营活动现金流净额
+       这类数字往往**只出现在年报原文里**（RAG 检索片段或解析出的年报全文），
+       并不在 raw_data（在线取数摘要）里。只拿 raw_data 当证据库，
+       会把本来有明确出处的数字全部误报成"模型推算"。
     """
     issues: List[str] = []
 
-    def _num_in_text(v: float, text: str) -> bool:
-        try:
-            f = float(v)
-        except (TypeError, ValueError):
-            return True
-        for c in (f, abs(f)):
-            for s in (f"{c:g}", f"{c:.1f}", f"{c:.2f}"):
-                if s and s in text:
-                    return True
-            _s = f"{c:,.2f}".rstrip("0").rstrip(".")
-            if _s and _s in text:
-                return True
-        return False
-
     try:
-        _text = raw_data or ""
-        if _text:
+        _sources = [raw_data or ""]
+        for _s in (extra_sources or []):
+            if _s:
+                _sources.append(str(_s))
+        _text = "\n".join(_sources)
+        if _text.strip():
+            _nums = _extract_numbers(_text)
             for m in (analysis.get("metrics") or [])[:20]:
                 v = m.get("value")
-                if isinstance(v, (int, float)) and not _num_in_text(v, _text):
+                if isinstance(v, (int, float)) and not number_has_source(v, _text, _nums):
                     issues.append(
-                        f"指标「{m.get('item')}」= {v} 未能在原始数据中找到对应数值，"
-                        "请核对是否来自模型推算（建议以原始数据为准）"
+                        f"指标「{m.get('item')}」= {v} 未能在取数摘要 / 年报检索片段中找到对应数值，"
+                        "请核对是否来自模型推算（建议以年报原文为准）"
                     )
             for c in (analysis.get("chart_data") or [])[:20]:
                 v = c.get("value")
-                if isinstance(v, (int, float)) and not _num_in_text(v, _text):
-                    issues.append(f"图表项「{c.get('item')}」= {v} 未能在原始数据中找到对应数值")
+                if isinstance(v, (int, float)) and not number_has_source(v, _text, _nums):
+                    issues.append(
+                        f"图表项「{c.get('item')}」= {v} 未能在取数摘要 / 年报检索片段中找到对应数值"
+                    )
 
         if page_range:
             _lo, _hi = int(page_range[0]), int(page_range[1])
@@ -394,9 +471,37 @@ if __name__ == "__main__":
     )
     assert _ev2 == [], _ev2
 
+    # 5) 单位链换算：模型给「亿元」，年报原表给「元」，不得误报
+    #    （实盘案例：经营活动现金流净额 60.59 亿元 vs 原文 6,058,908,000 元）
+    _ev3 = verify_evidence(
+        {"metrics": [{"item": "2025年报经营活动现金流净额", "value": 60.59, "unit": "亿元"}],
+         "chart_data": [{"item": "2025年报营业成本", "value": 361.09}]},
+        raw_data="## 二、主要财务指标\n- 营业收入 100.5 亿元\n",
+        extra_sources=["经营活动现金流量净额 6,058,908,000.00 6,058,908,000.00\n营业成本 36,109,000,000.00"],
+    )
+    assert _ev3 == [], f"单位换算误报：{_ev3}"
+
+    # 6) extra_sources 生效：数字只在年报全文里也应算"有出处"
+    _ev4 = verify_evidence(
+        {"chart_data": [{"item": "2025年报销售费用", "value": 86.84}]},
+        raw_data="营业收入 100.5 亿元",
+        extra_sources=["销售费用 8,684,000,000.00 元"],
+    )
+    assert _ev4 == [], f"extra_sources 未生效：{_ev4}"
+
+    # 7) 真·编造的数字仍必须被揪出（即使给了年报全文）
+    _ev5 = verify_evidence(
+        {"metrics": [{"item": "营业收入", "value": 99999, "unit": "亿元"}]},
+        raw_data="营业收入 100.5 亿元",
+        extra_sources=["营业成本 36,109,000,000.00 元"],
+    )
+    assert any("99999" in x for x in _ev5), f"编造数值被放过：{_ev5}"
+
     print(json.dumps({
         "module": "analysis_validate",
         "coverage_gate": "ok",
         "period_aware_calibration": "ok",
         "evidence_check": "ok",
+        "unit_scale_match": "ok",
+        "extra_sources": "ok",
     }, ensure_ascii=False, indent=2))

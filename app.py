@@ -1712,6 +1712,47 @@ def _panel_store(key_prefix: str, code: str, name: str, org: str, periods: int):
     return True, ""
 
 
+def _build_online_digest() -> str:
+    """把在线取数结果压缩成一份**精简财务摘要**，供「一键填入」使用。
+
+    与 `single_online` 全文的区别：只保留「最近一个年报」的指标明细 + 最近 3 期速览，
+    几十行以内 —— 用户拿到手能直接改，不会出现"一屏都翻不完、不知道从哪下手"。
+    没有在线数据时返回空串（调用方负责提示先取数）。
+    """
+    raw = (st.session_state.get("single_online") or "").strip()
+    if not raw:
+        return ""
+    title = ""
+    blocks = []          # [{"head": 报告期标题, "rows": [指标行, ...]}]
+    cur = None
+    for ln in raw.splitlines():
+        s = ln.strip()
+        if s.startswith("### "):
+            cur = {"head": s[4:].strip(), "rows": []}
+            blocks.append(cur)
+        elif s.startswith("## "):
+            cur = None                      # 进入新的一级章节，停止收指标行
+        elif s.startswith("# "):
+            title = s[2:].strip()
+        elif cur is not None and s.startswith("- "):
+            cur["rows"].append(s[2:].strip())
+    _annual = [b for b in blocks if "年报" in b["head"] and "无年报" not in b["head"]]
+    _pick = _annual[0] if _annual else (blocks[0] if blocks else None)
+    lines = [f"### {title or '在线财务摘要'}（自动生成 · 可直接编辑）", ""]
+    if _pick:
+        lines.append(f"**{_pick['head']}**")
+        for _r in _pick["rows"]:
+            lines.append(f"- {_r}")
+        lines.append("")
+    _others = [b for b in blocks if b is not _pick][:3]
+    if _others:
+        lines.append("**近几期报告期速览**")
+        for _b in _others:
+            _one = "；".join(_b["rows"])[:150]
+            lines.append(f"- {_b['head']}：{_one}" if _one else f"- {_b['head']}")
+    return "\n".join(lines).strip()
+
+
 def online_fetch_panel(key_prefix: str, default_name: str = ""):
     """
     渲染「在线取数」面板，返回 (summary_text, company_name, extra_info)。
@@ -1778,11 +1819,25 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
             placeholder="例如：600519 或 贵州茅台",
         )
     with c2:
-        periods = st.selectbox("报告期数", [1, 2, 3, 4, 6, 8], index=2, key=f"{key_prefix}_periods")
+        # 选项改为 1~8 连续：旧实现写死 [1, 2, 3, 4, 6, 8]，用户看到列表里缺 5 和 7，
+        # 会误以为功能有缺陷（实际只是当时随手挑了几个值）。
+        periods = st.selectbox(
+            "报告期数",
+            list(range(1, 9)),
+            index=2,
+            key=f"{key_prefix}_periods",
+            help="向东方财富拉取「最近 N 个报告期」的财务数据（含一季报/中报/三季报/年报）。"
+                 "它只决定可取用的报告期数量与趋势图范围：N 越大可选期数越多、耗时略增。"
+                 "四维评分、柱状图、圆环图一律固定按「最近一个年报」口径计算，与 N 无关。",
+        )
     with c3:
         st.write("")
         st.write("")
         do_fetch = st.button("🔍 获取数据", use_container_width=True, key=f"{key_prefix}_fetch")
+    st.caption(
+        "ℹ️ **报告期数 = 抓取最近 N 期财务数据**（含季报/中报/年报）；它只影响「可选报告的期数」与趋势范围，"
+        "**评分与图表固定按「最近一个年报」口径**计算 —— 换 N 不会让分数漂移。"
+    )
 
     if do_fetch:
         _kw = (kw or "").strip()
@@ -2192,12 +2247,47 @@ with tab1:
 
     if src_mode.startswith("🌐"):
         online_text, online_name, online_pdftext = online_fetch_panel("single")
-        st.markdown("##### ✍️ 或追加手动输入（可选）")
-        data_text = st.text_area(
-            "粘贴补充的财报摘要（可留空）",
-            height=120,
-            key="single_text",
+        # 【补充材料 · 三选一】原来这里直接摊开一块大输入框，看起来像"必须手填"。
+        # 在线取数其实已经把行情、多期财务指标、年报检索全部接进来了，手填多数时候是多余的；
+        # 但"系统拿不到的材料"（业绩说明会纪要、券商研报结论、自有 Excel）又确实需要入口。
+        # 于是改成可选：默认不追加；需要时一键用在线数据生成摘要（完全不用打字）；
+        # 只有真要粘第三方材料时，才落到手写框。
+        st.markdown("##### ✍️ 补充材料（可选）")
+        _extra_mode = st.radio(
+            "补充材料方式",
+            ["🟢 不追加（推荐）", "⚡ 一键用在线数据生成摘要", "✍️ 手动粘贴自定义内容"],
+            horizontal=True,
+            label_visibility="collapsed",
+            key="single_extra_mode",
+            help="在线取数已自动包含：实时行情、多期财务指标、年报检索片段。"
+                 "只有当你还想补充系统拿不到的材料时，才需要在这里追加。",
         )
+        if _extra_mode.startswith("🟢"):
+            data_text = ""
+            st.caption("✅ 已选择不追加 —— 本次分析完全使用在线取数结果，无需任何手动输入。")
+        elif _extra_mode.startswith("⚡"):
+            _ac1, _ac2 = st.columns([1, 3])
+            with _ac1:
+                if st.button("⬇️ 生成并填入摘要", key="single_autofill", use_container_width=True):
+                    _digest = _build_online_digest()
+                    if _digest:
+                        st.session_state["single_text"] = _digest
+                    else:
+                        st.warning("还没有在线取数结果，请先点「🔍 获取数据」，或改用「手动粘贴自定义内容」。")
+            with _ac2:
+                st.caption("点左侧按钮即可用**当前在线数据**自动生成财务摘要填入下方，无需手打；填好后仍可自由编辑。")
+            data_text = st.text_area(
+                "财务摘要（自动生成，可编辑）",
+                height=140,
+                key="single_text",
+                placeholder="点上方「⬇️ 生成并填入摘要」即可自动填充，无需手打。",
+            )
+        else:
+            data_text = st.text_area(
+                "粘贴补充的财报摘要（业绩说明会纪要 / 研报结论 / 自有数据）",
+                height=140,
+                key="single_text",
+            )
     else:
         col1, col2 = st.columns(2)
         with col1:
@@ -2443,10 +2533,39 @@ with tab1:
                 #     格式校验只能保证"字段合法"，保证不了"数字有出处"——
                 #     一个凭空写出的 99999 亿元营收、一个第 99999 页的引用，
                 #     格式上完全合法。这一步专门盯这类问题。
+                #
+                #     ⚠️ 证据库必须包含**年报原文**：营业成本 / 管理费用 / 经营活动现金流净额
+                #        这类数字往往只出现在年报里（RAG 检索片段或解析出的全文），
+                #        并不在 raw_data（在线取数摘要）中。只拿 raw_data 对账，
+                #        会把本来有明确出处的数字全部误报成"模型推算"（满屏黄条）。
                 _pg_count = (st.session_state.get("single_rag_status") or {}).get("pages")
                 _pg_range = (1, int(_pg_count)) if isinstance(_pg_count, int) and _pg_count > 0 else None
-                for _iss in verify_evidence(analysis, raw_data, page_range=_pg_range):
-                    st.warning(f"证据核对：{_iss}")
+                _ev_sources = []
+                _pdf_full = st.session_state.get("single_pdftext") or ""
+                if _pdf_full and len(_pdf_full) <= 4_000_000:
+                    _ev_sources.append(_pdf_full)
+                for _h in (rag_hits or []):
+                    _ev_sources.append(str(_h.get("text") or ""))
+                _ev_issues = verify_evidence(
+                    analysis, raw_data, page_range=_pg_range, extra_sources=_ev_sources
+                )
+                if _ev_issues:
+                    with st.expander(
+                        f"🔎 证据核对：{len(_ev_issues)} 条提示（点击展开）", expanded=False
+                    ):
+                        st.caption(
+                            "下列数值未能在「在线取数摘要 / 年报检索片段 / 年报全文」中匹配到出处，"
+                            "可能由模型换算或推算而来，建议以年报原文为准。"
+                            "（已放宽千分位、单位换算与两位小数舍入，仅保留确实对不上的条目。）"
+                        )
+                        for _iss in _ev_issues[:12]:
+                            st.markdown(f"- {_iss}")
+                        if len(_ev_issues) > 12:
+                            st.caption(f"（另有 {len(_ev_issues) - 12} 条同类提示，已省略）")
+                else:
+                    st.caption(
+                        "✅ 证据核对通过：指标与图表数值均可在「在线取数摘要 / 年报检索片段」中找到出处。"
+                    )
 
                 st.session_state["analysis"] = analysis
                 st.session_state["analysis_data"] = raw_data
