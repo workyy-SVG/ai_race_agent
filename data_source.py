@@ -351,23 +351,33 @@ def list_reports(code: str, org_id: str = "", report_type: str = "年报", limit
 
 
 def download_pdf(url: str, max_mb: int = 40) -> Optional[bytes]:
-    """下载 PDF 内容（限制大小），失败返回 None。"""
+    """下载 PDF 内容（限制大小），失败返回 None。
+
+    ⚠️ 超过大小上限时必须**明确拒绝**（返回 None），不能返回"已读到的片段"：
+    被截断的 PDF 交给 pypdf 解析，得到的文本是残缺的，甚至会被当成年报原文
+    写进向量库 —— 之后检索到的"年报原文"和页码其实来自一个坏文件。
+    """
     if requests is None or not url:
         return None
     try:
         r = _sess().get(url, headers={"User-Agent": _UA}, timeout=60, stream=True)
         if r.status_code != 200:
             return None
-        ctype = (r.headers.get("Content-Type") or "").lower()
-        if "pdf" not in ctype and not url.lower().endswith(".pdf"):
-            # 有些接口 Content-Type 不准，仍尝试读取
-            pass
         buf = bytearray()
         limit = max_mb * 1024 * 1024
+        overflow = False
         for chunk in r.iter_content(65536):
             buf.extend(chunk)
             if len(buf) > limit:
+                overflow = True
                 break
+        try:
+            r.close()
+        except Exception:
+            pass
+        if overflow:
+            # 明确失败，而不是把半截文件送去解析
+            return None
         if not buf.startswith(b"%PDF"):
             return None
         return bytes(buf)

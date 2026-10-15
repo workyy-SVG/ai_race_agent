@@ -18,6 +18,16 @@ from dashscope import Generation
 
 logger = logging.getLogger(__name__)
 
+# 统一预算计数（可选依赖）：千问润色/审核要进账本，
+# 否则"今天的花费只统计了 DeepSeek"（对应评审意见 7.2）。
+try:
+    import budget as _budget
+except Exception:  # pragma: no cover
+    class _budget:  # type: ignore
+        BUCKET_POLISH = "polish"
+        @staticmethod
+        def bump(bucket, n=1): return None
+
 QWEN_MODEL_DEFAULT = "qwen-plus"
 
 
@@ -56,9 +66,18 @@ def _call(prompt: str, system: Optional[str] = None, temperature: float = 0.4) -
     messages.append({"role": "user", "content": prompt})
 
     # 60 秒超时保护: 必须 shutdown(wait=False), 否则退出时仍等挂起的 HTTP
+    # v2: 429（限流）与 5xx（服务端临时故障）带随机扰动退避重试 ——
+    #     原先一旦限流直接返回 None，润色整段失效；其他错误仍然快速返回原文兜底。
     from concurrent.futures import ThreadPoolExecutor
-    _single = ThreadPoolExecutor(max_workers=1)
-    try:
+    import time as _time
+    import random as _random
+
+    last_err: Optional[Exception] = None
+    for attempt in range(3):
+        if attempt == 0:
+            # 预算记账：每次逻辑调用计 1 次，重试不重复计数
+            _budget.bump(_budget.BUCKET_POLISH, 1)
+        _single = ThreadPoolExecutor(max_workers=1)
         try:
             resp = _single.submit(
                 Generation.call,
@@ -68,15 +87,30 @@ def _call(prompt: str, system: Optional[str] = None, temperature: float = 0.4) -
                 result_format="message",
                 top_p=0.85,
             ).result(timeout=60)
+        except Exception as e:
+            last_err = e
+            if attempt < 2:
+                _time.sleep(1.5 * (attempt + 1) + _random.uniform(0, 0.6))
+                continue
+            logger.warning("千问调用异常: %s", e)
+            return None
         finally:
             _single.shutdown(wait=False)
-        if resp.status_code != 200:
-            logger.warning("千问调用失败 [%s]: %s", resp.status_code, resp.message)
-            return None
-        return resp.output.choices[0].message.content.strip()
-    except Exception as e:
-        logger.warning("千问调用异常: %s", e)
-        return None
+
+        if resp.status_code == 200:
+            return resp.output.choices[0].message.content.strip()
+
+        _sc = int(getattr(resp, "status_code", 0) or 0)
+        last_err = RuntimeError(f"千问调用失败 [{resp.status_code}]: {resp.message}")
+        if _sc == 429 or 500 <= _sc < 600:
+            if attempt < 2:
+                _time.sleep(1.5 * (attempt + 1) + _random.uniform(0, 0.6))
+                continue  # 限流/临时故障 → 重试
+        logger.warning("千问调用失败 [%s]: %s", resp.status_code, resp.message)
+        return None  # 不可重试错误 → 立即返回，由上游用原文兜底
+
+    logger.warning("千问调用最终失败: %s", last_err)
+    return None
 
 
 def refine_answer(raw_answer: str, context: Optional[str] = None) -> Optional[str]:

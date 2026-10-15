@@ -29,10 +29,37 @@ import pandas as pd
 from openai import OpenAI
 
 import data_source as ds
+
+# 统一预算计数（原子写入 + 分桶：llm / polish / embed）
+try:
+    import budget as _budget
+except ImportError:  # 缺失时退回最小可用桩，绝不拖垮主流程
+    class _budget:  # type: ignore
+        BUCKET_LLM, BUCKET_POLISH, BUCKET_EMBED = "llm", "polish", "embed"
+        @staticmethod
+        def read(bucket): return 0
+        @staticmethod
+        def bump(bucket, n=1): return None
+        @staticmethod
+        def exceeded(bucket, limit): return False
+        @staticmethod
+        def remaining(bucket, limit): return int(limit)
+        @staticmethod
+        def summary(): return {}
+
 try:
     import scoring
 except ImportError:
     scoring = None  # 缺失时退回 LLM 评分并标记
+
+# 输出校验层（纯函数，页面与离线评测共用同一实现）：
+#   validate_analysis / parse_json_loose / _safe_num / verify_evidence
+# 独立成模块的意义：eval_cases.py 必须能调用**同一份**校验代码，
+# 否则"评测声称走了全流程校验"就是一句无法验证的话。
+from analysis_validate import (  # noqa: E402
+    validate_analysis, parse_json_loose, _safe_num, verify_evidence,
+    MIN_SCORE_COVERAGE,
+)
 
 # RAG + 双模型 (Plan B)  -- 千问用作润色 + RAG 检索回答, DeepSeek 仍负责结构化分析
 try:
@@ -55,9 +82,73 @@ def _get_secret(key, default=None):
 
 DEEPSEEK_API_KEY = _get_secret("DEEPSEEK_API_KEY", "")
 DEEPSEEK_BASE_URL = _get_secret("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
-DEEPSEEK_MODEL = _get_secret("DEEPSEEK_MODEL", "deepseek-chat")
-APP_USER = _get_secret("APP_USER", "zzy")
-APP_PASSWORD = _get_secret("APP_PASSWORD", "zzy2026")
+
+# ---- 模型名兼容链（防止"评委点分析 → Model Not Exist"的致命演示事故）----
+# DeepSeek 官方公告：旧模型名 deepseek-chat / deepseek-reasoner 已于 2026-07-24
+# 15:59 UTC 正式停用，当前可用名为 deepseek-v4-flash / deepseek-v4-pro。
+# 若 Secrets 里仍写着旧名（或写了任何不存在的名字），下面会在调用失败时自动
+# 按 _MODEL_FALLBACKS 顺序回退，并把真正生效的名字记到日志与侧边栏。
+DEEPSEEK_MODEL = _get_secret("DEEPSEEK_MODEL", "deepseek-v4-flash")
+_MODEL_FALLBACKS = ["deepseek-v4-flash", "deepseek-v4-pro", "deepseek-chat"]
+_model_in_use = {"name": DEEPSEEK_MODEL}   # 运行时记录真正调用成功的模型名
+
+
+def _model_candidates():
+    """按 [配置值, 回退链...] 去重后的候选模型名。"""
+    seen, out = set(), []
+    for _m in [DEEPSEEK_MODEL] + _MODEL_FALLBACKS:
+        if _m and _m not in seen:
+            seen.add(_m)
+            out.append(_m)
+    return out
+
+
+def _is_model_error(e: Exception) -> bool:
+    """判断异常是否为「模型名不存在/不可用」类错误（可安全换名重试）。"""
+    _s = f"{type(e).__name__}: {e}".lower()
+    for _kw in ("model", "not exist", "does not exist", "invalid_model", "unsupported"):
+        if _kw in _s:
+            return True
+    return False
+
+
+# ---- 访问凭据 ----
+# ⚠️ 安全约定（公开部署必读，模板见 .streamlit/secrets.toml.example）：
+#   正式 / 公开部署必须在 Secrets 中【显式】设置 APP_USER / APP_PASSWORD / DEMO_KEY。
+#   代码里保留默认值，只是为了让「本地开发 + 评委现场演示」开箱即用；
+#   一旦探测到仍在用默认值，会在侧边栏给出橙色提醒（不阻断演示）。
+#   注意：.streamlit/secrets.toml 已在 .gitignore 中，真实口令不会进仓库。
+_DEFAULT_USER = "zzy"
+_DEFAULT_PW = "zzy2026"
+APP_USER = _get_secret("APP_USER", _DEFAULT_USER)
+APP_PASSWORD = _get_secret("APP_PASSWORD", _DEFAULT_PW)
+
+# 是否仍在使用内置默认凭据（用于侧边栏安全提醒）
+USING_DEFAULT_CREDS = (
+    _get_secret("APP_USER") is None or _get_secret("APP_PASSWORD") is None
+)
+
+_DEFAULT_DEMO_KEY = "ai2026demo"
+
+def _demo_keys():
+    """返回当前有效的免登录口令集合。
+
+    安全设计（对应评审建议"演示链接使用随机、短期、可撤销的令牌"）：
+      · DEMO_KEY 支持【逗号分隔的多令牌】——这样换口令时新旧可短期并存，随时可撤销；
+      · DEMO_KEY_EXPIRE 可选（YYYY-MM-DD）——到期后所有演示令牌自动失效；
+      · 未配置时回落到内置默认令牌，保证评委现场扫码/点链接仍可用。
+    """
+    raw = _get_secret("DEMO_KEY", _DEFAULT_DEMO_KEY)
+    keys = [k.strip() for k in str(raw).split(",") if k.strip()]
+    exp = _get_secret("DEMO_KEY_EXPIRE", "")
+    if exp:
+        try:
+            import datetime as _dt
+            if _dt.date.today() > _dt.date.fromisoformat(str(exp).strip()):
+                return []  # 已过期 → 演示令牌全部失效
+        except Exception:
+            pass  # 到期日格式错误时不静默失效，避免"填错就进不去"
+    return keys
 
 MAX_CHARS = 12000  # 送入大模型的财报文本最大长度（控制费用与时延）
 
@@ -527,9 +618,8 @@ def check_login():
         return True
 
     # ---- 方案1: 免登录链接 (URL 携带 ?key=xxx) ----
-    _demo_key = _get_secret("DEMO_KEY", "ai2026demo")
     _qp_key = st.query_params.get("key", "")
-    if _qp_key and _qp_key == _demo_key:
+    if _qp_key and _qp_key in _demo_keys():
         st.session_state["authenticated"] = True
         st.session_state["demo_mode"] = True
         st.rerun()
@@ -589,28 +679,24 @@ def log_event(action: str, ok: bool = True, dur: float = 0.0, extra: str = ""):
     except Exception:
         pass  # 日志失败绝不影响主流程
 
-# ============ 方案3: 每日 LLM 调用熔断 (防 API 额度被刷爆) ============
+# ============ 方案3: 每日调用熔断 (防 API 额度被刷爆) ============
+# 计数统一走 budget.py（原子写入 + 分桶）：
+#   · llm    → DeepSeek 生成/结构化分析（本页 DAILY_LIMIT 管这一桶）
+#   · polish → 千问润色/审核
+#   · embed  → DashScope Embedding 批次（由 rag_engine 记账）
+# 这样三类调用各有账本，不再是"只有 DeepSeek 进预算"。
 DAILY_LIMIT = int(_get_secret("DAILY_LLM_LIMIT", "100"))
-USAGE_FILE = Path("/tmp/llm_usage.txt") if os.path.exists("/tmp") else Path("llm_usage.txt")
+DAILY_POLISH_LIMIT = int(_get_secret("DAILY_POLISH_LIMIT", "200"))
+DAILY_EMBED_LIMIT = int(_get_secret("DAILY_EMBED_LIMIT", "600"))
 
-def _today():
-    import datetime
-    return datetime.date.today().isoformat()
 
 def _read_usage():
-    try:
-        parts = USAGE_FILE.read_text(encoding="utf-8").strip().split("|")
-        if len(parts) == 2 and parts[0] == _today():
-            return int(parts[1])
-    except Exception:
-        pass
-    return 0
+    """今日 DeepSeek 逻辑调用次数（重试不重复计数）。"""
+    return _budget.read(_budget.BUCKET_LLM)
+
 
 def _bump_usage():
-    try:
-        USAGE_FILE.write_text(f"{_today()}|{_read_usage() + 1}", encoding="utf-8")
-    except Exception:
-        pass
+    _budget.bump(_budget.BUCKET_LLM, 1)
 
 def check_quota():
     """返回剩余额度是否大于 0；用尽时在页面提示并熔断。"""
@@ -622,22 +708,48 @@ def check_quota():
         return False
     return True
 
-def llm_once(messages, temperature=0.2, action="llm"):
+def _chat_once(model, messages, temperature, json_mode=False):
+    """单次（非流式）对话调用。json_mode 时启用服务端 JSON 输出模式。"""
+    _kw = {"model": model, "messages": messages, "temperature": temperature, "stream": False}
+    if json_mode:
+        _kw["response_format"] = {"type": "json_object"}
+    return make_client().chat.completions.create(**_kw)
+
+
+def llm_once(messages, temperature=0.2, action="llm", json_mode=False):
+    """非流式调用。带【模型名回退】：旧模型名停用 / 名字写错时自动换名重试。
+
+    额度只在逻辑调用开始时计一次，不因重试而重复计数。
+    """
     import time
     _t0 = time.time()
     if not check_quota():
         return ""
     _bump_usage()
-    try:
-        resp = make_client().chat.completions.create(
-            model=DEEPSEEK_MODEL, messages=messages, temperature=temperature, stream=False
-        )
-        out = resp.choices[0].message.content or ""
-        log_event(action, ok=True, dur=time.time() - _t0)
-        return out
-    except Exception as e:
-        log_event(action, ok=False, dur=time.time() - _t0, extra=type(e).__name__)
-        raise
+    _last = None
+    for _m in _model_candidates():
+        _r, _err = None, None
+        # json_mode 先试带 response_format，服务端不支持时裸调一次同名模型
+        for _jm in ([True, False] if json_mode else [False]):
+            try:
+                _r = _chat_once(_m, messages, temperature, _jm)
+                break
+            except Exception as _e:
+                _err = _e
+                if _jm and not _is_model_error(_e):
+                    continue
+                break
+        if _r is not None:
+            _model_in_use["name"] = _m
+            _out = _r.choices[0].message.content or ""
+            log_event(action, ok=True, dur=time.time() - _t0, extra=f"model={_m}")
+            return _out
+        _last = _err
+        if not _is_model_error(_err):
+            break  # 与模型名无关（限流/网络/额度）→ 换名没有意义
+    log_event(action, ok=False, dur=time.time() - _t0, extra=type(_last).__name__ if _last else "unknown")
+    raise _last if _last else RuntimeError("LLM 调用失败（无可用模型名）")
+
 
 def llm_stream(messages, placeholder, temperature=0.3, action="chat"):
     import time
@@ -646,21 +758,29 @@ def llm_stream(messages, placeholder, temperature=0.3, action="chat"):
         placeholder.error(f"⚠️ 今日 LLM 分析额度（{DAILY_LIMIT} 次）已用完，为保护服务资源已暂停生成。")
         return ""
     _bump_usage()
-    try:
-        resp = make_client().chat.completions.create(
-            model=DEEPSEEK_MODEL, messages=messages, temperature=temperature, stream=True
-        )
+    _last = None
+    for _m in _model_candidates():
         full = ""
-        for chunk in resp:
-            delta = chunk.choices[0].delta.content
-            if delta:
-                full += delta
-                placeholder.write(full)
-        log_event(action, ok=True, dur=time.time() - _t0, extra=f"out_len={len(full)}")
-        return full
-    except Exception as e:
-        log_event(action, ok=False, dur=time.time() - _t0, extra=type(e).__name__)
-        raise
+        try:
+            resp = make_client().chat.completions.create(
+                model=_m, messages=messages, temperature=temperature, stream=True
+            )
+            for chunk in resp:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    full += delta
+                    placeholder.write(full)
+            _model_in_use["name"] = _m
+            log_event(action, ok=True, dur=time.time() - _t0, extra=f"model={_m} out_len={len(full)}")
+            return full
+        except Exception as e:
+            _last = e
+            if full:
+                break  # 已经向页面吐过字了：不能再换名重试，否则内容会出现两份
+            if not _is_model_error(e):
+                break
+    log_event(action, ok=False, dur=time.time() - _t0, extra=type(_last).__name__ if _last else "unknown")
+    raise _last if _last else RuntimeError("LLM 调用失败（无可用模型名）")
 
 def extract_pdf_text(file):
     try:
@@ -702,234 +822,6 @@ def read_upload(up):
         return txt, None
     return up.getvalue().decode("utf-8", errors="ignore"), None
 
-def parse_json_loose(text):
-    text = (text or "").strip()
-    if text.startswith("```"):
-        text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
-        text = re.sub(r"\s*```$", "", text)
-    start = text.find("{")
-    end = text.rfind("}")
-    if start >= 0 and end > start:
-        text = text[start:end + 1]
-    return json.loads(text)
-
-
-# ============ LLM 输出严格校验（页面永不因模型格式异常而崩溃） ============
-def _safe_num(v, lo=None, hi=None):
-    """转数值并夹范围；非法值返回 None。"""
-    try:
-        if v is None or isinstance(v, bool):
-            return None
-        f = float(v)
-        if math.isnan(f) or math.isinf(f):
-            return None
-        if lo is not None:
-            f = max(lo, f)
-        if hi is not None:
-            f = min(hi, f)
-        return f
-    except (TypeError, ValueError):
-        return None
-
-
-def validate_analysis(a):
-    """
-    校验并修复结构化分析结果。
-    返回 (analysis, issues)。所有字段兜底到安全默认值，异常项被剔除/修复。
-    """
-    issues = []
-    if not isinstance(a, dict):
-        return {}, ["模型输出不是 JSON 对象，已丢弃"]
-
-    out = {}
-
-    # -- 基本字段 --
-    out["company"] = str(a.get("company") or "目标公司").strip()[:50] or "目标公司"
-    out["summary"] = str(a.get("summary") or "").strip()[:400]
-
-    # -- metrics: list[dict]，逐项校验 --
-    metrics = []
-    raw_metrics = a.get("metrics")
-    if isinstance(raw_metrics, list):
-        for m in raw_metrics[:12]:
-            if not isinstance(m, dict):
-                continue
-            item = str(m.get("item") or "").strip()[:30]
-            if not item:
-                continue
-            val = m.get("value")
-            val_out = _safe_num(val)
-            if val_out is None and val not in (None, ""):
-                val_out = str(val)[:20]  # 文本型数值（如 "91.5%"）保留原文
-            elif val_out is not None:
-                val_out = round(val_out, 4)
-            metrics.append({
-                "item": item,
-                "value": val_out if val_out is not None else (str(val)[:20] if val not in (None, "") else "N/A"),
-                "unit": str(m.get("unit") or "").strip()[:10],
-                "comment": str(m.get("comment") or "").strip()[:120],
-            })
-    if not metrics:
-        issues.append("metrics 缺失或格式异常，已置空")
-    out["metrics"] = metrics
-
-    # -- chart_data: 仅保留合法数值，最多 6 项 --
-    chart = []
-    raw_chart = a.get("chart_data")
-    if isinstance(raw_chart, list):
-        for c in raw_chart:
-            if not isinstance(c, dict):
-                continue
-            v = _safe_num(c.get("value"), lo=-1e6, hi=1e7)
-            if v is None:
-                continue
-            item = str(c.get("item") or "").strip()[:20]
-            if item:
-                chart.append({"item": item, "value": v})
-    chart = chart[:6]
-    if isinstance(raw_chart, list) and len(raw_chart) > 0 and not chart:
-        issues.append("chart_data 全部非法（非数值），图表已隐藏")
-
-    # -- chart_data 与 metrics 交叉校准：同名金额指标以指标明细为准 --
-    # （模型分别提取两处时可能口径不一致，如图表取到中报、明细取到年报，
-    #   导致柱状图与明细表对不上；此处强制对齐明细表的数值）
-    # ⚠️ 期别感知：图表项常带「2026中报营业收入」这类期别前缀，而指标明细
-    #    通常是最新一期的「营业收入」。二者报告期不同时数值本来就应该不同，
-    #    绝不能用明细值覆盖历史期数据（否则柱状图每期柱子都变成同一个数）。
-    if chart and metrics:
-        m_lookup = {}
-        for m in metrics:
-            try:
-                mv = float(m["value"])
-            except (TypeError, ValueError):
-                continue
-            if m.get("unit", "") not in ("", "亿元", "亿"):
-                continue  # 只校准金额类，比率(%)不参与
-            m_lookup[m["item"].replace(" ", "")] = mv
-
-        _PERIOD_RE = re.compile(r"20\d{2}\s*(?:年报|中报|一季报|三季报|半年报)")
-
-        def _period_of(s: str) -> str:
-            m_ = _PERIOD_RE.search(s)
-            return m_.group(0).replace(" ", "") if m_ else ""
-
-        def _match_key(name: str):
-            if name in m_lookup:
-                return name
-            for k in m_lookup:
-                if k and (k in name or name in k):
-                    return k
-            return None
-
-        fixed_chart = []
-        for c in chart:
-            name = c["item"].replace(" ", "")
-            k = _match_key(name)
-            if k is not None:
-                cp, kp = _period_of(name), _period_of(k)
-                if cp == kp:  # 报告期一致才允许用明细值校准
-                    mv = m_lookup[k]
-                    if abs(mv - c["value"]) > max(0.5, abs(c["value"]) * 0.05):
-                        issues.append(
-                            f"图表项「{c['item']}」({c['value']}) 与指标明细 ({mv}) 口径不一致，已按明细校准"
-                        )
-                        c = {"item": c["item"], "value": round(mv, 4)}
-                elif cp != kp and (cp or kp):
-                    # 期别不同（如中报 vs 年报）：数值差异属正常，跳过校准
-                    pass
-            fixed_chart.append(c)
-        chart = fixed_chart
-    out["chart_data"] = chart
-
-    # -- trend: 数值 + 期别标签，去重 --
-    trend = []
-    seen_periods = set()
-    raw_trend = a.get("trend")
-    if isinstance(raw_trend, list):
-        for t in raw_trend:
-            if not isinstance(t, dict):
-                continue
-            period = str(t.get("period") or "").strip()[:20]
-            rev = _safe_num(t.get("revenue"), lo=-1e6, hi=1e7)
-            np_ = _safe_num(t.get("net_profit"), lo=-1e6, hi=1e7)
-            if rev is None and np_ is None:
-                continue
-            if not period or period in seen_periods:
-                continue
-            seen_periods.add(period)
-            trend.append({"period": period, "revenue": rev, "net_profit": np_})
-    out["trend"] = trend
-
-    # -- scores / total_score: 夹在 [0,10]；总分非法时回退为维度均分 --
-    raw_scores = a.get("scores")
-    scores = {}
-    if isinstance(raw_scores, dict):
-        for k in ["盈利能力", "成长性", "偿债能力", "现金流质量"]:
-            v = _safe_num(raw_scores.get(k), lo=0, hi=10)
-            if v is not None:
-                scores[k] = round(v, 1)
-    out["scores"] = scores
-    _svals = list(scores.values())
-    _avg = round(sum(_svals) / len(_svals), 1) if _svals else None
-    raw_total = a.get("total_score")
-    _raw_total_num = _safe_num(raw_total)  # 不夹范围，用于判断是否非法
-    total = _safe_num(raw_total, lo=0, hi=10)
-    if total is None or _raw_total_num is None or not (0 <= _raw_total_num <= 10):
-        # 总分缺失或越界 → 用维度分数均分兜底
-        total = _avg
-        if _raw_total_num is not None and not (0 <= _raw_total_num <= 10):
-            issues.append(f"total_score 非法（{raw_total}），已按维度均分回退为 {total}")
-    if total is not None:
-        total = round(total, 1)
-    out["total_score"] = total
-    if not scores:
-        issues.append("评分缺失（数据不足或规则引擎未启用）")
-
-    # -- risks / highlights: 字符串列表，截断 --
-    def _str_list(x, maxn, name):
-        if not isinstance(x, list):
-            if x not in (None, ""):
-                issues.append(f"{name} 格式异常，已置空")
-            return []
-        cleaned = []
-        for it in x:
-            s = str(it or "").strip()
-            if s:
-                cleaned.append(s[:150])
-        return cleaned[:maxn]
-
-    out["risks"] = _str_list(a.get("risks"), 4, "risks")
-    out["highlights"] = _str_list(a.get("highlights"), 4, "highlights")
-
-    # -- 评分依据（规则引擎生成，原样保留） --
-    if isinstance(a.get("score_reasons"), dict):
-        out["score_reasons"] = {
-            str(k): [str(x)[:200] for x in (v if isinstance(v, list) else [])]
-            for k, v in a["score_reasons"].items()
-        }
-    if a.get("score_engine"):
-        out["score_engine"] = str(a["score_engine"])[:40]
-    if isinstance(a.get("score_missing"), list):
-        out["score_missing"] = [str(x)[:30] for x in a["score_missing"]][:12]
-
-    # -- 标准化原始指标（ROE / 营收增速 等，供「象限定位」散点图取数）--
-    #    注意：这里必须显式透传，否则 metrics_raw 会在校验环节被丢掉，
-    #    导致散点图永远拿不到数据（历史 bug）。
-    _mraw = a.get("metrics_raw")
-    if isinstance(_mraw, dict):
-        _mraw_clean = {}
-        for _k, _v in list(_mraw.items())[:40]:
-            _num = _safe_num(_v)
-            if _num is not None:
-                _mraw_clean[str(_k)[:30]] = _num
-        if _mraw_clean:
-            out["metrics_raw"] = _mraw_clean
-    if a.get("score_source"):
-        out["score_source"] = str(a["score_source"])[:60]
-    if a.get("score_period"):
-        out["score_period"] = str(a["score_period"])[:40]
-
-    return out, issues
 
 
 def render_score_card(label, value):
@@ -1335,6 +1227,10 @@ def render_horizontal_bar(chart_data: list) -> bytes | None:
 _SCATTER_ROE_LINE = 15.0    # 兜底：通用 ROE 优秀线（长期 >15% 优秀）
 _SCATTER_GROW_LINE = 10.0   # 兜底：通用营收增速稳健线（10-20% 稳健）
 
+# 【唯一真源】行业基准线直接取 scoring.INDUSTRY_PROFILE ——
+# 评分阈值、四象限基准线、页面基准条三处必须同源，否则会出现
+# 「基准条写着消费 ROE 18% 优秀，规则却按 15% 打分」的自相矛盾。
+# scoring 缺失时退回下面的字面量兜底（与 scoring 内的值保持一致）。
 _INDUSTRY_BASE = {
     "通用":   (15.0, 10.0),   # 通用制造/多元
     "消费":   (18.0, 8.0),    # 高端消费 ROE 高、增速稳
@@ -1343,6 +1239,9 @@ _INDUSTRY_BASE = {
     "医药":   (14.0, 12.0),   # 研发驱动，成长性权重高
     "互联网": (14.0, 15.0),   # 平台型，增长与回报并重
 }
+if scoring is not None and getattr(scoring, "INDUSTRY_PROFILE", None):
+    _INDUSTRY_BASE = {k: tuple(v) for k, v in scoring.INDUSTRY_PROFILE.items()}
+    _SCATTER_ROE_LINE, _SCATTER_GROW_LINE = _INDUSTRY_BASE["通用"]
 
 
 def _industry_base(industry: str) -> tuple:
@@ -1604,13 +1503,22 @@ def build_radar_insight(scores: dict) -> str:
 
 
 def render_rag_hits_panel(rag_hits: list) -> str:
-    """RAG 检索过程可视化：Top-K 章节、相似度、页码、摘要（HTML 字符串）。"""
+    """RAG 检索过程可视化：Top-K 章节、相似度、页码、摘要（HTML 字符串）。
+
+    ⚠️ 片段来自外部文档（年报 PDF / 用户上传文件），必须转义后再嵌进 HTML ——
+    否则正文里一段 `<img src=x onerror=...>` 就能改变页面结构。
+    """
     if not rag_hits:
         return ""
+    import html as _html
     rows = []
     for i, h in enumerate(rag_hits[:8], 1):
         # 兼容多种字段命名
         page = h.get("page") or h.get("page_number") or h.get("metadata", {}).get("page") or "?"
+        try:
+            page = int(page)
+        except (TypeError, ValueError):
+            page = _html.escape(str(page))
         sim = h.get("score") or h.get("similarity") or 0
         try:
             sim = float(sim)
@@ -1624,6 +1532,7 @@ def render_rag_hits_panel(rag_hits: list) -> str:
             sim_cls = "rag-sim-low"
         text = (h.get("text") or h.get("content") or "").replace("\n", " ").strip()
         text = text[:160] + ("…" if len(text) > 160 else "")
+        text = _html.escape(text)  # 外部文档内容一律转义，杜绝标签注入
         rows.append(
             f'<div class="rag-hit">'
             f'<span class="rag-rank">#{i}</span>'
@@ -1711,7 +1620,7 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
         # 避免"切到新公司后研报还显示上一家"的问题
         st.session_state[f"{key_prefix}_pdftext"] = ""
         st.session_state[f"{key_prefix}_reports"] = []
-        for _k in (f"{key_prefix}_pdf_path", f"{key_prefix}_pdf_year",
+        for _k in (f"{key_prefix}_pdf_path", f"{key_prefix}_pdf_year", f"{key_prefix}_pdf_tag",
                    f"{key_prefix}_pdf_title", f"{key_prefix}_rag_status"):
             st.session_state.pop(_k, None)
         if key_prefix == "single":
@@ -1720,11 +1629,23 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
             st.session_state["messages"] = []
         with st.spinner("正在联网获取数据……"):
             hits = ds.search_stock(kw.strip())
+            _kw = kw.strip()
+            if hits:
+                # 精确匹配优先：关键词是 6 位代码、或与名称完全一致 → 置顶，
+                # 避免"输入 600519 却因为模糊匹配拿到别的公司"（评审 7.3）
+                hits.sort(key=lambda h: 0 if (h.get("code") == _kw or h.get("name") == _kw) else 1)
             if not hits:
                 st.error("未找到该股票，请检查代码或名称（支持 A 股 6 位代码）。")
             else:
                 code = hits[0]["code"]
                 name = hits[0]["name"]
+                # 命中多个候选且非精确匹配 → 显式提示其他候选，让用户可确认
+                if len(hits) > 1:
+                    _others = "、".join(f'{h["name"]}（{h["code"]}）' for h in hits[1:4])
+                    st.warning(
+                        f"⚠️「{_kw}」匹配到 {len(hits)} 个结果，当前选择 **{name}（{code}）**。"
+                        f"其他候选：{_others}。如需切换到其他公司，请直接输入 6 位股票代码后重新获取。"
+                    )
                 text = ds.build_summary_text(code, name=name, periods=periods)
                 if not text:
                     st.error("数据获取失败（可能是网络受限或该股票无公开数据），可改用手动粘贴。")
@@ -1780,6 +1701,10 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
                             else:
                                 # 保存 PDF 到临时文件（供 RAG 按页建库）
                                 _yr = re.sub(r"\D", "", reports[idx].get("date") or "")[:4]
+                                # 文档标签：公告日期 + 报告类型。用于给向量集合命名 ——
+                                # 只按 code+year 命名会让"同一年披露的年报/半年报/修订版"
+                                # 共用同一个集合，检索到的是另一份报告的原文与页码。
+                                _tag = rag.doc_tag_for(reports[idx].get("date"), rtype) if rag is not None else ""
                                 _pdf_path = Path(tempfile.gettempdir()) / f"{code}_{_yr}_{rtype}.pdf"
                                 try:
                                     _pdf_path.write_bytes(pdf)
@@ -1788,16 +1713,16 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
                                 st.session_state[f"{key_prefix}_pdftext"] = ptxt
                                 st.session_state[f"{key_prefix}_pdf_title"] = reports[idx]["title"]
                                 st.session_state[f"{key_prefix}_pdf_year"] = _yr
+                                st.session_state[f"{key_prefix}_pdf_tag"] = _tag
                                 st.session_state[f"{key_prefix}_pdf_path"] = str(_pdf_path) if _pdf_path else ""
                                 st.session_state.pop(f"{key_prefix}_rag_status", None)
                                 st.success(f"✅ 已解析《{reports[idx]['title']}》，提取 {len(ptxt)} 字。")
                                 # 【RAG 接通关键步】立即按页切片并构建向量索引
-                                if (
-                                    rag is not None
-                                    and _pdf_path
-                                    and code and _yr
-                                    and st.session_state.get("use_dual_model", True)
-                                ):
+                                # ⚠️ 不再依赖"双模型润色"开关：那个开关只决定要不要
+                                #    花钱调千问润色；证据检索是**分析链路的一部分**，
+                                #    若跟着开关走，会出现"关掉开关 → 结构化分析仍用年报证据、
+                                #    研报却不用"的入口不一致。
+                                if rag is not None and _pdf_path and code and _yr:
                                     import time as _time
                                     _t0 = _time.time()
                                     # 实时进度条：40 万字完整年报约 100+ 批 Embedding，
@@ -1813,7 +1738,9 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
                                                  f"（完整年报约需 40-80 秒，单批失败会自动重试，请勿关闭页面）",
                                         )
 
-                                    _st = rag.build_index_from_pdf(_pdf_path, code, _yr, progress_cb=_pcb)
+                                    _st = rag.build_index_from_pdf(
+                                        _pdf_path, code, _yr, progress_cb=_pcb, doc_tag=_tag
+                                    )
                                     _pbar.empty()
                                     log_event(
                                         "rag_build", ok=bool(_st.get("ok")),
@@ -1911,6 +1838,18 @@ with st.sidebar:
         st.markdown("👤 当前访问：**🎤 评委演示模式（免登录）**")
     else:
         st.markdown(f"👤 当前登录：**{APP_USER}**")
+    # ---- 安全提醒：仍在用内置默认凭据时提示运维方改密（不阻断演示）----
+    if USING_DEFAULT_CREDS:
+        st.markdown(
+            '<div class="sb-card" style="border-left:3px solid #D9A441;">'
+            '<div class="sb-title" style="color:#B45309 !important;">⚠️ 安全提醒</div>'
+            '<div style="font-size:11.5px;line-height:1.7;color:#78350F !important;">'
+            '当前使用<b>内置默认凭据</b>。<br>公开部署请在 Secrets 中设置 '
+            '<code>APP_USER</code> / <code>APP_PASSWORD</code> / <code>DEMO_KEY</code> '
+            '（模板见 <code>.streamlit/secrets.toml.example</code>）。'
+            '</div></div>',
+            unsafe_allow_html=True,
+        )
     # 额度：数字 + 可视化进度条（金色渐变，用满变红）
     _used = _read_usage()
     _ratio = min(_used / max(DAILY_LIMIT, 1), 1.0)
@@ -1918,6 +1857,14 @@ with st.sidebar:
     st.markdown(
         f'<div class="sb-quota-head">🔋 今日剩余分析额度 <b>{max(DAILY_LIMIT - _used, 0)} / {DAILY_LIMIT}</b></div>'
         f'<div class="sb-quota-bar"><div style="width:{_ratio * 100:.0f}%;background:{_bar_color};"></div></div>',
+        unsafe_allow_html=True,
+    )
+    # ---- 三类调用统一记账（评审 7.2）：DeepSeek / 千问润色 / Embedding 分开统计 ----
+    _p_used = _budget.read(_budget.BUCKET_POLISH)
+    _e_used = _budget.read(_budget.BUCKET_EMBED)
+    st.markdown(
+        f'<div class="sb-quota-head" style="margin-top:6px;">📊 今日用量 '
+        f'<b>润色 {_p_used}</b> / <b>向量化 {_e_used}</b> 批</div>',
         unsafe_allow_html=True,
     )
     if st.button("退出登录", use_container_width=True):
@@ -2088,8 +2035,16 @@ with tab1:
         st.error("系统未配置 DEEPSEEK_API_KEY，请联系管理员。")
 
     # ---- 结构化分析（评分 + 图表 + 风险） ----
-    # 【统一清空】根据 公司/代码/报告期数/年报/数据来源/行业 生成数据指纹，
-    # 指纹变化（切公司、换报告期、换年报、换行业、清空数据）时统一清空旧结果
+    def _content_hash(text: str) -> str:
+        """数据内容指纹（短哈希）。只记"数据变没变"，不落原文，避免日志/状态里囤正文。"""
+        import hashlib
+        t = (text or "").strip()
+        return hashlib.md5(t.encode("utf-8", errors="ignore")).hexdigest()[:10] if t else "-"
+
+    # 【统一清空】根据 公司/代码/报告期数/年报/数据来源/行业/数据内容 生成数据指纹，
+    # 指纹变化（切公司、换报告期、换年报、换行业、清空数据、**改了粘贴的正文**）时统一清空旧结果。
+    # 只比标签不比内容会漏报：把手写文本里的 ROE 从 5% 改成 20%，标签完全一样，
+    # 旧分析与旧研报就不会失效 —— 页面于是显示"基于旧数据"的结论。
     def _data_sig():
         return "|".join([
             src_mode,
@@ -2099,6 +2054,7 @@ with tab1:
             st.session_state.get("single_pdf_title", ""),
             industry,
             "hasdata" if raw_data else "nodata",
+            _content_hash(raw_data),
         ])
 
     _sig_now = _data_sig()
@@ -2118,14 +2074,16 @@ with tab1:
     def _rag_retrieve(query, top_k=8):
         _code = st.session_state.get("single_online_code", "")
         _year = st.session_state.get("single_pdf_year", "")
-        if (
-            rag is None or not _code or not _year
-            or not st.session_state.get("single_pdftext")
-            or not rag.has_index(_code, _year)
-        ):
+        _tag = st.session_state.get("single_pdf_tag", "")
+        if rag is None or not _code or not _year or not st.session_state.get("single_pdftext"):
             return []
+        if not rag.has_index(_code, _year, _tag):
+            # 兼容老会话：索引可能是按"无 doc_tag"的老命名建的
+            _tag = rag.find_index_tag(_code, _year) or _tag
+            if not rag.has_index(_code, _year, _tag):
+                return []
         try:
-            return rag.retrieve(query, _code, _year, top_k=top_k)
+            return rag.retrieve(query, _code, _year, top_k=top_k, doc_tag=_tag)
         except Exception:
             return []
 
@@ -2175,6 +2133,7 @@ with tab1:
                     ],
                     temperature=0.1,
                     action="analysis",
+                    json_mode=True,  # 服务端 JSON 模式；不支持时自动裸调兜底
                 )
                 analysis = parse_json_loose(raw_json)
 
@@ -2182,12 +2141,28 @@ with tab1:
                 if scoring is not None:
                     _metrics_for_score = {}
                     _score_period = ""
-                    _oc = st.session_state.get("single_online_code", "")
+                    # ⚠️ 只有在「在线取数」模式下才允许取在线指标做评分。
+                    #    历史 bug：这里直接读会话里的 single_online_code，
+                    #    于是"先在线看了公司 A → 切到手动粘贴公司 B"时，
+                    #    评分仍去拉 A 的财务指标（甚至包括 A 的年报 ROE），
+                    #    页面显示的是 B 的数据、分数却来自 A。
+                    _is_online = src_mode.startswith("🌐")
+                    _oc = st.session_state.get("single_online_code", "") if _is_online else ""
                     if _oc:
                         try:
+                            # 直接只取年报（annual_only=True），而不是"取最近 N 期再筛年报"：
+                            # 报告期数选小了（如 3 期）时，最近 3 期可能全是一季报/中报/三季报，
+                            # 明明存在年报却筛不到，于是退回中期口径 —— 评分基准期随选择器漂移。
                             _fina = ds.get_financial_indicators(
-                                _oc, periods=int(st.session_state.get("single_periods", 4) or 4)
+                                _oc,
+                                periods=int(st.session_state.get("single_periods", 4) or 4),
+                                annual_only=True,
                             )
+                            if not _fina:
+                                # 该公司确实还没有年报（如新上市/次新股）→ 退回全部报告期
+                                _fina = ds.get_financial_indicators(
+                                    _oc, periods=int(st.session_state.get("single_periods", 4) or 4)
+                                )
                             if _fina:
                                 # ⚠️ 口径统一：一律用【最近一个年报】评分。
                                 #    中期报告（一季报/中报/三季报）的金额是年初至今累计值，
@@ -2217,6 +2192,7 @@ with tab1:
                                     ],
                                     temperature=0.0,
                                     action="metrics_extract",
+                                    json_mode=True,
                                 )
                                 _m = parse_json_loose(_mj)
                                 if isinstance(_m, dict):
@@ -2231,7 +2207,14 @@ with tab1:
                     analysis["total_score"] = sc["total_score"]
                     analysis["score_reasons"] = sc["reasons"]
                     analysis["score_missing"] = sc["missing"]
-                    analysis["score_engine"] = "规则引擎 v1"
+                    analysis["score_engine"] = "规则引擎 v2（同业对标 + 覆盖率门槛）"
+                    # 覆盖率 / 置信标签 / 说明：低覆盖时不许给"满分综合评价"
+                    analysis["score_coverage"] = sc.get("coverage")
+                    analysis["score_confidence"] = sc.get("confidence")
+                    analysis["score_notes"] = sc.get("notes") or []
+                    analysis["score_expected"] = sc.get("expected_metrics")
+                    analysis["score_provided"] = sc.get("provided_metrics")
+                    analysis["score_industry"] = sc.get("industry")
                     # 保存标准化原始指标（供 ROE×营收增速 散点图取数）
                     analysis["metrics_raw"] = dict(_metrics_for_score or {})
                     analysis["score_period"] = _score_period
@@ -2244,6 +2227,15 @@ with tab1:
                 analysis, v_issues = validate_analysis(analysis)
                 for _iss in v_issues:
                     st.warning(f"输出校验：{_iss}")
+
+                # 4b) 证据核对：把"看起来专业"的数字与页码引用，与真正拿到的来源对一遍。
+                #     格式校验只能保证"字段合法"，保证不了"数字有出处"——
+                #     一个凭空写出的 99999 亿元营收、一个第 99999 页的引用，
+                #     格式上完全合法。这一步专门盯这类问题。
+                _pg_count = (st.session_state.get("single_rag_status") or {}).get("pages")
+                _pg_range = (1, int(_pg_count)) if isinstance(_pg_count, int) and _pg_count > 0 else None
+                for _iss in verify_evidence(analysis, raw_data, page_range=_pg_range):
+                    st.warning(f"证据核对：{_iss}")
 
                 st.session_state["analysis"] = analysis
                 st.session_state["analysis_data"] = raw_data
@@ -2285,6 +2277,20 @@ with tab1:
                 + (f" · 数据来源：{analysis.get('score_source')}" if analysis.get("score_source") else "")
                 + " —— 同样的数据必然得到同样的分数，大模型仅负责解读"
             )
+            # 指标覆盖率与置信标签：让"这个分数有多可信"变成页面上的显式信息，
+            # 而不是把一个缺数据的 10.0 分当成全面优秀
+            _cov = analysis.get("score_coverage")
+            if isinstance(_cov, (int, float)):
+                _conf = analysis.get("score_confidence") or ""
+                _icon = {"充分": "🟢", "局部评价": "🟡", "信息不足": "🔴"}.get(_conf, "⚪")
+                st.markdown(
+                    f"{_icon} **指标覆盖率 {_cov * 100:.0f}%**"
+                    + (f" · 置信标签：**{_conf}**" if _conf else "")
+                    + (f" · 评分行业口径：**{analysis.get('score_industry')}**"
+                       if analysis.get("score_industry") else "")
+                )
+            for _nt in (analysis.get("score_notes") or []):
+                st.warning(_nt)
             _sp = analysis.get("score_period") or ""
             _mraw_show = analysis.get("metrics_raw") or {}
             if _sp:
@@ -2500,26 +2506,28 @@ with tab1:
 
     # ---- 完整研报生成 ----
     if report_btn and raw_data and DEEPSEEK_API_KEY:
-        st.divider()
-        st.subheader("📝 完整投研报告")
         # 【RAG 接通】索引已在"下载并解析该报告"时构建完成，
-        # 这里按研报主题检索相关章节（含页码），注入 DeepSeek 上下文
+        # 这里按研报主题检索相关章节（含页码），注入 DeepSeek 上下文。
+        # ⚠️ 检索【不再绑定】"双模型润色"开关：那个开关只控制千问润色（花钱的步骤），
+        #    若把检索也绑上去，会出现"关掉开关后：结构化分析与追问仍在用年报证据、
+        #    研报却不用"的入口不一致 —— 同一份报告，证据口径必须一致。
         _rag_hits: list = []
-        if use_dual_model and rag is not None:
+        if rag is not None:
             _code = st.session_state.get("single_online_code", "")
             _yr = st.session_state.get("single_pdf_year", "")
+            _tag = st.session_state.get("single_pdf_tag", "")
             _pdf_path = st.session_state.get("single_pdf_path", "")
             if st.session_state.get("single_pdftext") and _code and _yr:
                 # 兜底：如果索引还没建（如旧会话数据），现场补建一次
-                if not rag.has_index(_code, _yr) and _pdf_path and Path(_pdf_path).exists():
+                if not rag.has_index(_code, _yr, _tag) and _pdf_path and Path(_pdf_path).exists():
                     with st.spinner("正在补建年报向量索引……"):
-                        _built = rag.build_index_from_pdf(_pdf_path, _code, _yr)
+                        _built = rag.build_index_from_pdf(_pdf_path, _code, _yr, doc_tag=_tag)
                         st.session_state["single_rag_status"] = _built
-                if rag.has_index(_code, _yr):
+                if rag.has_index(_code, _yr, _tag):
                     with st.spinner("正在从年报全文检索相关章节……"):
                         _rag_hits = rag.retrieve(
                             f"{online_name or '目标公司'} 财务表现 经营讨论 业务亮点 风险因素 未来展望",
-                            _code, _yr, top_k=6,
+                            _code, _yr, top_k=6, doc_tag=_tag,
                         )
                     st.session_state["rag_build_status"] = (
                         st.session_state.get("single_rag_status")
@@ -2531,7 +2539,7 @@ with tab1:
                 context = f"行业：{industry}\n\n财务数据：\n{raw_data[:MAX_CHARS]}"
                 if analysis:
                     context += f"\n\n已有的结构化评分（供参考，保持一致）：{json.dumps(analysis.get('scores', {}), ensure_ascii=False)}"
-                if use_dual_model and _rag_hits:
+                if _rag_hits:
                     context += f"\n\n【RAG 检索片段（来自年报全文）】\n{rag.format_citations(_rag_hits)}"
                 report = llm_stream(
                     [
@@ -2555,11 +2563,16 @@ with tab1:
                 else:
                     st.session_state["dual_model_refined"] = False
                 st.session_state["report"] = report
+                # 关键：清掉流式初稿占位区，交给下方统一渲染【最终稿】。
+                # 否则这次点击里页面显示的是润色前初稿，而下载按钮给的是润色后终稿，
+                # 同一个按钮触发的"看到的内容"和"下载的内容"不一致。
+                box.empty()
             except Exception as e:
+                box.empty()
                 st.error(f"研报生成失败：{e}")
 
     report = st.session_state.get("report")
-    if report and not report_btn:
+    if report:
         st.divider()
         st.subheader("📝 完整投研报告")
         if st.session_state.get("dual_model_refined"):
@@ -2728,27 +2741,73 @@ with tab2:
                 st.warning(err_b)
             data_b = (text_b + "\n" + file_b).strip()
 
-    # 【统一清空】对比对象变化时清空旧对比报告
+    # 【统一清空】对比对象变化时清空旧对比报告与旧评分对照
+    # 指纹必须包含**数据内容**：只比公司名/代码的话，把 A 的营收从 100 亿改成 900 亿，
+    # 指纹不变 → 旧对比结论继续挂在页面上，与实际输入脱节。
     def _cmp_sig():
+        import hashlib
+        _h = lambda t: hashlib.md5((t or "").strip().encode("utf-8", errors="ignore")).hexdigest()[:10] if (t or "").strip() else "-"
         return "|".join([
             str(st.session_state.get("name_a", "")),
             str(st.session_state.get("name_b", "")),
             st.session_state.get("cmp_a_online_code", ""),
             st.session_state.get("cmp_b_online_code", ""),
-            "A" if data_a else "-",
-            "B" if data_b else "-",
+            _h(data_a), _h(data_b),
         ])
 
     _csig_now = _cmp_sig()
     _csig_old = st.session_state.get("cmp_sig")
-    if _csig_old and _csig_old != _csig_now and st.session_state.get("cmp_report"):
-        st.session_state.pop("cmp_report", None)
-        st.info("🔄 对比对象已变化，旧的对比报告已清空，请重新点击「⚖️ 开始对比分析」。")
+    if _csig_old and _csig_old != _csig_now:
+        _stale = []
+        for _k in ("cmp_report", "cmp_scores"):
+            if st.session_state.get(_k):
+                st.session_state.pop(_k, None)
+                _stale.append(_k)
+        if _stale:
+            st.info("🔄 对比对象或输入数据已变化，旧的对比报告 / 评分对照已清空，请重新点击「⚖️ 开始对比分析」。")
     st.session_state["cmp_sig"] = _csig_now
+
+    def _cmp_side_metrics(prefix, is_online, text, name):
+        """取一侧公司的标准指标（在线优先，且只取年报口径）→ (metrics, 期别标签, 行业)。"""
+        _ind = (ds.guess_industry(name) if name else "") or industry
+        met, per = {}, ""
+        if is_online and scoring is not None:
+            _c = st.session_state.get(f"{prefix}_online_code", "")
+            if _c:
+                try:
+                    _f = ds.get_financial_indicators(_c, periods=4, annual_only=True)
+                    if not _f:
+                        _f = ds.get_financial_indicators(_c, periods=4)
+                    if _f:
+                        met = _f[0]
+                        per = str(_f[0].get("report_name") or "")
+                except Exception:
+                    met = {}
+        if not met and scoring is not None and (text or "").strip():
+            met = scoring.extract_metrics_regex(text)
+            per = "文本抽取"
+        return met, per, _ind
 
     cmp_btn = st.button("⚖️ 开始对比分析", disabled=not (data_a and data_b), use_container_width=True, type="primary")
 
     if cmp_btn and data_a and data_b:
+        # 【程序算分】对比不该只让模型"读两段文本自由发挥"：
+        # 两家公司各自跑一遍固定规则评分，差额与对照表由程序生成，模型只负责解释。
+        if scoring is not None:
+            with st.spinner("正在计算两家公司的规则评分……"):
+                try:
+                    _ma, _pa, _ia = _cmp_side_metrics("cmp_a", use_online_a, data_a, name_a)
+                    _mb, _pb, _ib = _cmp_side_metrics("cmp_b", use_online_b, data_b, name_b)
+                    st.session_state["cmp_scores"] = {
+                        "a": {"name": name_a, "scores": scoring.compute_scores(_ma, _ia),
+                              "period": _pa, "industry": _ia},
+                        "b": {"name": name_b, "scores": scoring.compute_scores(_mb, _ib),
+                              "period": _pb, "industry": _ib},
+                        "cross_industry": _ia != _ib,
+                    }
+                except Exception as _e:
+                    st.session_state.pop("cmp_scores", None)
+                    st.warning(f"规则评分对照计算失败（不影响下方文字对比）：{_e}")
         if not DEEPSEEK_API_KEY:
             st.error("系统未配置 DEEPSEEK_API_KEY，请联系管理员。")
         else:
@@ -2776,11 +2835,51 @@ with tab2:
                         action="compare",
                     )
                     st.session_state["cmp_report"] = cmp_result
+                    box.empty()  # 交给下方统一渲染，保证"看到的内容"= "下载的内容"
                 except Exception as e:
+                    box.empty()
                     st.error(f"对比分析失败：{e}")
 
+    # ---- 规则评分对照（程序计算，可复现；不再是"模型读两段文本自由发挥"） ----
+    _cs = st.session_state.get("cmp_scores")
+    if _cs:
+        _ca, _cb = _cs["a"], _cs["b"]
+        _na, _nb = _ca["name"], _cb["name"]
+        _colA = f"{_na}｜{_ca['industry']}"
+        _colB = f"{_nb}｜{_cb['industry']}"
+        _fmt = lambda v: ("—" if v is None else v)
+        _rows = []
+        for _d in ["盈利能力", "成长性", "偿债能力", "现金流质量"]:
+            _rows.append({
+                "维度": _d,
+                _colA: _fmt(_ca["scores"]["scores"].get(_d)),
+                _colB: _fmt(_cb["scores"]["scores"].get(_d)),
+            })
+        _rows.append({
+            "维度": "综合评分",
+            _colA: _fmt(_ca["scores"]["total_score"]),
+            _colB: _fmt(_cb["scores"]["total_score"]),
+        })
+        _rows.append({
+            "维度": "指标覆盖率（可信度）",
+            _colA: f"{_ca['scores']['coverage'] * 100:.0f}%",
+            _colB: f"{_cb['scores']['coverage'] * 100:.0f}%",
+        })
+        st.markdown("##### 📐 规则引擎评分对照（程序计算 · 同一份数据永远同一分数）")
+        st.dataframe(pd.DataFrame(_rows).set_index("维度"), use_container_width=True)
+        st.caption(
+            f"评分基准期：{_na} = {_ca['period'] or '未获取'}；{_nb} = {_cb['period'] or '未获取'}。"
+            "总分为四个维度均分；覆盖率低于 50% 时不给综合评分。"
+        )
+        if _cs.get("cross_industry"):
+            st.warning(
+                f"⚠️ 两家公司分属不同行业（**{_ca['industry']}** vs **{_cb['industry']}**），"
+                "各自按本行业基准线评分 —— **分数不可直接横向比较**，请结合下方文字对比与业务差异一起判断。"
+            )
+
     cmp_report = st.session_state.get("cmp_report")
-    if cmp_report and not cmp_btn:
+    if cmp_report:
+        st.markdown("#### 📄 对比分析结论")
         st.markdown(cmp_report)
     if cmp_report:
         st.download_button(

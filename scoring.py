@@ -1,11 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-规则评分引擎 v1
+规则评分引擎 v2
 ================
 设计目标（大赛评审要点）：
   · 分数由【固定规则】计算 —— 同一份数据永远得到同一个分数（可复现、可解释）
   · 大模型只负责【提取指标 + 解释结论】，不再直接打分
   · 规则阈值参考行业通行的财务分析经验法则，并内置金融（银行/保险）专用规则
+  · 【v2 同业对标】ROE 与营收/净利增速三张打分表随行业基准线缩放 ——
+    银行 ROE 11% 与白酒 ROE 11% 得到完全不同的分数，这才是有效的财务判断
+  · 【v2 覆盖率】同时输出指标覆盖率与置信标签；覆盖不足时不给综合评价
+    （避免「只填了一个 ROE=20% 也拿 10.0 分」的失真结论）
 
 输入 metrics 字段（均可缺失，缺失维度自动降权处理）：
   roe, gross_margin, net_margin, revenue_yoy, net_profit_yoy,
@@ -49,6 +53,64 @@ _TABLES: Dict[str, List[Tuple[float, float]]] = {
     "provision_coverage": [(80, 1), (100, 3), (120, 5), (150, 7), (200, 9), (300, 10), (600, 10)],
 }
 
+# ---------------------------------------------------------------------------
+# 行业基准（唯一真源）
+#   (ROE 优秀线, 营收增速稳健线)
+#   app.py 的「同业对标基准条」与四象限基准线都从这里读 ——
+#   一处改动，评分阈值 / 散点基准线 / 页面文案三处口径自动一致。
+# ---------------------------------------------------------------------------
+INDUSTRY_PROFILE: Dict[str, Tuple[float, float]] = {
+    "通用":   (15.0, 10.0),   # 通用制造/多元
+    "消费":   (18.0, 8.0),    # 高端消费：ROE 高、增速稳
+    "金融":   (11.0, 6.0),    # 银行/保险：高杠杆薄利差，ROE 11% 已属优秀
+    "新能源": (12.0, 20.0),   # 高增长赛道：增速基准上调
+    "医药":   (14.0, 12.0),   # 研发驱动：成长性要求更高
+    "互联网": (14.0, 15.0),   # 平台型：增长与回报并重
+}
+_DEFAULT_PROFILE: Tuple[float, float] = INDUSTRY_PROFILE["通用"]
+
+# 指标覆盖率低于该比例时，不提供「综合评价」（只给维度分 + 缺失清单）
+MIN_COVERAGE = 0.5
+
+# ---------------------------------------------------------------------------
+# 以「行业基准线」为锚点的归一化打分表：横轴 = 指标值 ÷ 行业基准线 的倍数
+#
+# 锚点系数刻意取成「通用行业（ROE 15% / 增速 10%）代回后与 v1 固定表逐点一致」，
+# 这样 v1 的历史结论仍可复现，而其他行业只需换一条基准线即可。
+#   ROE 15%  → 9 分（优秀线）    20%  → 10 分
+#   营收增速 10% → 7 分（稳健线） 20%  → 9 分
+# ---------------------------------------------------------------------------
+_ROE_ANCHOR: List[Tuple[float, float]] = [
+    (0.0, 1), (1 / 3, 3), (8 / 15, 5), (2 / 3, 6.5), (0.8, 7.5), (1.0, 9), (4 / 3, 10), (8 / 3, 10),
+]
+_REV_ANCHOR: List[Tuple[float, float]] = [
+    (-3.0, 0), (-1.0, 2), (0.0, 4), (0.5, 5.5), (1.0, 7), (2.0, 9), (3.0, 10), (20.0, 10),
+]
+_NP_ANCHOR: List[Tuple[float, float]] = [
+    (-5.0, 0), (-2.0, 2), (0.0, 4), (0.5, 5.5), (1.5, 7), (3.0, 9), (5.0, 10), (30.0, 10),
+]
+
+
+def _scale(anchor: List[Tuple[float, float]], factor: float) -> List[Tuple[float, float]]:
+    return [(round(x * factor, 4), y) for x, y in anchor]
+
+
+def tables_for_industry(industry: str) -> Dict[str, List[Tuple[float, float]]]:
+    """按行业基准线生成打分表。
+
+    · ROE / 营收同比 / 归母净利同比 三张表随行业缩放（同业对标的核心）
+    · 毛利率 / 净利率 / 资产负债率 / 流动比率 / 现金流 / 银行专用指标保持固定口径
+      （这几项的合理区间差异已由维度权重与行业提示词承担，不再二次缩放，
+        避免"消费"桶里乳制品与白酒被同一把尺子误伤）
+    """
+    line_roe, line_grow = INDUSTRY_PROFILE.get(industry or "通用", _DEFAULT_PROFILE)
+    t = dict(_TABLES)  # 浅拷贝，不改动全局基线表
+    t["roe"] = _scale(_ROE_ANCHOR, line_roe)
+    t["revenue_yoy"] = _scale(_REV_ANCHOR, line_grow)
+    t["net_profit_yoy"] = _scale(_NP_ANCHOR, line_grow)
+    return t
+
+
 # 四个维度的指标构成：(指标名, 权重)
 _DIM_GENERAL = {
     "盈利能力": [("roe", 0.50), ("gross_margin", 0.25), ("net_margin", 0.25)],
@@ -64,13 +126,23 @@ _DIM_FINANCE = {
 }
 
 # 阈值判读用语（用于生成评分依据文本）
-def _verdict(key: str) -> str:
+#   roe / revenue_yoy / net_profit_yoy 三项随行业基准线动态生成 ——
+#   否则「消费 18% 才优秀」的阈值配着「15-20% 优秀」的文案，前后自相矛盾
+def _verdict(key: str, line_roe: float = 15.0, line_grow: float = 10.0) -> str:
     _V = {
-        "roe": "≥20% 顶级 / 15-20% 优秀 / 10-15% 良好 / <8% 偏弱",
+        "roe": (
+            f"≥{line_roe * 4 / 3:.0f}% 顶级 / {line_roe:.0f}-{line_roe * 4 / 3:.0f}% 优秀 / "
+            f"{line_roe * 2 / 3:.0f}-{line_roe:.0f}% 良好 / <{line_roe * 8 / 15:.0f}% 偏弱"
+        ),
         "gross_margin": "≥60% 强定价权 / 40-60% 良好 / <20% 偏薄",
         "net_margin": "≥25% 优秀 / 8-15% 中等 / <3% 偏弱",
-        "revenue_yoy": "≥20% 高增长 / 10-20% 稳健 / <0 负增长",
-        "net_profit_yoy": "≥30% 高增长 / 0-15% 稳健 / <-20% 大幅下滑",
+        "revenue_yoy": (
+            f"≥{line_grow * 2:.0f}% 高增长 / {line_grow:.0f}-{line_grow * 2:.0f}% 稳健 / <0 负增长"
+        ),
+        "net_profit_yoy": (
+            f"≥{line_grow * 3:.0f}% 高增长 / 0-{line_grow * 1.5:.0f}% 稳健 / "
+            f"<-{line_grow * 2:.0f}% 大幅下滑"
+        ),
         "debt_ratio": "≤40% 稳健 / 50-70% 中等 / >70% 需警惕（金融地产除外）",
         "current_ratio": "≥2 充裕 / 1-1.5 尚可 / <1 短期偿债承压",
         "ocf_to_revenue": "≥20% 利润质量高 / 10% 左右正常 / <0 现金流失血",
@@ -81,9 +153,9 @@ def _verdict(key: str) -> str:
     return _V.get(key, "")
 
 
-def _interp(key: str, v: float) -> float:
-    """按分段线性表打分，结果夹在 [0, 10]。"""
-    pts = _TABLES[key]
+def _interp(key: str, v: float, tables: Optional[Dict[str, List[Tuple[float, float]]]] = None) -> float:
+    """按分段线性表打分，结果夹在 [0, 10]。tables 缺省时用通用基线表。"""
+    pts = (tables or _TABLES)[key]
     if v <= pts[0][0]:
         return max(pts[0][1], 0.0)
     if v >= pts[-1][0]:
@@ -109,23 +181,35 @@ def _num(v) -> Optional[float]:
         return None
 
 
-def compute_scores(metrics: Dict[str, Any], industry: str = "通用") -> Dict[str, Any]:
+def compute_scores(
+    metrics: Dict[str, Any],
+    industry: str = "通用",
+    min_coverage: float = MIN_COVERAGE,
+) -> Dict[str, Any]:
     """
-    核心 API：固定规则计算四维评分。
+    核心 API：固定规则计算四维评分（同业对标版）。
+
     Returns:
         {
           "scores": {"盈利能力": x, "成长性": x, "偿债能力": x, "现金流质量": x},  # 保留1位小数
-          "total_score": x,
+          "total_score": x | None,   # 覆盖率不足时给 None（不给综合评价）
           "reasons":  {"维度": ["依据1", ...]},
           "missing":  ["缺失的指标名"],
+          "coverage": 0.0~1.0,       # 指标覆盖率
+          "confidence": "充分" | "局部评价" | "信息不足",
+          "expected_metrics": [...], "provided_metrics": [...],
+          "industry": 实际使用的行业, "industry_base": (ROE线, 增速线),
         }
-    同样的 metrics + industry 输入，永远返回同样的分数。
+    同样的 metrics + industry 输入，永远返回同样的分数（可复现）。
     """
-    m = {k: _num(v) for k, v in (metrics or {}).items() if k in _TABLES}
+    line_roe, line_grow = INDUSTRY_PROFILE.get(industry or "通用", _DEFAULT_PROFILE)
+    tables = tables_for_industry(industry)
+    m = {k: _num(v) for k, v in (metrics or {}).items() if k in tables}
 
     # 金融行业自动切换：有银行专用指标或行业选了"金融"
     is_financial = (industry == "金融") or ("npl_ratio" in m and m["npl_ratio"] is not None)
     dims = _DIM_FINANCE if is_financial else _DIM_GENERAL
+    expected = sorted({k for items in dims.values() for k, _ in items})
 
     scores: Dict[str, Optional[float]] = {}
     reasons: Dict[str, List[str]] = {}
@@ -140,23 +224,51 @@ def compute_scores(metrics: Dict[str, Any], industry: str = "通用") -> Dict[st
             continue
         # 权重归一化（部分指标缺失时按剩余权重折算）
         wsum = sum(w for _, w, _ in got)
-        s = sum(_interp(k, v) * (w / wsum) for k, w, v in got)
+        s = sum(_interp(k, v, tables) * (w / wsum) for k, w, v in got)
         scores[dim] = round(s, 1)
         reasons[dim] = []
         for k, w, v in got:
-            _vi = _interp(k, v)
+            _vi = _interp(k, v, tables)
+            _dim_note = "" if len(got) == len(items) else f"（本维度 {len(got)}/{len(items)} 项可得）"
             reasons[dim].append(
-                f"{k}={v:g}{_unit(k)} → {_vi:.1f} 分（权重 {w / wsum * 100:.0f}%；判读标准：{_verdict(k)}）"
+                f"{k}={v:g}{_unit(k)} → {_vi:.1f} 分（权重 {w / wsum * 100:.0f}%；"
+                f"判读标准（{industry}）：{_verdict(k, line_roe, line_grow)}）{_dim_note}"
             )
 
+    # ---- 指标覆盖率：缺失值绝不当 0 分用，也绝不让低覆盖公司拿到"满分综合评价" ----
+    provided = [k for k in expected if m.get(k) is not None]
+    coverage = round(len(provided) / max(len(expected), 1), 3)
+
     avail = [v for v in scores.values() if v is not None]
-    total = round(sum(avail) / len(avail), 1) if avail else None
+    notes: List[str] = []
+    if coverage < min_coverage:
+        total: Optional[float] = None
+        confidence = "信息不足"
+        notes.append(
+            f"指标覆盖率仅 {coverage * 100:.0f}%（{len(provided)}/{len(expected)} 项），"
+            f"低于 {min_coverage * 100:.0f}% 门槛 → 暂不提供综合评价，仅展示可得维度分。"
+        )
+    else:
+        total = round(sum(avail) / len(avail), 1) if avail else None
+        confidence = "局部评价" if coverage < 0.75 else "充分"
+        if confidence == "局部评价":
+            notes.append(
+                f"指标覆盖率 {coverage * 100:.0f}%（{len(provided)}/{len(expected)} 项），"
+                "部分维度缺指标 → 综合评价为局部口径，不宜与数据完整公司直接横向比较。"
+            )
 
     return {
         "scores": scores,
         "total_score": total,
         "reasons": reasons,
         "missing": sorted(set(missing)),
+        "coverage": coverage,
+        "confidence": confidence,
+        "expected_metrics": expected,
+        "provided_metrics": provided,
+        "notes": notes,
+        "industry": industry or "通用",
+        "industry_base": (line_roe, line_grow),
     }
 
 
@@ -251,11 +363,28 @@ if __name__ == "__main__":
     r1b = compute_scores(demo, "消费")
     assert r1 == r1b, "规则评分必须可复现！"
 
+    # 同业对标自检：同一组数据在不同行业下必须得到不同分数（否则行业基准形同虚设）
+    _same_roe = {"roe": 11.0, "gross_margin": 38.0, "net_margin": 12.0,
+                 "revenue_yoy": 9.0, "net_profit_yoy": 8.0,
+                 "debt_ratio": 45.0, "current_ratio": 1.4, "ocf_to_revenue": 12.0}
+    _by_ind = {ind: compute_scores(_same_roe, ind)["scores"]["盈利能力"]
+               for ind in INDUSTRY_PROFILE if ind != "金融"}
+    assert len(set(_by_ind.values())) > 1, "行业基准未生效：不同行业得分相同！"
+
+    # 覆盖率自检：只填一个 ROE 时不得给出综合评价
+    _thin = compute_scores({"roe": 20.0}, "通用")
+    assert _thin["total_score"] is None, "低覆盖率仍给出了综合评价！"
+    assert _thin["coverage"] < MIN_COVERAGE
+
     print(json.dumps({
         "module": "scoring",
-        "engine": "rule_v1",
+        "engine": "rule_v2（同业对标 + 覆盖率门槛）",
         "reproducible": True,
-        "demo_maotai": {"total": r1["total_score"], "scores": r1["scores"]},
-        "demo_bank": {"total": r2["total_score"], "scores": r2["scores"]},
+        "demo_maotai": {"total": r1["total_score"], "scores": r1["scores"],
+                        "coverage": r1["coverage"], "confidence": r1["confidence"]},
+        "demo_bank": {"total": r2["total_score"], "scores": r2["scores"],
+                      "coverage": r2["coverage"], "confidence": r2["confidence"]},
+        "roe_11pct_by_industry": _by_ind,
+        "thin_input_total": _thin["total_score"],
         "regex_test": extract_metrics_regex("毛利率 91.53%；ROE(加权) 34.2%；资产负债率 18.9%"),
     }, ensure_ascii=False, indent=2))
