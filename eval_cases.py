@@ -8,11 +8,15 @@
       · 仅把财务摘要文本直接喂给 DeepSeek，无规则评分、无 RAG、无校验
   B 组（本 Agent）：**与页面同一条链路**
       · 在线结构化取数（东财财务指标接口，年报口径）
-      · 固定规则引擎评分（scoring.py，可复现、同业对标）
+      · 固定规则引擎评分（走 pipeline.py —— 页面与评测唯一实现，可复现、同业对标）
       · 年报 RAG 检索（带页码引用，需已构建索引）
       · 输出严格校验（analysis_validate.validate_analysis —— 与页面同一实现）
       · 证据核对（数值/页码与来源对账）
+      · 证据卡（每个数值 → 年报页码 + 原文片段，正向可定位）
       · 双模型协同（DeepSeek 分析 + 千问润色，若配置）
+
+⚠️ 不要在评测脚本里"另写一套评分/校验" —— 那会让"评测结论"和"线上行为"各说各话。
+   需要打分/校验/对账时统一 `pipeline.analyze_core()`（优化清单 P1-06）。
 
 评测维度（自动项，均可复算）：
   1. 可复现性     —— 同一输入重复运行，评分是否完全一致
@@ -40,7 +44,14 @@ from pathlib import Path
 from typing import Dict, Any, List
 
 OUT_DIR = Path(__file__).parent / "eval_results"
-OUT_DIR.mkdir(exist_ok=True)
+try:
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+except OSError:
+    # 只读/受限环境（沙箱、只读容器）下建不了目录时退到临时目录。
+    # 评测本身照常跑完，不至于因为"写不出报告"就把整份实验作废。
+    import tempfile
+    OUT_DIR = Path(tempfile.gettempdir()) / "ai_race_eval_results"
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 DEFAULT_CASES = [
     {"code": "600519", "kw": "贵州茅台", "periods": 4},
@@ -140,10 +151,9 @@ def _extract_scores_from_text(text: str) -> Dict[str, Any]:
 # B 组：本 Agent 流程
 # ---------------------------------------------------------------------------
 def run_agent(code: str, kw: str, periods: int, industry: str = "通用") -> Dict[str, Any]:
-    """B 组：与页面同一条链路（取数 → 年报口径规则评分 → RAG → 生成 → 校验 → 证据核对）。"""
+    """B 组：与页面同一条链路（取数 → RAG → 生成 → 润色 → **pipeline** 评分/校验/证据核对）。"""
     import data_source as ds
-    import scoring
-    from analysis_validate import validate_analysis, verify_evidence
+    import pipeline
 
     steps: List[str] = []
     timing: Dict[str, float] = {}
@@ -154,17 +164,16 @@ def run_agent(code: str, kw: str, periods: int, industry: str = "通用") -> Dic
     timing["取数"] = round(time.time() - _t, 1)
     steps.append("在线取数(巨潮+东财)")
 
-    # 2) 规则评分：只取年报（annual_only=True），与页面口径完全一致。
-    #    旧版用 fina[0]（最新一期）—— 页面用年报，两边评的根本不是同一组数，
-    #    对比结论自然不可信。
+    # 2) 确认在线财务指标可用（报告期用于后面定位年报索引）。
+    #    ⚠️ 评分本身**不在这里算** —— 统一交给 pipeline.analyze_core（第 6 步），
+    #    保证评测与页面是同一份实现。旧版此处本地调 scoring.compute_scores，
+    #    与页面各写一套，出现"评测结论与线上分数不一致"时无法归因。
     _t = time.time()
     fina = ds.get_financial_indicators(code, periods=periods, annual_only=True)
     if not fina:
         fina = ds.get_financial_indicators(code, periods=periods)
-    metrics = fina[0] if fina else {}
-    sc = scoring.compute_scores(metrics, industry)
-    timing["评分"] = round(time.time() - _t, 1)
-    steps.append(f"规则评分(年报口径, 覆盖率{sc['coverage'] * 100:.0f}%)")
+    timing["取数2"] = round(time.time() - _t, 1)
+    steps.append("在线财务指标(年报口径)")
 
     # 3) RAG：只有该文档索引已建好才检索（脚本不自动建库 —— 建库要付 Embedding 费用，
     #    且线上是"用户下载年报时顺带建库"。这一限制必须写在结论里，不能含糊）。
@@ -185,6 +194,8 @@ def run_agent(code: str, kw: str, periods: int, industry: str = "通用") -> Dic
     except Exception as _e:
         steps.append(f"RAG异常({type(_e).__name__})")
     timing["检索"] = round(time.time() - _t, 1)
+    # 页码上限：pipeline 拿它判断正文引用的页码有没有越界（第 6 步用）
+    _page_max = max([h.get("page") or 0 for h in rag_hits], default=0)
 
     # 4) LLM 分析（带检索上下文）
     ctx = (
@@ -231,15 +242,33 @@ def run_agent(code: str, kw: str, periods: int, industry: str = "通用") -> Dic
 
     final_text = refined or llm_out
 
-    # 6) 输出校验（与页面同一实现）+ 证据核对
+    # 6) 评分 + 输出校验 + 证据核对 + 证据卡 + 引用统计 —— 全部走 pipeline，
+    #    与页面完全同一条链路（优化清单 P1-06：页面与评测复用同一业务流程）。
     _t = time.time()
-    _page_max = max([h.get("page") or 0 for h in rag_hits], default=0)
-    _pr = (1, _page_max) if _page_max > 0 else None
-    _v_issues = verify_evidence({"metrics": [], "summary": final_text, "risks": [], "highlights": []},
-                                text, page_range=_pr)
-    timing["校验"] = round(time.time() - _t, 1)
-    if _v_issues:
-        steps.append(f"证据核对提出 {len(_v_issues)} 条疑点")
+    _parsed = _parse_llm_analysis(final_text)
+    _core = pipeline.analyze_core(
+        _parsed,
+        raw_data=text,
+        industry=industry,
+        code=code,
+        periods=periods,
+        online=True,
+        rag_hits=rag_hits,
+        rag_pages=_page_max or None,
+    )
+    _sc = ((_core["analysis"].get("_scoring_result")) or {})
+    if not _sc:  # 极端情况下 _scoring_result 被 validate 重筛掉时的兜底
+        _sc = {
+            "scores": _core["analysis"].get("scores") or {},
+            "total_score": _core["analysis"].get("total_score"),
+            "coverage": _core["analysis"].get("score_coverage", 0.0),
+            "confidence": _core["analysis"].get("score_confidence", ""),
+        }
+    timing["评分校验"] = round(time.time() - _t, 1)
+    steps.append(
+        f"pipeline评分+校验(覆盖率{float(_sc.get('coverage') or 0) * 100:.0f}%)"
+        if float(_sc.get("coverage") or 0) > 0 else "pipeline评分+校验"
+    )
 
     # 7) 页码可核验率：引用的页码中有多少来自实际检索到的片段
     _cite = {int(x) for x in re.findall(r"第\s*(\d+)\s*页", final_text)}
@@ -252,30 +281,82 @@ def run_agent(code: str, kw: str, periods: int, industry: str = "通用") -> Dic
         "timing": timing,
         "page_referenced": bool(re.search(r"第\s*\d+\s*页", final_text)),
         "page_verifiable_rate": _page_ok,
-        "scores": sc["scores"],
-        "total": sc["total_score"],
-        "coverage": sc["coverage"],
-        "confidence": sc["confidence"],
-        "evidence_issues": len(_v_issues),
+        "scores": _sc.get("scores") or {},
+        "total": _sc.get("total_score"),
+        "coverage": _sc.get("coverage", 0.0),
+        "confidence": _sc.get("confidence", ""),
+        "evidence_issues": len(_core["evidence_issues"]),
+        "validation_issues": len(_core["validation_issues"]),
         "num_trace": _num_traceability(final_text, text),
+        # ↓ 新增：与页面同源的可核验指标
+        "num_trace_rate": _core["num_trace_rate"],
+        "citation_rate": (_core["citation"] or {}).get("rate"),
+        "evidence_items_count": _core["analysis"].get("evidence_items_count", 0),
+        "score_period": _core["score_period"],
+        "score_source": _core["score_source"],
+        "finance_kind": _core["analysis"].get("score_finance_kind") or "",
         "steps": steps,
-        "metrics_source": f"东财财务指标接口（结构化 · 年报口径 · 覆盖率 {sc['coverage'] * 100:.0f}%）",
-        "validated": True,   # 与页面共用 analysis_validate 的校验实现
+        "metrics_source": (
+            f"{_core['score_source']}（{_core['score_period'] or '报告期未标注'}）"
+        ),
+        "validated": True,   # 与页面共用 analysis_validate + pipeline 的实现
+    }
+
+
+def _parse_llm_analysis(text: str) -> Dict[str, Any]:
+    """把 LLM 的自由文本整理成 pipeline 能消费的最小结构。
+
+    只做**保守抽取**：抽不到就留空，宁可让 pipeline 走"文本抽取"兜底，
+    也不要为了凑字段而臆造数值。
+    """
+    _t = text or ""
+    metrics: List[Dict[str, Any]] = []
+    _pat = re.compile(
+        r"(营业收入|净利润|净资产收益率|ROE|毛利率|净利率|资产负债率)"
+        r"[^\d\-+]{0,14}(-?\d+(?:\.\d+)?)\s*(亿元|万元|%|元)"
+    )
+    for _m in _pat.finditer(_t):
+        metrics.append({"item": _m.group(1), "value": float(_m.group(2)), "unit": _m.group(3)})
+    risks, highs = [], []
+    _sec = None
+    for _line in _t.splitlines():
+        _s = _line.strip(" -*#")
+        if not _s:
+            continue
+        if "风险" in _s[:8]:
+            _sec = "risk"
+            continue
+        if any(k in _s[:8] for k in ("亮点", "优势", "投资亮点")):
+            _sec = "high"
+            continue
+        if len(_s) >= 6:  # < 6 字的多为标题碎屑，不值得当结论引用
+            (risks if _sec == "risk" else highs if _sec == "high" else []).append(_s[:200])
+    return {
+        "company": "",
+        "summary": _t[:4000],
+        "metrics": metrics[:40],
+        "risks": risks[:12],
+        "highlights": highs[:12],
     }
 
 
 def consistency_check(code: str, kw: str, periods: int, industry: str = "通用", n: int = 3):
-    """B 组可复现性：规则评分跑 n 次，结果必须完全一致；A 组无法保证（自由生成）。
+    """B 组可复现性：同一条 pipeline 跑 n 次，评分结果必须完全一致；A 组无法保证（自由生成）。
 
-    ⚠️ 用与页面相同的年报口径（annual_only=True），否则测的不是线上那套实现。
+    ⚠️ 必须走与页面相同的 pipeline（内部仍用年报口径 annual_only=True），
+    否则"评测里测的可复现"和"线上跑的那套"根本不是一个东西。
     """
     import data_source as ds
-    import scoring
-    fina = ds.get_financial_indicators(code, periods=periods, annual_only=True)
-    if not fina:
-        fina = ds.get_financial_indicators(code, periods=periods)
-    metrics = fina[0] if fina else {}
-    results = [json.dumps(scoring.compute_scores(metrics, industry), ensure_ascii=False) for _ in range(n)]
+    import pipeline
+    text = ds.build_summary_text(code, name=kw, periods=periods) or ""
+    results = []
+    for _ in range(n):
+        _c = pipeline.analyze_core(
+            {}, raw_data=text, industry=industry, code=code, periods=periods, online=True,
+        )
+        results.append(json.dumps(
+            _c["analysis"].get("scores"), ensure_ascii=False, sort_keys=True,
+        ))
     return len(set(results)) == 1
 
 
@@ -342,12 +423,20 @@ def main():
             + (f"{B['page_verifiable_rate'] * 100:.0f}%" if B.get("page_verifiable_rate") is not None else "—")
             + " |",
             f"| 数值可回溯率（粗口径） | {_fmt_rate(_at)} | {_fmt_rate(_bt)} |",
+            f"| 数值可定位率（pipeline · 单位链换算后） | — | "
+            + (f"{B['num_trace_rate'] * 100:.0f}%"
+               if B.get("num_trace_rate") is not None else "无待核数值") + " |",
+            f"| 页码引用正确率（pipeline · 越界即判失败） | — | "
+            + (f"{B['citation_rate'] * 100:.0f}%（{B.get('citation_rate')}）"
+               if B.get("citation_rate") is not None else "正文未引用页码") + " |",
+            f"| 输出字段校验 | 无 | 已启用，发现 {B.get('validation_issues', 0)} 个字段问题 |",
             f"| 输出校验 | 无 | 已启用（与页面同一实现） |",
             f"| 证据核对疑点 | 无此环节 | {B.get('evidence_issues', 0)} 条 |",
             f"| 评分来源 | 模型自由生成（每次可能不同） | 固定规则引擎（{repro_txt}） |",
             f"| 评分结果 | {json.dumps(A['score_extracted'], ensure_ascii=False)} | "
             f"总分 {_b_total} · {json.dumps(B['scores'], ensure_ascii=False)} · 覆盖率 {B['coverage'] * 100:.0f}%（{B['confidence']}） |",
-            f"| 数据来源 | 用户手动提供的文本 | {B['metrics_source']} |",
+            f"| 数据来源 | 用户手动提供的文本 | {B['metrics_source']}"
+            + (f"（金融子行业：{B['finance_kind']}）" if B.get("finance_kind") else "") + " |",
             f"| 流水线 | 单次 LLM 调用 | {' → '.join(B['steps'])} |",
             "",
             f"- A 组输出：`eval_results/A_{code}.md`",

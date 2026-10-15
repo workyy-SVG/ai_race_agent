@@ -272,6 +272,10 @@ def validate_analysis(a):
         out["score_provided"] = [str(x)[:30] for x in a["score_provided"]][:20]
     if a.get("score_industry"):
         out["score_industry"] = str(a["score_industry"])[:20]
+    # 金融子行业（银行/保险/证券）同样属于"评分口径"，必须与 score_industry 一起透传：
+    # 否则页面无从说明"这一版分数是按哪一版维度表算的"（优化清单 P1-04）。
+    if a.get("score_finance_kind"):
+        out["score_finance_kind"] = str(a["score_finance_kind"])[:20]
 
     # -- 标准化原始指标（ROE / 营收增速 等，供「象限定位」散点图取数）--
     #    注意：这里必须显式透传，否则 metrics_raw 会在校验环节被丢掉，
@@ -352,7 +356,11 @@ def number_has_source(
         return True
     if _v == 0:
         return True  # 0 不做核对：原文里遍地是 0，比对没有意义
-    for _s in (f"{_v:g}", f"{_v:.1f}", f"{_v:.2f}", f"{_v:,.2f}"):
+    # ① 原文直配：`60.59` / `60.6` / `6,059` 这类写法直接出现在文本里。
+    #    ⚠️ 必须同时试**带千分位**的写法：取数摘要与年报里几乎都写 `1,741.00 亿元`，
+    #    而模型输出的是 `1741`，只比无分隔符字符串会让明明有出处的数字被判成"推算"。
+    for _s in (f"{_v:g}", f"{_v:.1f}", f"{_v:.2f}", f"{_v:,.2f}",
+               f"{_v:,.0f}", f"{_v:,.1f}"):
         if _s and _s in text:
             return True
         _trim = _s.rstrip("0").rstrip(".")
@@ -430,6 +438,97 @@ def verify_evidence(
     return issues
 
 
+def _context_around(text: str, value: float, span: int = 70) -> str:
+    """在文本中定位某个数值（含千分位/换算写法）并截取上下文，供"可定位到原文"展示。"""
+    _v = abs(float(value))
+    # 与 number_has_source 保持同一套写法（含千分位），否则会出现
+    # "判定为有出处，却截不出上下文" 的自相矛盾展示。
+    for _s in (f"{_v:g}", f"{_v:.1f}", f"{_v:,.2f}", f"{_v:,.0f}"):
+        _i = text.find(_s)
+        if _i >= 0:
+            _lo = max(0, _i - span)
+            _hi = min(len(text), _i + len(_s) + span)
+            return re.sub(r"\s+", " ", text[_lo:_hi]).strip()
+    return ""
+
+
+def evidence_map(
+    analysis: Dict[str, Any],
+    hits: Optional[Sequence[Dict[str, Any]]] = None,
+    raw_data: str = "",
+    page_range: Optional[Tuple[int, int]] = None,
+) -> List[Dict[str, Any]]:
+    """把分析里的每个数值**正向**定位回它的出处（页码 + 原文片段）。
+
+    与 `verify_evidence` 的关系：那个函数回答"哪些数字找不到出处"（异常清单），
+    这个函数回答"每个数字出处在哪"（证据卡）。P1-05 要求「关键结论可定位到支持的原文」——
+    只有正向映射才让"引用核验"变成可展示、可核查的东西，而不是只报错。
+
+    返回 [{kind, item, value, unit, found, page, source, snippet}]，
+    出处优先级：年报检索片段（带页码） > 在线取数摘要 > 未定位。
+    """
+    out: List[Dict[str, Any]] = []
+    _hits = list(hits or [])
+    _entries: List[Tuple[str, Dict[str, Any]]] = []
+    for _m in (analysis.get("metrics") or [])[:24]:
+        _entries.append(("指标", _m))
+    for _c in (analysis.get("chart_data") or [])[:24]:
+        _entries.append(("图表", _c))
+
+    for _kind, _e in _entries:
+        _v = _e.get("value")
+        _item = str(_e.get("item") or "")
+        _unit = str(_e.get("unit") or "")
+        _rec = {
+            "kind": _kind, "item": _item, "value": _v, "unit": _unit,
+            "found": False, "page": None, "source": "", "snippet": "",
+        }
+        if not isinstance(_v, (int, float)) or isinstance(_v, bool):
+            _rec["source"] = "非数值项，不做数值核对"
+            out.append(_rec)
+            continue
+        for _h in _hits:
+            _txt = str(_h.get("text") or "")
+            if _txt and number_has_source(_v, _txt):
+                _rec["found"] = True
+                _pg = _h.get("page")
+                _rec["page"] = int(_pg) if isinstance(_pg, (int, float)) and _pg else None
+                _rec["source"] = "年报检索片段"
+                _rec["snippet"] = _context_around(_txt, _v) or re.sub(r"\s+", " ", _txt[:120])
+                break
+        if not _rec["found"] and raw_data and number_has_source(_v, raw_data):
+            _rec["found"] = True
+            _rec["source"] = "在线取数摘要"
+            _rec["snippet"] = _context_around(raw_data, _v)
+        if not _rec["found"]:
+            _rec["source"] = "未定位到出处（可能来自模型换算/推算，建议以年报原文为准）"
+        # 页码越界 → 即便数值命中也标为可疑
+        if _rec["found"] and _rec["page"] and page_range:
+            if not (int(page_range[0]) <= _rec["page"] <= int(page_range[1])):
+                _rec["found"] = False
+                _rec["page"] = None
+                _rec["source"] = "页码越界，引用不可核验"
+        out.append(_rec)
+    return out
+
+
+def citation_accuracy(analysis: Dict[str, Any], page_range: Optional[Tuple[int, int]]) -> Dict[str, Any]:
+    """正文里出现的页码引用有多少落在真实页数范围内（P1-06 的"引用正确率"）。"""
+    _blob = " ".join([
+        str(analysis.get("summary") or ""),
+        " ".join(str(x) for x in (analysis.get("risks") or [])),
+        " ".join(str(x) for x in (analysis.get("highlights") or [])),
+    ])
+    _refs = [int(x) for x in re.findall(r"第\s*(\d{1,6})\s*页", _blob)]
+    if not _refs:
+        return {"refs": 0, "ok": 0, "rate": None}
+    if not page_range:
+        return {"refs": len(_refs), "ok": 0, "rate": None}
+    _lo, _hi = int(page_range[0]), int(page_range[1])
+    _ok = sum(1 for p in _refs if _lo <= p <= _hi)
+    return {"refs": len(_refs), "ok": _ok, "rate": round(_ok / len(_refs), 3)}
+
+
 # ---------------------------------------------------------------------------
 # CLI 自检：不联网、不依赖 Streamlit
 # ---------------------------------------------------------------------------
@@ -497,6 +596,33 @@ if __name__ == "__main__":
     )
     assert any("99999" in x for x in _ev5), f"编造数值被放过：{_ev5}"
 
+    # 8) 证据卡（正向定位）：数值应能定位回页码 + 原文片段
+    _ana = {
+        "metrics": [{"item": "2025年报营业收入", "value": 60.59, "unit": "亿元"}],
+        "chart_data": [{"item": "2025年报未知科目", "value": 88888}],
+    }
+    _hits = [
+        {"page": 42, "text": "报告期内公司实现营业收入 6,058,908,000.00 元，同比增长 5.2%。"},
+        {"page": 88, "text": "公司主要会计政策说明。"},
+    ]
+    _em = evidence_map(_ana, _hits, raw_data="", page_range=(1, 220))
+    assert _em[0]["found"] and _em[0]["page"] == 42, f"证据卡未定位到第 42 页: {_em[0]}"
+    assert "6,058,908,000" in _em[0]["snippet"], f"证据卡未带回原文片段: {_em[0]['snippet']}"
+    assert not _em[1]["found"], f"编造数值竟被定位到出处: {_em[1]}"
+
+    # 9) 页码越界时，即便数值命中也不得算"可核验"
+    _em2 = evidence_map(
+        {"metrics": [{"item": "x", "value": 60.59}]},
+        hits=[{"page": 9999, "text": "营业收入 6,058,908,000.00 元"}],
+        page_range=(1, 220),
+    )
+    assert not _em2[0]["found"], f"越界页码未被拦截: {_em2[0]}"
+
+    # 10) 引用正确率
+    _ca = citation_accuracy({"summary": "见第 12 页与第 99999 页"}, (1, 220))
+    assert _ca["refs"] == 2 and _ca["ok"] == 1 and _ca["rate"] == 0.5, _ca
+    assert citation_accuracy({"summary": "无页码引用"}, (1, 220))["rate"] is None
+
     print(json.dumps({
         "module": "analysis_validate",
         "coverage_gate": "ok",
@@ -504,4 +630,6 @@ if __name__ == "__main__":
         "evidence_check": "ok",
         "unit_scale_match": "ok",
         "extra_sources": "ok",
+        "evidence_map": "ok",
+        "citation_accuracy": "ok",
     }, ensure_ascii=False, indent=2))

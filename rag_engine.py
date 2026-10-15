@@ -498,6 +498,40 @@ def build_index_from_pdf(
         return {"ok": False, "chunks": 0, "pages": 0, "msg": f"{type(e).__name__}: {e}", "collection": ""}
 
 
+# ---------------------------------------------------------------------------
+# 混合重排（优化清单 P1-05：改善检索排序）
+#
+# 纯向量检索的病：问"不良贷款率/拨备覆盖率"这类**有确定名词**的问题时，
+# 语义相近但答非所问的段落（例如"公司风险管理政策概述"）也会排在真正含该表的那一页前面。
+# 引入关键词重叠做轻量重排：最终相关度 = (1-w)·余弦 + w·关键词重叠率。
+#   · w 刻意只取 0.25 —— 关键词命中不足以推翻语义相关性，
+#     但足以在语义分接近时把"真的含有这个问题词"的段落顶上来。
+#   · 中文按 2-gram 切（无需分词依赖），英文/数字按 token 切。
+#   · 余弦值仍单独保留在 cos 字段，便于回溯"到底是哪一项拉高了排名"。
+# ---------------------------------------------------------------------------
+RERANK_KEYWORD_WEIGHT = 0.25
+
+
+def _query_terms(query: str) -> set:
+    q = (query or "").strip()
+    if not q:
+        return set()
+    terms = {w.lower() for w in re.findall(r"[A-Za-z]{2,}|\d{2,}", q)}
+    _zh = re.sub(r"[^\u4e00-\u9fff]", "", q)
+    for i in range(len(_zh) - 1):
+        terms.add(_zh[i:i + 2])
+    return terms
+
+
+def _overlap_ratio(terms: set, text: str) -> float:
+    if not terms:
+        return 0.0
+    _t = text or ""
+    if not _t:
+        return 0.0
+    return sum(1 for term in terms if term in _t) / len(terms)
+
+
 def retrieve(
     query: str,
     code: str,
@@ -507,11 +541,12 @@ def retrieve(
     doc_tag: str = "",
     min_score: float = MIN_SCORE,
 ) -> List[Dict[str, Any]]:
-    """检索 Top-K 片段, 返回 [{text, score, code, year, chunk_idx, page}, ...].
+    """检索 Top-K 片段, 返回 [{text, score, cos, overlap, code, year, chunk_idx, page}, ...].
 
-    min_score: 余弦相似度下限。低于该值的片段与问题基本无关，直接丢弃 ——
+    min_score: **余弦**相似度下限。低于该值的片段与问题基本无关，直接丢弃 ——
     宁可返回空（调用方会明确说"未检索到相关片段"），也不要把无关段落当依据。
-    相似度**只表示排序依据**，不是"结论正确的概率"，页面也照此措辞。
+    `score` 是混合相关度（余弦 + 关键词重叠，用于最终排序），
+    `cos` 是纯语义相似度。相关度**只表示排序依据**，不是"结论正确的概率"，页面也照此措辞。
     """
     try:
         client = _get_chroma_client()
@@ -520,31 +555,37 @@ def retrieve(
         qvec = _embed_query(query, model=embedding_model)
         res = coll.query(
             query_embeddings=[qvec],
-            n_results=max(int(top_k or TOP_K), 1),
+            # 多取一些候选再重排：只在 Top-K 内部重排的话，被余弦埋没的正确段落永远翻不了身
+            n_results=max(int(top_k or TOP_K) * 3, 6),
             include=["documents", "metadatas", "distances"],
         )
         docs = res.get("documents", [[]])[0]
         metas = res.get("metadatas", [[]])[0]
         dists = res.get("distances", [[]])[0]
+        terms = _query_terms(query)
         out, seen = [], set()
         for d, m, dist in zip(docs, metas, dists):
-            _score = 1.0 - float(dist)  # cosine 距离 -> 相似度
-            if min_score and _score < float(min_score):
+            _cos = 1.0 - float(dist)  # cosine 距离 -> 相似度
+            if min_score and _cos < float(min_score):
                 continue
             _key = (m.get("page", 0), (d or "")[:60])
             if _key in seen:      # 相邻块高度重复时去重，别把同一段话说三遍
                 continue
             seen.add(_key)
+            _ov = _overlap_ratio(terms, d or "")
             out.append({
                 "text": d,
-                "score": _score,
+                "cos": _cos,
+                "overlap": round(_ov, 3),
+                "score": (1 - RERANK_KEYWORD_WEIGHT) * _cos + RERANK_KEYWORD_WEIGHT * _ov,
                 "code": m.get("code", code),
                 "year": m.get("year", year),
                 "chunk_idx": m.get("chunk_idx", -1),
                 "page": m.get("page", 0),
                 "doc_tag": m.get("doc_tag", doc_tag),
             })
-        return out
+        out.sort(key=lambda r: r["score"], reverse=True)
+        return out[:max(int(top_k or TOP_K), 1)]
     except Exception as e:
         logger.exception("retrieve 失败")
         return []
@@ -605,8 +646,10 @@ def format_citations(hits: List[Dict[str, Any]]) -> str:
             snippet = snippet[:CITATION_MAX_CHARS] + "…（片段过长已截断）"
         _pg = h.get("page") or 0
         _loc = f"第{_pg}页" if _pg else f"chunk#{h.get('chunk_idx', -1)}"
+        _sc = h.get("score")
+        _sc_txt = f"，相关度={float(_sc):.2f}" if isinstance(_sc, (int, float)) else ""
         lines.append(
-            f"[{i}] (年报{_loc}, 相似度={h['score']:.2f}) {snippet}"
+            f"[{i}] (年报{_loc}{_sc_txt}) {snippet}"
         )
     return "\n\n".join(lines)
 

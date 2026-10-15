@@ -883,17 +883,32 @@ def build_summary_text(code: str, name: str = "", periods: int = 4) -> str:
 
 
 def build_annual_trend(code: str, years: int = 5) -> List[Dict[str, Any]]:
-    """近 N 年年报关键指标，用于画趋势图。"""
+    """近 N 年年报关键指标，用于画趋势图 / 年度时间轴。
+
+    ⚠️ 返回顺序是东财原序（**最新年报在最前**）。绘图与文案必须先过
+    `app._trend_chrono()` 升序，否则 X 轴时间倒置、"最新一期"算成最早一期。
+    """
     data = get_financial_indicators(code, periods=years, annual_only=True)
     out = []
     for p in data:
+        _rd = str(p.get("report_date") or "")
         out.append(
             {
-                "period": p.get("report_name") or p.get("report_date"),
+                "period": p.get("report_name") or _rd,
+                "year": (_rd[:4] if len(_rd) >= 4 else ""),
+                "report_date": _rd,
+                "report_type": p.get("report_type") or "",
                 "revenue": p.get("revenue"),
                 "net_profit": p.get("net_profit"),
+                "revenue_yoy": p.get("revenue_yoy"),
+                "net_profit_yoy": p.get("net_profit_yoy"),
                 "gross_margin": p.get("gross_margin"),
+                "net_margin": p.get("net_margin"),
                 "roe": p.get("roe"),
+                "debt_ratio": p.get("debt_ratio"),
+                "ocf_to_revenue": p.get("ocf_to_revenue"),
+                "eps": p.get("eps"),
+                "bps": p.get("bps"),
             }
         )
     return out

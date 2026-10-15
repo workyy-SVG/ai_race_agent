@@ -10,6 +10,10 @@
     银行 ROE 11% 与白酒 ROE 11% 得到完全不同的分数，这才是有效的财务判断
   · 【v2 覆盖率】同时输出指标覆盖率与置信标签；覆盖不足时不给综合评价
     （避免「只填了一个 ROE=20% 也拿 10.0 分」的失真结论）
+  · 【v3 金融细分】银行 / 保险 / 证券分别使用各自的四维指标体系；
+    券商另用「金融杠杆表」评资产负债率（80% 是业务模式，不是偿债风险）。
+    评分依据里附「约为行业优秀线的 X 倍」——同业对标的显式表达
+    （不是分位数，页面措辞不得写成"同行前 X%"）。
 
 输入 metrics 字段（均可缺失，缺失维度自动降权处理）：
   roe, gross_margin, net_margin, revenue_yoy, net_profit_yoy,
@@ -111,19 +115,25 @@ def _scale(anchor: List[Tuple[float, float]], factor: float) -> List[Tuple[float
     return [(round(x * factor, 4), y) for x, y in anchor]
 
 
-def tables_for_industry(industry: str) -> Dict[str, List[Tuple[float, float]]]:
+def tables_for_industry(
+    industry: str, finance_kind: Optional[str] = None
+) -> Dict[str, List[Tuple[float, float]]]:
     """按行业基准线生成打分表。
 
     · ROE / 营收同比 / 归母净利同比 三张表随行业缩放（同业对标的核心）
     · 毛利率 / 净利率 / 资产负债率 / 流动比率 / 现金流 / 银行专用指标保持固定口径
       （这几项的合理区间差异已由维度权重与行业提示词承担，不再二次缩放，
         避免"消费"桶里乳制品与白酒被同一把尺子误伤）
+    · **例外**：券商（finance_kind="证券"）改用 `_DEBT_TABLE_SECURITIES`，
+      因为券商的高负债是业务模式而非偿债风险。
     """
     line_roe, line_grow = INDUSTRY_PROFILE.get(industry or "通用", _DEFAULT_PROFILE)
     t = dict(_TABLES)  # 浅拷贝，不改动全局基线表
     t["roe"] = _scale(_ROE_ANCHOR, line_roe)
     t["revenue_yoy"] = _scale(_REV_ANCHOR, line_grow)
     t["net_profit_yoy"] = _scale(_NP_ANCHOR, line_grow)
+    if finance_kind == "证券":
+        t["debt_ratio"] = list(_DEBT_TABLE_SECURITIES)
     return t
 
 
@@ -149,17 +159,66 @@ _DIM_GENERAL = {
 #     资产质量   不良率+拨备+拨贷比(+新业务价值率) —— 银行与保险各取所需
 #     资本充足   核心一级资本充足率(+保险偿付能力充足率) —— 银行与保险各取所需
 #   一家银行实际命中 3/10~8/10 项，一家险企命中另一半 —— **三维缺一维的情况消失**。
-_DIM_FINANCE = {
+#
+# 【v3 · 拆分银行 / 保险 / 证券】（优化清单 P1-04：拆分银行、保险、证券等适用指标）
+#   把「金融」当成一个桶是有代价的：一套维度覆盖不了三种商业模式 ——
+#     · 银行：核心是 净息差 + 不良率 + 拨备 + 资本充足率
+#     · 险企：核心是 新业务价值率 + 偿付能力充足率（不良率/资本充足率对它基本为空）
+#     · 券商：核心是 ROE + 净利率 + **高杠杆下的自有资本回报**（资产负债率 80% 是常态，
+#             拿通用表当"偿债能力差"来打分是错的 —— 它的负债主要是客户保证金）
+#   现在按子行业分别给维度，并让券商独自使用一条【金融杠杆表】。
+_DIM_BANK = {
     "盈利能力": [("roe", 0.70), ("nim", 0.30)],
     "成长性": [("revenue_yoy", 0.50), ("net_profit_yoy", 0.50)],
     "资产质量": [
-        ("npl_ratio", 0.40),
-        ("provision_coverage", 0.30),
-        ("loan_provision_ratio", 0.15),
-        ("nbv_rate", 0.15),
+        ("npl_ratio", 0.45),
+        ("provision_coverage", 0.35),
+        ("loan_provision_ratio", 0.20),
     ],
-    "资本充足": [("core_car", 0.60), ("solvency_ar", 0.40)],
+    "资本充足": [("core_car", 1.0)],
 }
+
+_DIM_INSURER = {
+    "盈利能力": [("roe", 0.60), ("net_margin", 0.40)],
+    "成长性": [("revenue_yoy", 0.50), ("net_profit_yoy", 0.50)],
+    "业务质量": [("nbv_rate", 1.0)],
+    "偿付能力": [("solvency_ar", 1.0)],
+}
+
+_DIM_SECURITIES = {
+    "盈利能力": [("roe", 0.55), ("net_margin", 0.45)],
+    "成长性": [("revenue_yoy", 0.50), ("net_profit_yoy", 0.50)],
+    "偿债能力": [("debt_ratio", 1.0)],
+    "现金流质量": [("ocf_to_revenue", 1.0)],
+}
+
+# 兼容旧引用（老代码/文档里出现 _DIM_FINANCE 时仍可用）
+_DIM_FINANCE = _DIM_BANK
+
+FINANCE_KINDS: Tuple[str, ...] = ("银行", "保险", "证券")
+
+# 券商专用资产负债率打分表：券商杠杆 = 自有资本 + 客户保证金，
+# 80% 上下属常态，用通用表（>70% 即"需警惕"）会把全部券商误判为偿债能力极差。
+_DEBT_TABLE_SECURITIES: List[Tuple[float, float]] = [
+    (40, 1), (55, 3), (65, 5), (75, 7), (82, 9), (88, 10), (95, 10),
+]
+
+
+def detect_finance_kind(metrics: Dict[str, Any], industry: str = "") -> Optional[str]:
+    """判断金融子行业（银行 / 保险 / 证券）；非金融返回 None。
+
+    依据「该类型真的拿得到的指标」判定，而不是靠公司名——
+    这样即便用户手动选了"金融"、却贴了保险公司的数据，也能自动落到保险口径。
+    """
+    m = {k: _num(v) for k, v in (metrics or {}).items()}
+    _has = lambda k: m.get(k) is not None
+    if _has("solvency_ar") or _has("nbv_rate"):
+        return "保险"
+    if _has("npl_ratio") or _has("core_car") or _has("provision_coverage"):
+        return "银行"
+    if industry == "金融":
+        return "证券"
+    return None
 
 # 阈值判读用语（用于生成评分依据文本）
 #   roe / revenue_yoy / net_profit_yoy 三项随行业基准线动态生成 ——
@@ -221,10 +280,27 @@ def _num(v) -> Optional[float]:
         return None
 
 
+def _peer_multiple(key: str, v: float, line_roe: float, line_grow: float) -> str:
+    """把指标值表示成「行业优秀线的倍数」—— 同业对标的显式表达。
+
+    ⚠️ 严格说这不是分位数（真分位数需要同业样本库），而是**以行业基准线为锚**的
+    相对位置。页面措辞必须写成"约为行业优秀线的 X 倍"，不得写成"处于同行前 X%"，
+    否则是编造统计口径。ROE 低于基准线时倍数 <1，同样有信息量。
+    """
+    if key == "roe" and line_roe:
+        return f"约为行业 ROE 优秀线的 {v / line_roe:.2f} 倍"
+    if key == "revenue_yoy" and line_grow:
+        return f"约为行业营收增速稳健线的 {v / line_grow:.2f} 倍"
+    if key == "net_profit_yoy" and line_grow:
+        return f"约为行业净利增速稳健线的 {v / (line_grow * 1.5):.2f} 倍"
+    return ""
+
+
 def compute_scores(
     metrics: Dict[str, Any],
     industry: str = "通用",
     min_coverage: float = MIN_COVERAGE,
+    finance_kind: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     核心 API：固定规则计算四维评分（同业对标版）。
@@ -243,12 +319,20 @@ def compute_scores(
     同样的 metrics + industry 输入，永远返回同样的分数（可复现）。
     """
     line_roe, line_grow = INDUSTRY_PROFILE.get(industry or "通用", _DEFAULT_PROFILE)
-    tables = tables_for_industry(industry)
+    # 金融子行业：显式传入优先；否则按"真的拿得到的指标"自动判定（银行/保险），
+    # 手选"金融"但既无银行也无保险指标 → 按券商口径。
+    _kind = finance_kind or detect_finance_kind(metrics, industry)
+    tables = tables_for_industry(industry, _kind)
     m = {k: _num(v) for k, v in (metrics or {}).items() if k in tables}
 
-    # 金融行业自动切换：有银行专用指标或行业选了"金融"
-    is_financial = (industry == "金融") or ("npl_ratio" in m and m["npl_ratio"] is not None)
-    dims = _DIM_FINANCE if is_financial else _DIM_GENERAL
+    if _kind == "银行":
+        dims, is_financial = _DIM_BANK, True
+    elif _kind == "保险":
+        dims, is_financial = _DIM_INSURER, True
+    elif _kind == "证券":
+        dims, is_financial = _DIM_SECURITIES, True
+    else:
+        dims, is_financial = _DIM_GENERAL, False
     expected = sorted({k for items in dims.values() for k, _ in items})
 
     scores: Dict[str, Optional[float]] = {}
@@ -270,9 +354,11 @@ def compute_scores(
         for k, w, v in got:
             _vi = _interp(k, v, tables)
             _dim_note = "" if len(got) == len(items) else f"（本维度 {len(got)}/{len(items)} 项可得）"
+            _pm = _peer_multiple(k, v, line_roe, line_grow)
             reasons[dim].append(
                 f"{k}={v:g}{_unit(k)} → {_vi:.1f} 分（权重 {w / wsum * 100:.0f}%；"
-                f"判读标准（{industry}）：{_verdict(k, line_roe, line_grow)}）{_dim_note}"
+                f"判读标准（{industry}）：{_verdict(k, line_roe, line_grow)}"
+                + (f"；{_pm}" if _pm else "") + f"）{_dim_note}"
             )
 
     # ---- 指标覆盖率：缺失值绝不当 0 分用，也绝不让低覆盖公司拿到"满分综合评价" ----
@@ -309,6 +395,7 @@ def compute_scores(
         "notes": notes,
         "industry": industry or "通用",
         "industry_base": (line_roe, line_grow),
+        "finance_kind": _kind or "",
     }
 
 
@@ -435,6 +522,23 @@ if __name__ == "__main__":
     r3 = compute_scores(_insurer, "金融")
     assert all(v is not None for v in r3["scores"].values()), f"保险口径仍缺维度: {r3['scores']}"
     assert r2["total_score"] is not None, "银行四维齐全却未给出综合评分！"
+    assert r2["finance_kind"] == "银行" and r3["finance_kind"] == "保险", (
+        f"金融子行业判定错误: {r2['finance_kind']} / {r3['finance_kind']}")
+
+    # 券商自检（P1-04 新增）：高杠杆是业务模式，不能被通用表判成"偿债能力极差"
+    _broker = {"roe": 7.5, "net_margin": 25.0, "revenue_yoy": 8.0, "net_profit_yoy": 12.0,
+               "debt_ratio": 78.0, "ocf_to_revenue": 15.0}
+    r4 = compute_scores(_broker, "金融")
+    assert r4["finance_kind"] == "证券", r4["finance_kind"]
+    assert all(v is not None for v in r4["scores"].values()), f"券商口径仍缺维度: {r4['scores']}"
+    assert r4["scores"]["偿债能力"] >= 6.0, (
+        f"券商 78% 资产负债率被误判为偿债能力差: {r4['scores']['偿债能力']}")
+    _brk_general = _interp("debt_ratio", 78.0, _TABLES)
+    assert _brk_general < 4.0, f"通用表对 78% 负债率的打分意外偏高: {_brk_general}"
+
+    # 同业对标显式表达：评分依据里应出现"行业优秀线的倍数"（而不是编造的"同行前 X%"）
+    _blob = " ".join(sum(r1["reasons"].values(), []))
+    assert "行业 ROE 优秀线的" in _blob and "同行前" not in _blob, "同业对标表达缺失或越界"
 
     print(json.dumps({
         "module": "scoring",
@@ -443,9 +547,14 @@ if __name__ == "__main__":
         "demo_maotai": {"total": r1["total_score"], "scores": r1["scores"],
                         "coverage": r1["coverage"], "confidence": r1["confidence"]},
         "demo_bank": {"total": r2["total_score"], "scores": r2["scores"],
-                      "coverage": r2["coverage"], "confidence": r2["confidence"]},
+                      "coverage": r2["coverage"], "confidence": r2["confidence"],
+                      "finance_kind": r2["finance_kind"]},
         "demo_insurer": {"total": r3["total_score"], "scores": r3["scores"],
-                         "coverage": r3["coverage"], "confidence": r3["confidence"]},
+                         "coverage": r3["coverage"], "confidence": r3["confidence"],
+                         "finance_kind": r3["finance_kind"]},
+        "demo_broker": {"total": r4["total_score"], "scores": r4["scores"],
+                        "coverage": r4["coverage"], "confidence": r4["confidence"],
+                        "finance_kind": r4["finance_kind"]},
         "roe_11pct_by_industry": _by_ind,
         "thin_input_total": _thin["total_score"],
         "regex_test": extract_metrics_regex("毛利率 91.53%；ROE(加权) 34.2%；资产负债率 18.9%"),

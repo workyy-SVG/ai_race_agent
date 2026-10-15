@@ -9,7 +9,7 @@
   2. 结构化分析：四维评分卡片 + 总分
   3. 财务指标柱状图 + 多年趋势图
   4. 一键生成完整研报并支持下载
-  5. 双公司横向对比模式（支持在线取数）
+  5. 多公司横向对比模式（2~5 家，支持在线取数）
   6. 内置行业财务基准库（主界面横向按钮选择；为四维评分/散点/象限提供同业对标基准）
   7. 【修】追问对话：上下文实时刷新、可连续多轮提问
 
@@ -51,6 +51,13 @@ try:
     import scoring
 except ImportError:
     scoring = None  # 缺失时退回 LLM 评分并标记
+
+# 统一业务流程（页面与离线评测共用同一条链路 · 优化清单 P1-06）：
+#   取数(年报口径) → 规则评分 → 输出校验 → 证据核对 → 证据卡 → 引用统计
+try:
+    import pipeline as _pipeline
+except ImportError:
+    _pipeline = None
 
 # 输出校验层（纯函数，页面与离线评测共用同一实现）：
 #   validate_analysis / parse_json_loose / _safe_num / verify_evidence
@@ -628,7 +635,7 @@ def check_login():
         """
         <div class="hero" style="text-align:center; max-width:720px; margin:28px auto 14px auto;">
             <h1 style="color:#F8FAFC !important;font-size:30px;font-weight:800;margin:0 0 4px 0;letter-spacing:1px;">📈 金融智能投研 <span class="gold" style="color:#F5C563 !important;">Agent</span></h1>
-            <p style="color:#DBEAFE !important;font-size:14px;margin:0;">AI 驱动的财报深度分析 · 结构化评分 · 双公司对比 · 同业对标基准</p>
+            <p style="color:#DBEAFE !important;font-size:14px;margin:0;">AI 驱动的财报深度分析 · 结构化评分 · 多公司对比 · 同业对标基准</p>
             <p class="tagline" style="color:#A9C6E8 !important;font-size:12px;margin-top:6px;">数据来自巨潮资讯网 / 东方财富公开接口 · 结论仅供参考</p>
         </div>
         """,
@@ -649,13 +656,13 @@ def check_login():
               </div>
               <div style="font-size:13px;line-height:2.0;color:#334155;">
                 <div><b style="color:#1E3A8A;">① 单公司深度分析</b> —— 联网取数 → 规则引擎四维评分 → 图表与风险提示，<span style="color:#64748B;">分数可复现，大模型只做解读</span></div>
-                <div><b style="color:#1E3A8A;">② 双公司横向对比</b> —— 两家公司各自按本行业基准评分，程序生成对照表、差额与对比图，<span style="color:#64748B;">支持 CSV / 报告导出</span></div>
+                <div><b style="color:#1E3A8A;">② 多公司横向对比</b> —— 2~5 家公司各自按本行业基准评分，程序生成对照表、差额与对比图，<span style="color:#64748B;">支持 CSV / 报告导出</span></div>
                 <div><b style="color:#1E3A8A;">③ 年报原文引用</b> —— 一键解析年报 PDF，按页建向量库，结论标注「见年报第 X 页」，<span style="color:#64748B;">并可回溯核对</span></div>
                 <div><b style="color:#1E3A8A;">④ 同业对标基准</b> —— 内置消费 / 金融 / 新能源 / 医药 / 互联网行业财务基准，<span style="color:#64748B;">同一 ROE 在不同行业得分不同</span></div>
               </div>
               <div style="margin-top:14px;padding-top:12px;border-top:1px dashed #D6E0EC;
                           font-size:12px;color:#64748B;line-height:1.9;">
-                🟢 演示路径：取数 → 结构化分析 → 生成研报 → 双公司对比<br>
+                🟢 演示路径：取数 → 结构化分析 → 年度时间轴 → 生成研报 → 多公司对比<br>
                 🟡 页码引用需先在取数面板解析一份年报（约 40–80 秒）
               </div>
             </div>
@@ -1196,6 +1203,95 @@ def fig_compare_dims(scores_a: dict, scores_b: dict, na: str, nb: str) -> bytes 
     return _fig_to_png_bytes(fig)
 
 
+# ---- N 公司对比图表（优化清单 P1-02：至少 2 家 / 3 家 / 5 家都能画）----
+_CMP_SERIES_COLORS = ["#1E40AF", "#D9A441", "#0E7490", "#7C3AED", "#B45309"]
+
+
+def _cmp_series_color(i: int) -> str:
+    return _CMP_SERIES_COLORS[i % len(_CMP_SERIES_COLORS)]
+
+
+def fig_compare_group_n(mets: list, names: list, group: list, title: str) -> bytes | None:
+    """N 家公司分组柱状图：只画「至少一家有值」的指标，缺失项柱顶写 N/A（不画 0）。"""
+    n = len(names)
+    if n < 2 or len(mets) != n:
+        return None
+    rows = []
+    for k, lbl in group:
+        vals = [m.get(k) if isinstance((m or {}).get(k), (int, float)) else None for m in mets]
+        if any(v is not None for v in vals):
+            rows.append((lbl, vals))
+    if not rows:
+        return None
+    labels = [r[0] for r in rows]
+    x = np.arange(len(rows))
+    total_w = 0.82
+    w = total_w / n
+    fig, ax = plt.subplots(figsize=(max(6.2, 1.5 * n + 4.0), 3.3), facecolor=_PAL["card"])
+    ax.set_facecolor(_PAL["card"])
+    for i in range(n):
+        offs = x - total_w / 2 + w * (i + 0.5)
+        vals = [0.0 if rows[j][1][i] is None else float(rows[j][1][i]) for j in range(len(rows))]
+        bars = ax.bar(offs, vals, w * 0.9, label=names[i], color=_cmp_series_color(i))
+        for b, raw in zip(bars, [rows[j][1][i] for j in range(len(rows))]):
+            ax.annotate("N/A" if raw is None else f"{raw:g}",
+                        (b.get_x() + b.get_width() / 2, b.get_height()),
+                        ha="center", va="bottom", fontsize=7, color=_PAL["text"],
+                        xytext=(0, 2), textcoords="offset points")
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, color=_PAL["text"], fontsize=9)
+    ax.grid(axis="y", color="#E2E8F0", linewidth=0.6, alpha=0.8)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.tick_params(axis="y", labelcolor=_PAL["text"], labelsize=9)
+    ax.legend(frameon=False, labelcolor=_PAL["text"], fontsize=8,
+              ncol=min(n, 3), loc="upper right")
+    ax.set_title(title, color=_PAL["title"], fontsize=12, fontweight="bold", pad=10)
+    return _fig_to_png_bytes(fig)
+
+
+def fig_compare_dims_n(score_list: list, names: list) -> bytes | None:
+    """N 家公司四维评分分组柱状图（维度取并集；缺失维度写 N/A）。"""
+    n = len(names)
+    if n < 2 or len(score_list) != n:
+        return None
+    dims = []
+    for s in score_list:
+        for d in (s or {}).keys():
+            if d not in dims:
+                dims.append(d)
+    if not dims:
+        return None
+    x = np.arange(len(dims))
+    total_w = 0.82
+    w = total_w / n
+    fig, ax = plt.subplots(figsize=(max(6.2, 1.5 * n + 4.0), 3.1), facecolor=_PAL["card"])
+    ax.set_facecolor(_PAL["card"])
+    for i in range(n):
+        offs = x - total_w / 2 + w * (i + 0.5)
+        vals = [(score_list[i] or {}).get(d) for d in dims]
+        bars = ax.bar(offs, [0.0 if v is None or not isinstance(v, (int, float)) else float(v)
+                             for v in vals],
+                      w * 0.9, label=names[i], color=_cmp_series_color(i))
+        for b, v in zip(bars, vals):
+            ax.annotate("N/A" if not isinstance(v, (int, float)) else f"{v:g}",
+                        (b.get_x() + b.get_width() / 2, b.get_height()),
+                        ha="center", va="bottom", fontsize=7, color=_PAL["text"],
+                        xytext=(0, 2), textcoords="offset points")
+    ax.set_ylim(0, 11)
+    ax.set_ylabel("评分（0-10）", color=_PAL["text"], fontsize=9)
+    ax.set_xticks(x)
+    ax.set_xticklabels(dims, color=_PAL["text"], fontsize=9)
+    ax.grid(axis="y", color="#E2E8F0", linewidth=0.6, alpha=0.8)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.legend(frameon=False, labelcolor=_PAL["text"], fontsize=8,
+              ncol=min(n, 3), loc="upper right")
+    ax.set_title("四维评分对比（同行业可比；跨行业仅看分布，不作排名依据）",
+                 color=_PAL["title"], fontsize=12, fontweight="bold", pad=10)
+    return _fig_to_png_bytes(fig)
+
+
 def _drop_subtotals(chart_data: list) -> list:
     """柱状图取数：剔除与「整体项」重复计量的「部分项」。
 
@@ -1600,6 +1696,180 @@ def build_trend_insight(trend_rows: list) -> str:
     return f'<div class="insight-card">📖 <b>趋势解读</b>（基于年报口径）<br>{body}</div>'
 
 
+# ============ 年度时间轴（P1-01） ============
+# 验收标准逐条对应：
+#   · 年份切换后卡片与详情同步 —— 年份选择器同时驱动「卡片区」与「明细表高亮」
+#   · 缺失年份不填零 —— 图上只画**真的有数据**的年份；缺哪年用文字列出来，
+#     绝不插一根 0 值柱子（0 会被读成"那一年营收为零"）
+#   · 比率变化用百分点 —— ROE / 毛利率的同比写「+1.3 pp」，金额类才写百分比
+_TIMELINE_METRICS = [
+    ("revenue", "营业收入", "亿元", False),
+    ("net_profit", "归母净利润", "亿元", False),
+    ("roe", "ROE(加权)", "%", True),
+    ("gross_margin", "毛利率", "%", True),
+]
+_TIMELINE_LABELS = {k: lbl for k, lbl, _u, _r in _TIMELINE_METRICS}
+
+
+def _tl_num(v):
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return float(v)
+    try:
+        return float(str(v).replace("%", "").replace(",", "").strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def render_year_metric_chart(rows: list, key: str, label: str, unit: str) -> bytes | None:
+    """单指标年度柱状图：X 轴只放**有数据的年份**（缺失年份不补零柱）。"""
+    data = []
+    for r in rows:
+        _v = _tl_num(r.get(key))
+        _y = str(r.get("year") or "")
+        if _v is not None and _y:
+            data.append((_y, _v))
+    if not data:
+        return None
+    data.sort(key=lambda x: x[0])
+    labels = [d[0] for d in data]
+    vals = [d[1] for d in data]
+    fig, ax = plt.subplots(figsize=(6.6, 3.0), facecolor=_PAL["card"])
+    ax.set_facecolor(_PAL["card"])
+    colors = [_PAL["purple"] if v >= 0 else _PAL["neutral"] for v in vals]
+    bars = ax.bar(labels, vals, color=colors, width=0.55)
+    for b, v in zip(bars, vals):
+        _off = 0.02 * (max(abs(v) for v in vals) or 1)
+        ax.annotate(f"{v:g}", (b.get_x() + b.get_width() / 2, v + (v >= 0 and _off or -_off)),
+                    ha="center", va="bottom" if v >= 0 else "top",
+                    color=_PAL["text"], fontsize=9)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.grid(axis="y", color="#E2E8F0", linewidth=0.6, alpha=0.8)
+    ax.axhline(0, color="#CBD5E1", linewidth=0.8)
+    ax.tick_params(axis="both", labelcolor=_PAL["text"], labelsize=9)
+    ax.set_title(f"{label}（{unit}）· 年报口径", color=_PAL["title"],
+                 fontsize=12, fontweight="bold", pad=10)
+    return _fig_to_png_bytes(fig)
+
+
+def render_year_timeline(code: str, name: str = "", years: int = 8) -> None:
+    """年度时间轴：筛选年份范围 → 选指标 → 选年份看当年数据 → 导出 CSV。"""
+    st.markdown("##### 🗓️ 年度时间轴（近 %d 年年报口径）" % years)
+    try:
+        rows = ds.build_annual_trend(code, years=years) or []
+    except Exception:
+        rows = []
+    rows = _trend_chrono(rows)
+    _seen, _uniq = set(), []
+    for r in rows:
+        _y = str(r.get("year") or "")
+        if _y and _y not in _seen:
+            _seen.add(_y)
+            _uniq.append(r)
+    rows = _uniq
+    if len(rows) < 2:
+        st.info("年报期数不足（需 ≥2 个年报期才能构成时间轴）。"
+                "可在上方「报告期数」调大后重新取数。")
+        return
+
+    years_all = [str(r["year"]) for r in rows]
+    c1, c2 = st.columns([3, 4])
+    with c1:
+        _lo, _hi = st.select_slider(
+            "年份范围",
+            options=years_all,
+            value=(years_all[0], years_all[-1]),
+            key="timeline_range",
+            help="只影响本区块的展示与导出，不改变评分口径（评分固定最近一个年报）。",
+        )
+    with c2:
+        _mkey = st.radio(
+            "指标",
+            [k for k, _l, _u, _r in _TIMELINE_METRICS],
+            format_func=lambda k: _TIMELINE_LABELS[k],
+            horizontal=True,
+            key="timeline_metric",
+        )
+    _m_idx = [k for k, _l, _u, _r in _TIMELINE_METRICS].index(_mkey)
+    _mlabel, _munit, _is_ratio = _TIMELINE_METRICS[_m_idx][1], _TIMELINE_METRICS[_m_idx][2], _TIMELINE_METRICS[_m_idx][3]
+
+    sel = [r for r in rows if _lo <= str(r.get("year")) <= _hi]
+    _present = {str(r["year"]) for r in sel}
+    _missing = [str(y) for y in range(int(_lo), int(_hi) + 1) if str(y) not in _present]
+    if not sel:
+        st.warning("所选年份范围内没有数据，请调整年份范围。")
+        return
+
+    _png = render_year_metric_chart(sel, _mkey, _mlabel, _munit)
+    if _png:
+        show_png(_png, alt=f"{_mlabel}年度趋势")
+    st.caption(
+        f"📊 图中仅包含**有年报数据**的年份"
+        + (f"；缺失年份：{'、'.join(_missing)}（不补零，避免被读成「该年为零」）"
+           if _missing else "；所选范围内无缺失年份")
+        + f"。数据来源：东方财富财务指标接口（REPORT_TYPE=年报），分析对象：{name or code}。"
+    )
+
+    # ---- 点击/选择年份 → 卡片与明细同步 ----
+    _years_desc = sorted(_present, reverse=True)
+    _prev_map = {}
+    _tail = [r for r in rows if str(r.get("year")) <= _hi]
+    for _i, _r in enumerate(_tail):
+        _y = str(_r.get("year"))
+        if _y in _years_desc and _i > 0:
+            _prev_map[_y] = _tail[_i - 1]
+    _pick = st.selectbox("查看年份", _years_desc, key="timeline_year")
+    _row = next((r for r in rows if str(r.get("year")) == _pick), None)
+    if _row:
+        st.markdown(f"**{_pick} 年年报**")
+        _cols = st.columns(len(_TIMELINE_METRICS))
+        for _i, (_k, _lbl, _u, _ratio) in enumerate(_TIMELINE_METRICS):
+            _v = _tl_num(_row.get(_k))
+            _pv = _tl_num((_prev_map.get(_pick) or {}).get(_k))
+            with _cols[_i]:
+                if _v is None:
+                    st.metric(_lbl, "无数据")
+                else:
+                    _delta = None
+                    if _pv is not None:
+                        if _ratio:
+                            # 比率类必须用**百分点**表示变化（百分比变化的百分比是外行话）
+                            _delta = f"{_v - _pv:+.2f} pp"
+                        elif _pv:
+                            _delta = f"{(_v / _pv - 1) * 100:+.1f}%"
+                    st.metric(f"{_lbl}（{_u}）", f"{_v:g}", delta=_delta)
+        _src = str(_row.get("report_date") or "") or "—"
+        st.caption(
+            f"📄 数据来源：东方财富财务指标接口 · 报告期 {_row.get('period') or _pick}"
+            f"（披露日期 {_src}）· 同比口径：金额类为同比百分比，比率类为百分点（pp）之差。"
+        )
+
+    # ---- 明细表 + 导出 ----
+    _tbl = []
+    for r in sel:
+        _rec = {"年份": str(r.get("year")), "报告期": str(r.get("period") or "")}
+        for _k, _lbl, _u, _ratio in _TIMELINE_METRICS:
+            _v = _tl_num(r.get(_k))
+            _pv = _tl_num((_prev_map.get(str(r.get("year"))) or {}).get(_k))
+            _rec[f"{_lbl}({_u})"] = "—" if _v is None else f"{_v:g}"
+            if _v is None or _pv is None:
+                _rec[f"{_lbl}变化"] = "—"
+            elif _ratio:
+                _rec[f"{_lbl}变化"] = f"{_v - _pv:+.2f} pp"
+            else:
+                _rec[f"{_lbl}变化"] = f"{(_v / _pv - 1) * 100:+.1f}%" if _pv else "—"
+        _tbl.append(_rec)
+    _tl_df = pd.DataFrame(_tbl)
+    st.dataframe(_tl_df, use_container_width=True, hide_index=True)
+    st.download_button(
+        "⬇️ 导出年度时间轴（CSV）",
+        data=_tl_df.to_csv(index=False).encode("utf-8-sig"),
+        file_name=f"年度时间轴_{name or code}_{_lo}-{_hi}.csv",
+        mime="text/csv",
+        key=f"tl_csv_{code}_{_lo}_{_hi}",
+    )
+
+
 def build_radar_insight(scores: dict) -> str:
     """四维评分雷达图自动解读。"""
     items = [(k, float(v)) for k, v in (scores or {}).items() if isinstance(v, (int, float))]
@@ -1646,6 +1916,11 @@ def render_rag_hits_panel(rag_hits: list) -> str:
             sim = float(sim)
         except (TypeError, ValueError):
             sim = 0.0
+        # 纯语义相似度（混合重排后 score 已不是余弦值，单独标注避免误解）
+        try:
+            _cos = float(h.get("cos"))
+        except (TypeError, ValueError):
+            _cos = None
         if sim >= 0.75:
             sim_cls = "rag-sim-high"
         elif sim >= 0.5:
@@ -1655,17 +1930,18 @@ def render_rag_hits_panel(rag_hits: list) -> str:
         text = (h.get("text") or h.get("content") or "").replace("\n", " ").strip()
         text = text[:160] + ("…" if len(text) > 160 else "")
         text = _html.escape(text)  # 外部文档内容一律转义，杜绝标签注入
+        _cos_txt = f' · 语义 {_cos:.2f}' if _cos is not None else ""
         rows.append(
             f'<div class="rag-hit">'
             f'<span class="rag-rank">#{i}</span>'
             f'<span class="rag-page">📄 年报第 {page} 页</span>'
-            f'&nbsp;|&nbsp;<span class="{sim_cls}">相似度 {sim:.2f}</span>'
+            f'&nbsp;|&nbsp;<span class="{sim_cls}">相关度 {sim:.2f}{_cos_txt}</span>'
             f'<br><span style="color:#334155;font-size:12px;line-height:1.6;">{text}</span>'
             f'</div>'
         )
     return (
         '<div style="margin: 10px 0 6px 0;color:#1E3A8A;font-weight:700;font-size:14px;">'
-        f'📚 RAG 检索过程（Top-{len(rows)} 相关章节 · 按相似度排序）</div>'
+        f'📚 RAG 检索过程（Top-{len(rows)} 相关章节 · 语义+关键词混合重排）</div>'
         + "".join(rows)
     )
 
@@ -1683,8 +1959,9 @@ def _panel_clear(key_prefix: str) -> None:
                "pdf_tag", "pdf_title", "rag_status", "reports"):
         st.session_state.pop(f"{key_prefix}_{_k}", None)
     if key_prefix == "single":
-        # 单公司页：旧分析 / 旧研报 / 旧对话都必须一起失效
-        for _k in ("analysis", "analysis_data", "report", "messages", "data_sig"):
+        # 单公司页：旧分析 / 旧研报 / 旧对话 / 旧证据卡都必须一起失效
+        for _k in ("analysis", "analysis_data", "report", "messages", "data_sig",
+                   "evidence_items_last", "timeline_rows", "timeline_code"):
             st.session_state.pop(_k, None)
 
 
@@ -1753,15 +2030,26 @@ def _build_online_digest() -> str:
     return "\n".join(lines).strip()
 
 
-def online_fetch_panel(key_prefix: str, default_name: str = ""):
+def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = False):
     """
     渲染「在线取数」面板，返回 (summary_text, company_name, extra_info)。
     - 输入股票代码/名称 → 自动拉取行情 + 多期财务指标 → 生成分析文本
     - 可从报告列表一键下载年报 PDF 并解析
     结果存入 session_state[key_prefix + "_online"], 避免与手动输入冲突。
+
+    :param compact: 紧凑模式（多公司对比页用，P1-02）。只保留「选代码 + 取数」，
+        去掉报告期数选择器、原始数据展开与年报 PDF 解析面板 ——
+        否则 3~5 家公司并列时，光取数 UI 就把页面撑得无法使用。
+        取数逻辑、防"猜代码"逻辑与完整模式**完全一致**。
     """
-    st.markdown("##### 🌐 在线取数（自动从巨潮资讯网 + 东方财富获取）")
-    c1, c2, c3 = st.columns([2, 1, 1])
+    st.markdown(
+        "**🌐 在线取数**" if compact
+        else "##### 🌐 在线取数（自动从巨潮资讯网 + 东方财富获取）"
+    )
+    if compact:
+        c1, c3 = st.columns([3, 1])
+    else:
+        c1, c2, c3 = st.columns([2, 1, 1])
     with c1:
         # 热门股票下拉框：不用记代码，直接选；也支持手动输入
         _POPULAR_STOCKS = [
@@ -1818,26 +2106,29 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
             key=_kw_key,
             placeholder="例如：600519 或 贵州茅台",
         )
-    with c2:
-        # 选项改为 1~8 连续：旧实现写死 [1, 2, 3, 4, 6, 8]，用户看到列表里缺 5 和 7，
-        # 会误以为功能有缺陷（实际只是当时随手挑了几个值）。
-        periods = st.selectbox(
-            "报告期数",
-            list(range(1, 9)),
-            index=2,
-            key=f"{key_prefix}_periods",
-            help="向东方财富拉取「最近 N 个报告期」的财务数据（含一季报/中报/三季报/年报）。"
-                 "它只决定可取用的报告期数量与趋势图范围：N 越大可选期数越多、耗时略增。"
-                 "四维评分、柱状图、圆环图一律固定按「最近一个年报」口径计算，与 N 无关。",
-        )
+    periods = 3
+    if not compact:
+        with c2:
+            # 选项改为 1~8 连续：旧实现写死 [1, 2, 3, 4, 6, 8]，用户看到列表里缺 5 和 7，
+            # 会误以为功能有缺陷（实际只是当时随手挑了几个值）。
+            periods = st.selectbox(
+                "报告期数",
+                list(range(1, 9)),
+                index=2,
+                key=f"{key_prefix}_periods",
+                help="向东方财富拉取「最近 N 个报告期」的财务数据（含一季报/中报/三季报/年报）。"
+                     "它只决定可取用的报告期数量与趋势图范围：N 越大可选期数越多、耗时略增。"
+                     "四维评分、柱状图、圆环图一律固定按「最近一个年报」口径计算，与 N 无关。",
+            )
     with c3:
         st.write("")
         st.write("")
         do_fetch = st.button("🔍 获取数据", use_container_width=True, key=f"{key_prefix}_fetch")
-    st.caption(
-        "ℹ️ **报告期数 = 抓取最近 N 期财务数据**（含季报/中报/年报）；它只影响「可选报告的期数」与趋势范围，"
-        "**评分与图表固定按「最近一个年报」口径**计算 —— 换 N 不会让分数漂移。"
-    )
+    if not compact:
+        st.caption(
+            "ℹ️ **报告期数 = 抓取最近 N 期财务数据**（含季报/中报/年报）；它只影响「可选报告的期数」与趋势范围，"
+            "**评分与图表固定按「最近一个年报」口径**计算 —— 换 N 不会让分数漂移。"
+        )
 
     if do_fetch:
         _kw = (kw or "").strip()
@@ -1901,6 +2192,11 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
                 st.rerun()
 
     text = st.session_state.get(f"{key_prefix}_online", "")
+    # 【防御】key_prefix 命名空间里若有同名控件（如某处的复选框也叫 xxx_online），
+    # 会话值会被写成 bool/其他类型，len(text) 会抛 TypeError 让整页崩掉。
+    # 这里统一降级为 str，保证面板永远可用（P1-02 多公司区曾真实踩到该坑）。
+    if not isinstance(text, str):
+        text = "" if not text else str(text)
     name = st.session_state.get(f"{key_prefix}_online_name", "")
     code = st.session_state.get(f"{key_prefix}_online_code", "")
     org = st.session_state.get(f"{key_prefix}_online_org", "")
@@ -1921,6 +2217,9 @@ def online_fetch_panel(key_prefix: str, default_name: str = ""):
                 f"⚠️ 本次取数中有 {len(_insec)} 个接口由 HTTPS 降级为 HTTP（明文连接），"
                 "数据来自公开接口，仅供参考；如长期出现请检查网络是否拦截了 HTTPS。"
             )
+        if compact:
+            # 紧凑模式到此为止：不铺开原始数据、不提供年报解析面板（对比页只需指标）
+            return text, name, ""
         with st.expander("查看获取到的原始数据", expanded=False):
             st.markdown(text)
 
@@ -2037,7 +2336,7 @@ st.markdown(
     <div class="hero">
         <h1 style="color:#F8FAFC !important;font-size:30px;font-weight:800;margin:0 0 4px 0;letter-spacing:1px;">📈 金融智能投研 <span class="gold" style="color:#F5C563 !important;">Agent</span></h1>
         <p style="color:#DBEAFE !important;font-size:14px;margin:0;">输入股票代码即可自动取数，一键完成结构化分析、四维评分、趋势图表与研报生成</p>
-        <p class="tagline" style="color:#A9C6E8 !important;font-size:12px;margin-top:6px;">在线取数（巨潮+东财）· 年报 PDF 解析 · 双公司对比 · 六大行业财务基准库 · 多轮追问</p>
+        <p class="tagline" style="color:#A9C6E8 !important;font-size:12px;margin-top:6px;">在线取数（巨潮+东财）· 年报 PDF 解析 · 年度时间轴 · 2~5 家公司对比 · 六大行业财务基准库</p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -2072,7 +2371,7 @@ with st.sidebar:
         '<span class="sb-chip">四维评分</span>'
         '<span class="sb-chip">📈 趋势图表</span>'
         '<span class="sb-chip">📝 研报导出</span>'
-        '<span class="sb-chip">双公司对比</span>'
+        '<span class="sb-chip">多公司对比</span>'
         '<span class="sb-chip">多轮追问</span>'
         "</div>",
         unsafe_allow_html=True,
@@ -2204,6 +2503,29 @@ else:
             f"评分基准与散点图基准会按「{industry}」计算，请确认是否选错。"
         )
 
+# ---- 金融子行业口径（优化清单 P1-04：拆分银行 / 保险 / 证券的适用指标）----
+# 把「金融」当一个桶是有代价的：银行看净息差 + 不良率 + 资本充足率；
+# 险企看新业务价值率 + 偿付能力充足率；而券商的高杠杆是**业务模式**
+# （大头是客户保证金），拿通用"资产负债率 >70% 需警惕"去打分是错的。
+if industry == "金融":
+    _fk = st.radio(
+        "金融子行业口径",
+        ["🤖 自动识别（按取到的指标判定）", "🏦 银行", "🛡️ 保险", "📈 证券"],
+        horizontal=True,
+        key="single_finance_kind_widget",
+        help="银行：净息差 · 不良率 · 拨备覆盖率 · 核心一级资本充足率；"
+             "保险：新业务价值率 · 偿付能力充足率；"
+             "证券：ROE · 净利率 + 金融杠杆表（80% 负债率属常态）。",
+    )
+    _fk_val = {"🏦 银行": "银行", "🛡️ 保险": "保险", "📈 证券": "证券"}.get(_fk, "")
+    st.session_state["single_finance_kind"] = _fk_val
+    st.caption(
+        f"当前金融口径：**{_fk_val or '自动识别'}** —— "
+        "四维指标构成与判读标准会随该选择切换（这就是「行业变化影响实际指标与评价依据」）。"
+    )
+else:
+    st.session_state["single_finance_kind"] = ""
+
 # ---- 同业对标基准条：把「对标」这个动作直接摆到用户面前 ----
 # 同一组财务数据只有在对标了行业基准后才具备可比性（银行 ROE 11% 已属优秀，
 # 白酒 ROE 11% 则严重落后）——「同业对标」是金融分析的规定动作，必须显式标注。
@@ -2226,7 +2548,7 @@ def system_prompt_with_kb(industry_override: str = ""):
     _kb = INDUSTRY_KB.get(_ind) or INDUSTRY_KB.get("通用") or ""
     return BASE_SYSTEM_PROMPT + "\n\n" + _kb
 
-tab1, tab2, tab3 = st.tabs(["🏢 单公司深度分析", "⚖️ 双公司对比", "📖 使用说明"])
+tab1, tab2, tab3 = st.tabs(["🏢 单公司深度分析", "⚖️ 多公司对比", "📖 使用说明"])
 
 # ---------------------------------------------------------------
 # Tab 1：单公司深度分析
@@ -2438,117 +2760,60 @@ with tab1:
                 )
                 analysis = parse_json_loose(raw_json)
 
-                # 3) 规则引擎评分（固定阈值 → 同样的数据永远得到同样的分数）
-                if scoring is not None:
-                    _metrics_for_score = {}
-                    _score_period = ""
-                    # ⚠️ 只有在「在线取数」模式下才允许取在线指标做评分。
-                    #    历史 bug：这里直接读会话里的 single_online_code，
-                    #    于是"先在线看了公司 A → 切到手动粘贴公司 B"时，
-                    #    评分仍去拉 A 的财务指标（甚至包括 A 的年报 ROE），
-                    #    页面显示的是 B 的数据、分数却来自 A。
-                    _is_online = src_mode.startswith("🌐")
-                    _oc = st.session_state.get("single_online_code", "") if _is_online else ""
-                    if _oc:
-                        try:
-                            # 直接只取年报（annual_only=True），而不是"取最近 N 期再筛年报"：
-                            # 报告期数选小了（如 3 期）时，最近 3 期可能全是一季报/中报/三季报，
-                            # 明明存在年报却筛不到，于是退回中期口径 —— 评分基准期随选择器漂移。
-                            _fina = ds.get_financial_indicators(
-                                _oc,
-                                periods=int(st.session_state.get("single_periods", 4) or 4),
-                                annual_only=True,
-                            )
-                            if not _fina:
-                                # 该公司确实还没有年报（如新上市/次新股）→ 退回全部报告期
-                                _fina = ds.get_financial_indicators(
-                                    _oc, periods=int(st.session_state.get("single_periods", 4) or 4)
-                                )
-                            if _fina:
-                                # ⚠️ 口径统一：一律用【最近一个年报】评分。
-                                #    中期报告（一季报/中报/三季报）的金额是年初至今累计值，
-                                #    ROE 也是期间值（海天味业中报 ROE 10.07% vs 年报 19.59%），
-                                #    与年报不可比。混用会让同一页出现两个 ROE，评分也随之失真。
-                                _annual = [r for r in _fina if (r.get("report_type") or "") == "年报"]
-                                _pick = _annual[0] if _annual else _fina[0]
-                                _metrics_for_score = _pick
-                                _score_period = str(_pick.get("report_name") or "")
-                                if not _annual:
-                                    _score_period += "（无年报记录，暂用中期报告口径）"
-                        except Exception:
-                            _metrics_for_score = {}
-                    if not _metrics_for_score:
-                        # 手动模式：正则抽取 → 抽不到再让 LLM 抽（LLM 只提取数字，不打分）
-                        _metrics_for_score = scoring.extract_metrics_regex(raw_data)
-                        _need_llm = [k for k in (
-                            "roe", "gross_margin", "net_margin", "revenue_yoy", "net_profit_yoy",
-                            "debt_ratio", "current_ratio", "ocf_to_revenue",
-                        ) if k not in _metrics_for_score]
-                        if _need_llm and raw_data:
-                            try:
-                                _mj = llm_once(
-                                    [
-                                        {"role": "system", "content": "你是严谨的财务数据抽取器，只输出 JSON。"},
-                                        {"role": "user", "content": scoring.METRICS_EXTRACTION_PROMPT + raw_data[:MAX_CHARS]},
-                                    ],
-                                    temperature=0.0,
-                                    action="metrics_extract",
-                                    json_mode=True,
-                                )
-                                _m = parse_json_loose(_mj)
-                                if isinstance(_m, dict):
-                                    for k in _need_llm:
-                                        v = _m.get(k)
-                                        if v is not None:
-                                            _metrics_for_score[k] = v
-                            except Exception:
-                                pass
-                    sc = scoring.compute_scores(_metrics_for_score, industry)
-                    analysis["scores"] = sc["scores"]
-                    analysis["total_score"] = sc["total_score"]
-                    analysis["score_reasons"] = sc["reasons"]
-                    analysis["score_missing"] = sc["missing"]
-                    analysis["score_engine"] = "规则引擎 v2（同业对标 + 覆盖率门槛）"
-                    # 覆盖率 / 置信标签 / 说明：低覆盖时不许给"满分综合评价"
-                    analysis["score_coverage"] = sc.get("coverage")
-                    analysis["score_confidence"] = sc.get("confidence")
-                    analysis["score_notes"] = sc.get("notes") or []
-                    analysis["score_expected"] = sc.get("expected_metrics")
-                    analysis["score_provided"] = sc.get("provided_metrics")
-                    analysis["score_industry"] = sc.get("industry")
-                    # 保存标准化原始指标（供 ROE×营收增速 散点图取数）
-                    analysis["metrics_raw"] = dict(_metrics_for_score or {})
-                    analysis["score_period"] = _score_period
-                    analysis["score_source"] = (
-                        f"在线财务指标（{_score_period}）" if _score_period
-                        else ("在线财务指标（最新报告期）" if _oc else "文本抽取")
-                    )
+                # 3) 规则评分 + 输出校验 + 证据核对 / 证据卡
+                #    ⚠️ 整段与离线评测共用 pipeline.analyze_core()（P1-06：页面和评测复用同一业务流程）。
+                #    各自写一份的后果是"评测报告证明的其实是另一条流水线"——
+                #    页面改了阈值或口径，评测脚本不会跟着变，结论自然不可信。
+                #
+                #    历史 bug（已在本模块内修掉）：评分曾直接读会话里的 single_online_code，
+                #    于是"先在线看了公司 A → 切到手动粘贴公司 B"时，评分仍去拉 A 的财务指标。
+                #    pipeline 用 online= 显式开关复现这条防线。
+                _is_online = src_mode.startswith("🌐")
+                _oc = st.session_state.get("single_online_code", "") if _is_online else ""
 
-                # 4) 严格校验（字段/类型/范围/缺失值），异常项修复或剔除
-                analysis, v_issues = validate_analysis(analysis)
-                for _iss in v_issues:
+                def _llm_extract(_text, _need):
+                    """手动模式下正则抽不到的指标 → 让模型只抽数字（不打分）。"""
+                    _mj = llm_once(
+                        [
+                            {"role": "system", "content": "你是严谨的财务数据抽取器，只输出 JSON。"},
+                            {"role": "user", "content": scoring.METRICS_EXTRACTION_PROMPT + _text[:MAX_CHARS]},
+                        ],
+                        temperature=0.0,
+                        action="metrics_extract",
+                        json_mode=True,
+                    )
+                    return parse_json_loose(_mj) or {}
+
+                _pg_count = (st.session_state.get("single_rag_status") or {}).get("pages")
+                _core = _pipeline.analyze_core(
+                    analysis,
+                    raw_data,
+                    industry,
+                    code=_oc,
+                    periods=int(st.session_state.get("single_periods", 4) or 4),
+                    online=bool(_oc),
+                    finance_kind=(st.session_state.get("single_finance_kind") or None),
+                    pdftext=st.session_state.get("single_pdftext") or "",
+                    rag_hits=rag_hits,
+                    rag_pages=_pg_count if isinstance(_pg_count, int) else None,
+                    metrics_extractor=_llm_extract,
+                )
+                analysis = _core["analysis"]
+
+                # 4) 输出校验（字段/类型/范围/缺失值）—— 由 pipeline 内部调用，
+                #    页面与评测看到的是同一份问题清单。
+                for _iss in _core["validation_issues"]:
                     st.warning(f"输出校验：{_iss}")
 
                 # 4b) 证据核对：把"看起来专业"的数字与页码引用，与真正拿到的来源对一遍。
                 #     格式校验只能保证"字段合法"，保证不了"数字有出处"——
-                #     一个凭空写出的 99999 亿元营收、一个第 99999 页的引用，
-                #     格式上完全合法。这一步专门盯这类问题。
+                #     一个凭空写出的 99999 亿元营收、一个第 99999 页的引用，格式上完全合法。
                 #
                 #     ⚠️ 证据库必须包含**年报原文**：营业成本 / 管理费用 / 经营活动现金流净额
                 #        这类数字往往只出现在年报里（RAG 检索片段或解析出的全文），
-                #        并不在 raw_data（在线取数摘要）中。只拿 raw_data 对账，
-                #        会把本来有明确出处的数字全部误报成"模型推算"（满屏黄条）。
-                _pg_count = (st.session_state.get("single_rag_status") or {}).get("pages")
-                _pg_range = (1, int(_pg_count)) if isinstance(_pg_count, int) and _pg_count > 0 else None
-                _ev_sources = []
-                _pdf_full = st.session_state.get("single_pdftext") or ""
-                if _pdf_full and len(_pdf_full) <= 4_000_000:
-                    _ev_sources.append(_pdf_full)
-                for _h in (rag_hits or []):
-                    _ev_sources.append(str(_h.get("text") or ""))
-                _ev_issues = verify_evidence(
-                    analysis, raw_data, page_range=_pg_range, extra_sources=_ev_sources
-                )
+                #        并不在 raw_data（在线取数摘要）中。pipeline 已把 pdftext + rag_hits
+                #        一起纳入证据库，并对金额单位做换算链比对 —— 否则满屏黄条全是误报。
+                _ev_issues = _core["evidence_issues"]
                 if _ev_issues:
                     with st.expander(
                         f"🔎 证据核对：{len(_ev_issues)} 条提示（点击展开）", expanded=False
@@ -2565,6 +2830,57 @@ with tab1:
                 else:
                     st.caption(
                         "✅ 证据核对通过：指标与图表数值均可在「在线取数摘要 / 年报检索片段」中找到出处。"
+                    )
+
+                # 4c) 证据卡：把每个数值**正向**定位回它的出处（页码 + 原文片段）。
+                #     P1-05 要求「关键结论可定位到支持的原文」—— 只报"哪些找不到"不够，
+                #     还得能指着说"这一条出自第 42 页这一段"，否则"引用核验"无法被核查；
+                #     证据不足时也要能明确说出"无法定位，原因是没有建索引"。
+                _ev_items = _core["evidence_items"]
+                st.session_state["evidence_items_last"] = _ev_items
+                _ev_num = [e for e in _ev_items
+                           if isinstance(e.get("value"), (int, float))
+                           and not isinstance(e.get("value"), bool)]
+                _ev_located = [e for e in _ev_num if e.get("found") and e.get("page")]
+                if _ev_num:
+                    with st.expander(
+                        f"🔗 证据卡：{len(_ev_located)}/{len(_ev_num)} 项数值可定位到年报原文",
+                        expanded=False,
+                    ):
+                        if _ev_located:
+                            st.caption(
+                                "数值与它在年报中的出处（页码 + 原文片段）一一对应；"
+                                "未建年报向量索引时只能定位到取数摘要，无法给出页码。"
+                            )
+                        else:
+                            st.caption(
+                                "当前**未定位到任何年报页码** —— 多为尚未建立年报向量索引（属"
+                                "「证据不足，无法判断」的明确说明，而不是假装引用有效）。"
+                                "在上方「📄 一键获取并解析年报 PDF」里下载解析一份年报后再分析，"
+                                "即可获得「第X页 + 原文片段」级别的引用核验。"
+                            )
+                        _ev_df = pd.DataFrame([
+                            {
+                                "类型": e.get("kind", ""),
+                                "指标": e.get("item", ""),
+                                "数值": (f"{e['value']:g}"
+                                         if isinstance(e.get("value"), (int, float))
+                                         and not isinstance(e.get("value"), bool)
+                                         else str(e.get("value", ""))),
+                                "页码": (f"第 {e['page']} 页" if e.get("page") else "—"),
+                                "定位结果": ("✅ " + str(e.get("source", ""))) if e.get("found")
+                                            else ("⚠️ " + str(e.get("source", ""))),
+                                "原文片段": str(e.get("snippet") or ""),
+                            }
+                            for e in _ev_items
+                        ])
+                        st.dataframe(_ev_df, use_container_width=True, hide_index=True)
+                _cit = _core.get("citation") or {}
+                if _cit.get("rate") is not None:
+                    st.caption(
+                        f"🧭 页码引用正确率：{_cit.get('ok', 0)}/{_cit.get('refs', 0)}"
+                        f"（{_cit['rate'] * 100:.0f}%）"
+                        "—— 指正文引用的「第X页」落在年报真实页数范围内的比例。"
                     )
 
                 st.session_state["analysis"] = analysis
@@ -2824,6 +3140,21 @@ with tab1:
                 "（完整分析模式下会自动补齐）。"
             )
 
+        # ---- 🗓️ 年度时间轴（优化清单 P1-01）----
+        # 独立于 LLM 的确定性区块：数据直接来自财务指标接口的年报记录，
+        # 所以年份切换、指标切换、导出都可复现，不受模型输出影响。
+        _tl_code = st.session_state.get("single_online_code", "")
+        if _tl_code:
+            st.divider()
+            render_year_timeline(
+                _tl_code,
+                name=(analysis.get("company")
+                      or st.session_state.get("single_online_name", "")),
+            )
+        else:
+            st.caption("ℹ️ 年度时间轴需要在线取数（按股票代码抓取多年年报）；"
+                       "手动粘贴模式无此区块。")
+
         colr, colh = st.columns(2)
         with colr:
             risks = analysis.get("risks") or []
@@ -2841,8 +3172,9 @@ with tab1:
         # ---- RAG 检索过程可视化（默认展开，让评委看到按页检索的实锤） ----
         _last_rag = st.session_state.get("rag_hits_last") or []
         if _last_rag:
-            with st.expander(f"📚 RAG 检索过程 · Top-{min(len(_last_rag), 8)} 年报相关章节（按相似度排序，已默认展开）", expanded=True):
-                st.caption("以下片段是分析时从年报全文中按问题检索得到的关键章节，AI 回答的页码引用即源于此。")
+            with st.expander(f"📚 RAG 检索过程 · Top-{min(len(_last_rag), 8)} 年报相关章节（语义+关键词混合重排，已默认展开）", expanded=True):
+                st.caption("以下片段是分析时从年报全文中按问题检索得到的关键章节，AI 回答的页码引用即源于此。"
+                           "「相关度」= 语义相似度 + 关键词重叠率的加权结果（避免语义相近但答非所问的段落排到前面）。")
                 st.markdown(render_rag_hits_panel(_last_rag), unsafe_allow_html=True)
 
     # ---- 完整研报生成 ----
@@ -3046,126 +3378,255 @@ with tab1:
                 st.error(f"调用失败：{e}")
 
 # ---------------------------------------------------------------
-# Tab 2：双公司对比
+# Tab 2：多公司对比（2~5 家）
 # ---------------------------------------------------------------
 with tab2:
-    st.markdown("输入两家公司的财务数据（支持在线自动取数），生成横向对比分析与结论。")
-    ca, cb = st.columns(2)
-    with ca:
-        st.markdown("##### 🏢 公司 A")
-        use_online_a = st.checkbox("🌐 在线自动取数", key="online_a", value=True)
-        if use_online_a:
-            ot_a, on_a, op_a = online_fetch_panel("cmp_a")
-            name_a = on_a or st.text_input("公司名称 A（可选）", value="公司A", key="name_a")
-            data_a = "\n\n".join([x for x in [ot_a, op_a[:4000] if op_a else ""] if x]).strip()
-        else:
-            name_a = st.text_input("公司名称 A", value="公司A", key="name_a")
-            text_a = st.text_area("粘贴财报数据 A", height=160, key="text_a")
-            up_a = st.file_uploader("或上传文件 A（PDF / txt / md）", type=["pdf", "txt", "md"], key="up_a")
-            file_a, err_a = read_upload(up_a)
-            if err_a:
-                st.warning(err_a)
-            data_a = (text_a + "\n" + file_a).strip()
-    with cb:
-        st.markdown("##### 🏢 公司 B")
-        use_online_b = st.checkbox("🌐 在线自动取数", key="online_b", value=True)
-        if use_online_b:
-            ot_b, on_b, op_b = online_fetch_panel("cmp_b")
-            name_b = on_b or st.text_input("公司名称 B（可选）", value="公司B", key="name_b")
-            data_b = "\n\n".join([x for x in [ot_b, op_b[:4000] if op_b else ""] if x]).strip()
-        else:
-            name_b = st.text_input("公司名称 B", value="公司B", key="name_b")
-            text_b = st.text_area("粘贴财报数据 B", height=160, key="text_b")
-            up_b = st.file_uploader("或上传文件 B（PDF / txt / md）", type=["pdf", "txt", "md"], key="up_b")
-            file_b, err_b = read_upload(up_b)
-            if err_b:
-                st.warning(err_b)
-            data_b = (text_b + "\n" + file_b).strip()
+    st.markdown(
+        "支持 **2~5 家**公司横向对比：在线自动取数或手动输入，"
+        "程序生成对照表、差额与对比图（同一份数据永远同一分数）。"
+    )
 
-    # 【统一清空】对比对象变化时清空旧对比报告与旧评分对照
+    # ---- 公司数量：动态增删（优化清单 P1-02）----
+    _MAX_CMP = 5
+    if "cmp_n" not in st.session_state:
+        st.session_state["cmp_n"] = 2
+    _nb1, _nb2, _nb3 = st.columns([1, 1, 5])
+    with _nb1:
+        if st.button("➕ 添加公司", key="cmp_add", use_container_width=True,
+                     disabled=st.session_state["cmp_n"] >= _MAX_CMP):
+            st.session_state["cmp_n"] += 1
+            st.rerun()
+    with _nb2:
+        if st.button("➖ 移除末位", key="cmp_del", use_container_width=True,
+                     disabled=st.session_state["cmp_n"] <= 2):
+            _drop = st.session_state["cmp_n"] - 1
+            # 【关键】移除后必须把这家公司的**数据与派生结果**一起清掉：
+            # 只改数量不清理的话，对照表/图表里会继续出现"已经删掉的那家公司"（P1-02 验收）。
+            _panel_clear(f"cmp{_drop}")
+            st.session_state["cmp_n"] = max(2, st.session_state["cmp_n"] - 1)
+            st.session_state.pop("cmp_scores", None)
+            st.session_state.pop("cmp_report", None)
+            _panel_clear(f"cmp{st.session_state['cmp_n']}")
+            st.rerun()
+    with _nb3:
+        st.caption(
+            f"当前对比 **{st.session_state['cmp_n']}** 家（2~{_MAX_CMP} 家）。"
+            "点「➕ / ➖」增删输入区域；**移除公司后对照表、图表与报告会同步更新**。"
+        )
+
+    _n_cmp = int(st.session_state["cmp_n"])
+    _cmp_tags = ["🅰️", "🅱️", "🅲", "🅳", "🅴"]
+    _cmp_cols = st.columns(_n_cmp)
+    _cmp_side = []          # 每家: dict(i, name, code, online, data, industry, text)
+
+    def _cmp_industry_select(key: str, default_val: str) -> str:
+        """每家公司的行业口径（P1-03：各公司独立设置行业）。
+
+        ⚠️ Streamlit 控件一旦有 key，index 参数即失效 —— 必须显式写 session_state。
+        否则会出现"公司换成了宁德时代，行业口径却还停在贵州茅台的消费"。
+        """
+        if key not in st.session_state:
+            st.session_state[key] = default_val
+        _auto_key = key + "__auto"
+        _man_key = key + "__manual"
+        # 名称自动识别的行业变了、且用户从未手动改过 → 自动跟随
+        if st.session_state.get(_auto_key) != default_val and _man_key not in st.session_state:
+            st.session_state[key] = default_val
+        st.session_state[_auto_key] = default_val
+
+        def _onch():
+            st.session_state[_man_key] = st.session_state[key]
+
+        return st.selectbox("行业口径", list(INDUSTRY_KB.keys()), key=key, on_change=_onch)
+
+    for _i in range(_n_cmp):
+        with _cmp_cols[_i]:
+            st.markdown(f"##### {_cmp_tags[_i]} 公司 {chr(65 + _i)}")
+            # ⚠️ 这个复选框的 key 绝不能叫 f"cmp{_i}_online"：
+            #    online_fetch_panel 内部用 `<prefix>_online` 存放"取到的摘要文本"，
+            #    同名会让布尔值把文本覆盖掉 → len(bool) 直接抛 TypeError。
+            _use_online = st.checkbox("🌐 在线自动取数", key=f"cmp{_i}_use_online", value=True)
+            _text_i = ""
+            if _use_online:
+                _ot, _on, _op = online_fetch_panel(f"cmp{_i}", compact=True)
+                _nm = _on or st.text_input("公司名称（可选）", value=f"公司{chr(65 + _i)}",
+                                           key=f"cmp{_i}_name")
+                _data = (_ot or "").strip()
+            else:
+                _nm = st.text_input("公司名称", value=f"公司{chr(65 + _i)}", key=f"cmp{_i}_name")
+                _text_i = st.text_area("粘贴财报数据", height=120, key=f"cmp{_i}_text")
+                _up = st.file_uploader("或上传文件（PDF / txt / md）",
+                                       type=["pdf", "txt", "md"], key=f"cmp{_i}_up")
+                _file, _err = read_upload(_up)
+                if _err:
+                    st.warning(_err)
+                _data = (_text_i + "\n" + _file).strip()
+            _ind_default = ds.guess_industry(_nm) or industry
+            _ind_i = _cmp_industry_select(f"cmp{_i}_ind", _ind_default)
+            _cmp_side.append({
+                "i": _i, "name": _nm,
+                "code": st.session_state.get(f"cmp{_i}_online_code", ""),
+                "online": _use_online, "data": _data,
+                "industry": _ind_i, "text": _text_i,
+            })
+
+    # 【统一清空】对比对象变化时清空旧对比报告与旧评分对照。
     # 指纹必须包含**数据内容**：只比公司名/代码的话，把 A 的营收从 100 亿改成 900 亿，
     # 指纹不变 → 旧对比结论继续挂在页面上，与实际输入脱节。
     def _cmp_sig():
         import hashlib
         _h = lambda t: hashlib.md5((t or "").strip().encode("utf-8", errors="ignore")).hexdigest()[:10] if (t or "").strip() else "-"
-        return "|".join([
-            str(st.session_state.get("name_a", "")),
-            str(st.session_state.get("name_b", "")),
-            st.session_state.get("cmp_a_online_code", ""),
-            st.session_state.get("cmp_b_online_code", ""),
-            _h(data_a), _h(data_b),
-        ])
+        _parts = [str(_n_cmp)]
+        for _s in _cmp_side:
+            _parts += [_s["name"], _s["code"], _s["industry"], _h(_s["data"])]
+        return "|".join(_parts)
 
     _csig_now = _cmp_sig()
-    _csig_old = st.session_state.get("cmp_sig")
-    if _csig_old and _csig_old != _csig_now:
+    if st.session_state.get("cmp_sig") and st.session_state.get("cmp_sig") != _csig_now:
         _stale = []
         for _k in ("cmp_report", "cmp_scores"):
             if st.session_state.get(_k):
                 st.session_state.pop(_k, None)
                 _stale.append(_k)
         if _stale:
-            st.info("🔄 对比对象或输入数据已变化，旧的对比报告 / 评分对照已清空，请重新点击「⚖️ 开始对比分析」。")
+            st.info("🔄 对比对象、行业口径或输入数据已变化，旧的对比报告 / 评分对照已清空，"
+                    "请重新点击「⚖️ 开始对比分析」。")
     st.session_state["cmp_sig"] = _csig_now
 
-    def _cmp_side_metrics(prefix, is_online, text, name):
-        """取一侧公司的标准指标（在线优先，且只取年报口径）→ (metrics, 期别标签, 行业)。"""
-        _ind = (ds.guess_industry(name) if name else "") or industry
+    # ---- 共同年报年份对齐（P1-03）----
+    # 「默认选共同年报年份」+「不同年度不混比」：
+    #   先各自取回全部年报行，求年份交集；交集非空 → 用一个选择器统一基准年份，
+    #   所有公司都取这一年；交集为空 → 明确报错而不是硬凑一张跨年份的表。
+    _annual_rows = {}
+    for _s in _cmp_side:
+        _rows = []
+        if _s["online"] and _s["code"] and _pipeline is not None:
+            try:
+                _rows = _pipeline.all_annual_rows(_s["code"], periods=8)
+            except Exception:
+                _rows = []
+        _annual_rows[_s["i"]] = _rows
+
+    def _years_of(i):
+        if _pipeline is None:
+            return set()
+        return {_pipeline.year_of(r) for r in _annual_rows.get(i, []) if _pipeline.year_of(r)}
+
+    _all_online = _n_cmp >= 2 and all(_s["online"] and _s["code"] for _s in _cmp_side)
+    _common_years = []
+    if _all_online:
+        _sets = [_years_of(_s["i"]) for _s in _cmp_side]
+        _common_years = sorted([y for y in set.intersection(*_sets) if y], reverse=True)
+
+    _base_year = ""
+    if _all_online and _pipeline is not None:
+        if _common_years:
+            _base_year = st.selectbox(
+                "对比基准年份（年报口径）",
+                _common_years,
+                key="cmp_base_year",
+                help="只列出**所有公司都披露过**的年报年份，因此可以同年份对比；"
+                     "切换年份后重新点「开始对比分析」即按新年份计算。",
+            )
+            st.caption(
+                f"✅ 共同年报年份：{'、'.join(_common_years)}"
+                f"（默认取最近一年 **{_base_year}**）。"
+                "所有公司的对照表、差额与图表都按这一年取数 —— **不同年度不混比**。"
+            )
+        else:
+            _avail = "；".join(
+                f"{_s['name']}：{'、'.join(sorted(_years_of(_s['i']), reverse=True)) or '无年报数据'}"
+                for _s in _cmp_side
+            )
+            st.error(
+                "❌ **无共同年报年份，无法做同年份对比**（这正是「不同年度不混比」的要求，"
+                "硬凑一张跨年份的表会得出错误的强弱结论）。"
+                f"各公司可用年报年份：{_avail}。"
+                "请更换其中一家公司，或把某一家改为「手动粘贴」模式按文本口径对比。"
+            )
+
+    def _cmp_side_metrics(side):
+        """取一家公司的标准指标（在线优先且只取年报；对齐到基准年份）→ (metrics, 期别, 行业)。"""
+        _ind = side["industry"]
         met, per = {}, ""
-        if is_online and scoring is not None:
-            _c = st.session_state.get(f"{prefix}_online_code", "")
-            if _c:
+        if side["online"] and side["code"] and _pipeline is not None:
+            _rows = _annual_rows.get(side["i"]) or []
+            _row = None
+            if _base_year:
+                _row = next((r for r in _rows if _pipeline.year_of(r) == _base_year), None)
+            if _row is None and _rows:
+                _row = _rows[0]     # 非对齐模式（含手动输入）时退回最近一期年报
+            if _row is not None:
+                met = _row
+                per = str(_row.get("report_name") or "")
+            else:
                 try:
-                    _f = ds.get_financial_indicators(_c, periods=4, annual_only=True)
-                    if not _f:
-                        _f = ds.get_financial_indicators(_c, periods=4)
-                    if _f:
-                        met = _f[0]
-                        per = str(_f[0].get("report_name") or "")
+                    met, per = _pipeline.annual_metrics(side["code"], periods=8)
                 except Exception:
-                    met = {}
-        if not met and scoring is not None and (text or "").strip():
-            met = scoring.extract_metrics_regex(text)
+                    met, per = {}, ""
+        if not met and scoring is not None and (side["data"] or "").strip():
+            met = scoring.extract_metrics_regex(side["data"])
             per = "文本抽取"
         return met, per, _ind
 
-    # ---- 重复公司拦截（优化清单：检查重复公司，不生成误导性比较）----
-    # 场景：A 侧选了贵州茅台并取数，B 侧又选贵州茅台取数 → 两边数据完全相同，
-    # "对比"只会输出一堆"两者相当"的无意义结论，还占掉一次 LLM 调用。
-    _code_a = st.session_state.get("cmp_a_online_code", "")
-    _code_b = st.session_state.get("cmp_b_online_code", "")
-    _same_company = bool(_code_a) and _code_a == _code_b
-    _same_name = bool(name_a) and name_a == name_b and name_a not in ("公司A", "公司B")
-    if _same_company or _same_name:
+    # ---- 输入合法性检查（优化清单 P1-02：重复公司 / 无效代码 / 未完成输入）----
+    _codes = [_s["code"] for _s in _cmp_side]
+    _dup_codes = sorted({c for c in _codes if c and _codes.count(c) > 1})
+    _placeholder = {f"公司{chr(65 + i)}" for i in range(_n_cmp)}
+    _named = [_s["name"] for _s in _cmp_side if _s["name"] and _s["name"] not in _placeholder]
+    _dup_names = sorted({nm for nm in _named if _named.count(nm) > 1})
+    _empty = [_s["name"] for _s in _cmp_side if not (_s["data"] or "").strip()]
+    _invalid = [_s["name"] for _s in _cmp_side if _s["online"] and not _s["code"]]
+
+    _block = False
+    if _dup_codes or _dup_names:
         st.error(
-            f"❌ 公司 A 与公司 B 是同一家公司（{name_a or '—'} {_code_a or ''}）。"
-            "对比需要两家**不同**的公司，请至少更换其中一侧。"
+            "❌ 存在**重复公司**（" + "、".join(_dup_names or _dup_codes) + "）——"
+            "对比需要互不相同的公司，请至少更换其中一家（同一家公司的两份数据怎么比都是"
+            "「两者相当」，纯属浪费一次分析）。"
         )
+        _block = True
+    if _invalid:
+        st.warning(
+            "⚠️ 以下公司选了「在线取数」但**尚未成功取到数据**（代码无效或还没点「🔍 获取数据」）："
+            + "、".join(_invalid) + "。"
+        )
+        _block = True
+    if _empty:
+        st.warning("⚠️ 以下公司的**输入未完成**（没有可分析的数据）：" + "、".join(_empty) + "。")
+        _block = True
+    if _all_online and not _common_years:
+        _block = True
 
     cmp_btn = st.button(
         "⚖️ 开始对比分析",
-        disabled=not (data_a and data_b) or _same_company or _same_name,
+        disabled=_block,
         use_container_width=True, type="primary",
     )
 
-    if cmp_btn and data_a and data_b:
-        # 【程序算分】对比不该只让模型"读两段文本自由发挥"：
-        # 两家公司各自跑一遍固定规则评分，差额与对照表由程序生成，模型只负责解释。
+    if cmp_btn and not _block:
+        # 【程序算分】对比不该只让模型"读几段文本自由发挥"：
+        # 每家公司各自跑一遍固定规则评分，对照表与差额由程序生成，模型只负责解释。
         if scoring is not None:
-            with st.spinner("正在计算两家公司的规则评分……"):
+            with st.spinner(f"正在计算 {_n_cmp} 家公司的规则评分……"):
                 try:
-                    _ma, _pa, _ia = _cmp_side_metrics("cmp_a", use_online_a, data_a, name_a)
-                    _mb, _pb, _ib = _cmp_side_metrics("cmp_b", use_online_b, data_b, name_b)
+                    _items = []
+                    for _s in _cmp_side:
+                        _m, _p, _ind = _cmp_side_metrics(_s)
+                        _items.append({
+                            "name": _s["name"], "code": _s["code"],
+                            "industry": _ind, "period": _p,
+                            "scores": scoring.compute_scores(_m, _ind),
+                            # 原始标准指标一起存：对比可视化必须与评分表来自**同一份取值**，
+                            # 否则可能出现"表说 A 高、图说 B 高"
+                            "raw": dict(_m or {}),
+                        })
+                    _inds_all = {it["industry"] for it in _items}
                     st.session_state["cmp_scores"] = {
-                        "a": {"name": name_a, "scores": scoring.compute_scores(_ma, _ia),
-                              "period": _pa, "industry": _ia},
-                        "b": {"name": name_b, "scores": scoring.compute_scores(_mb, _ib),
-                              "period": _pb, "industry": _ib},
-                        "cross_industry": _ia != _ib,
-                        # 原始标准指标也一起存：对比可视化要按同一份取值画图，
-                        # 否则图表与评分表可能来自两次不同取数，出现"表说 A 高、图说 B 高"
-                        "raw_a": dict(_ma or {}),
-                        "raw_b": dict(_mb or {}),
+                        "items": _items,
+                        "cross_industry": len(_inds_all) > 1,
+                        "base_year": _base_year,
+                        "mode": ("年报同年份对齐" if _base_year else "文本/最近期口径"),
                     }
                 except Exception as _e:
                     st.session_state.pop("cmp_scores", None)
@@ -3176,35 +3637,49 @@ with tab2:
             box = st.empty()
             with st.spinner("正在对比分析……（约 20-40 秒）"):
                 try:
-                    # 行业口径要**分别**给到模型（优化清单：对比共用同一套行业框架）。
-                    # 原先无论两家是什么行业，都只注入全局 industry 的那一份知识库 ——
+                    # 行业口径要**逐家**注入（优化清单：对比共用同一套行业框架）。
+                    # 原先无论几家、什么行业，都只注入全局 industry 那一份知识库 ——
                     # 拿茅台（消费）比宁德时代（新能源）时，新能源那侧等于没有行业背景。
                     _cs_saved = st.session_state.get("cmp_scores") or {}
-                    _ia_txt = (_cs_saved.get("a") or {}).get("industry") or industry
-                    _ib_txt = (_cs_saved.get("b") or {}).get("industry") or industry
+                    _items_saved = _cs_saved.get("items") or []
+                    _blocks = []
+                    for _it in _items_saved:
+                        _s = next((x for x in _cmp_side if x["name"] == _it["name"]), None)
+                        _txt = ((_s or {}).get("data") or "")[:MAX_CHARS]
+                        _blocks.append(
+                            f"【{_it['name']}｜行业：{_it['industry']}｜基准期：{_it['period'] or '未获取'}】\n{_txt}"
+                        )
+                    _inds_txt = " vs ".join(sorted({_it["industry"] for _it in _items_saved})) or industry
                     cmp_prompt = (
-                        f"请对比两家公司的财务表现：\n\n"
-                        f"【{name_a}｜行业：{_ia_txt}】\n{data_a[:MAX_CHARS]}\n\n"
-                        f"【{name_b}｜行业：{_ib_txt}】\n{data_b[:MAX_CHARS]}\n\n"
-                        "输出要求（markdown 格式）：\n"
-                        "1. 先给出『核心指标对比表』（markdown 表格，维度至少包括：营收、净利润、毛利率、净利率、ROE、资产负债率、现金流，数据缺失的单元格写 N/A）；\n"
+                        f"请对比以下 {len(_items_saved)} 家公司的财务表现：\n\n"
+                        + "\n\n".join(_blocks)
+                        + "\n\n输出要求（markdown 格式）：\n"
+                        "1. 先给出『核心指标对比表』（markdown 表格，**行=公司**，列至少包括：营收、净利润、毛利率、净利率、ROE、资产负债率、现金流，数据缺失的单元格写 N/A）；\n"
                         "2. 逐维度点评谁更强、依据是什么；\n"
-                        "3. 【综合结论】分别用一句话总结两家公司的优劣势与适配的投资者类型；\n"
+                        "3. 【综合结论】分别用一句话总结各家公司的优劣势与适配的投资者类型；\n"
                         "4. 【风险提示】说明对比结论的局限性（数据口径、行业差异等）。\n"
                         "所有数字必须来自提供的数据，禁止编造。\n"
                         + (
-                            f"\n注意：两家公司分属不同行业（{_ia_txt} vs {_ib_txt}），"
-                            "必须各自按本行业的财务特征判读（如银行看不良率/资本充足率，"
-                            "消费看毛利率与品牌溢价），并明确说明**跨行业不可直接比高低**。"
-                            if _ia_txt != _ib_txt else ""
+                            f"\n注意：这些公司分属不同行业（{_inds_txt}），必须各自按本行业的财务特征判读"
+                            "（银行看不良率/资本充足率，消费看毛利率与品牌溢价），"
+                            "并明确说明**跨行业不可直接比高低**、分数不得作为排名依据。"
+                            if _cs_saved.get("cross_industry") else ""
                         )
+                        + (f"\n本次所有公司统一取 **{_base_year} 年年报**数据，可直接同年份比较。"
+                           if _cs_saved.get("base_year") else "")
                     )
+                    _sys = system_prompt_with_kb(
+                        _items_saved[0]["industry"] if _items_saved else industry
+                    )
+                    _base_ind = _items_saved[0]["industry"] if _items_saved else industry
+                    for _it in _items_saved[1:]:
+                        if _it["industry"] != _base_ind:
+                            _kb = INDUSTRY_KB.get(_it["industry"]) or ""
+                            if _kb and _kb not in _sys:
+                                _sys += "\n\n" + _kb
                     cmp_result = llm_stream(
-                        [
-                            {"role": "system", "content": system_prompt_with_kb(_ia_txt)
-                             + ("\n\n" + (INDUSTRY_KB.get(_ib_txt) or "") if _ib_txt != _ia_txt else "")},
-                            {"role": "user", "content": cmp_prompt},
-                        ],
+                        [{"role": "system", "content": _sys},
+                         {"role": "user", "content": cmp_prompt}],
                         box,
                         temperature=0.3,
                         action="compare",
@@ -3215,105 +3690,112 @@ with tab2:
                     box.empty()
                     st.error(f"对比分析失败：{e}")
 
-    # ---- 规则评分对照（程序计算，可复现；不再是"模型读两段文本自由发挥"） ----
+    # ---- 规则评分对照（程序计算，可复现；不再是"模型读几段文本自由发挥"） ----
     _cs = st.session_state.get("cmp_scores")
-    if _cs:
-        _ca, _cb = _cs["a"], _cs["b"]
-        _na, _nb = _ca["name"], _cb["name"]
-        _sa, _sb = _ca["scores"], _cb["scores"]
-        _colA = f"{_na}｜{_ca['industry']}"
-        _colB = f"{_nb}｜{_cb['industry']}"
-        _fmt = lambda v: ("—" if v is None else str(v))
-
-        def _diff(va, vb):
-            # 统一返回字符串：表里同时有 "70%"（覆盖率行）与数值，混排会让
-            # Streamlit 转 Arrow 时告警并自动改类型，干脆全表统一为文本。
-            if isinstance(va, (int, float)) and isinstance(vb, (int, float)):
-                _d = round(va - vb, 1)
-                return f"{_d:+g}"
-            return "—"
-
-        # 维度名按两家实际打分键的并集动态取（金融是 资产质量/资本充足，
+    if _cs and (_cs.get("items") or []):
+        _items = _cs["items"]
+        _names = [it["name"] for it in _items]
+        # 维度名按各家实际打分键的**并集**动态取（金融是 资产质量/资本充足，
         # 通用是 偿债能力/现金流质量），写死会漏维度。
-        _dims = [d for d in _sa["scores"].keys()]
-        for _d in _sb["scores"].keys():
-            if _d not in _dims:
-                _dims.append(_d)
+        _dims = []
+        for _it in _items:
+            for _d in _it["scores"]["scores"].keys():
+                if _d not in _dims:
+                    _dims.append(_d)
+
+        def _fmt(v):
+            return "—" if v is None else str(v)
+
         _rows = []
         for _d in _dims:
-            _va = _sa["scores"].get(_d)
-            _vb = _sb["scores"].get(_d)
-            _rows.append({"维度": _d, _colA: _fmt(_va), _colB: _fmt(_vb),
-                          "差额(A−B)": _diff(_va, _vb)})
-        _rows.append({"维度": "综合评分", _colA: _fmt(_sa["total_score"]),
-                      _colB: _fmt(_sb["total_score"]),
-                      "差额(A−B)": _diff(_sa["total_score"], _sb["total_score"])})
-        _rows.append({"维度": "指标覆盖率（可信度）",
-                      _colA: f"{_sa['coverage'] * 100:.0f}%",
-                      _colB: f"{_sb['coverage'] * 100:.0f}%", "差额(A−B)": "—"})
+            _rec = {"维度": _d}
+            for _it in _items:
+                _rec[_it["name"]] = _fmt(_it["scores"]["scores"].get(_d))
+            _nums = [v for v in (_it["scores"]["scores"].get(_d) for _it in _items)
+                     if isinstance(v, (int, float))]
+            _rec["极差"] = f"{max(_nums) - min(_nums):.1f}" if len(_nums) >= 2 else "—"
+            _rows.append(_rec)
+        _rec = {"维度": "综合评分"}
+        for _it in _items:
+            _rec[_it["name"]] = _fmt(_it["scores"]["total_score"])
+        _tn = [v for v in (_it["scores"]["total_score"] for _it in _items)
+               if isinstance(v, (int, float))]
+        _rec["极差"] = f"{max(_tn) - min(_tn):.1f}" if len(_tn) >= 2 else "—"
+        _rows.append(_rec)
+        _rec = {"维度": "指标覆盖率（可信度）"}
+        for _it in _items:
+            _rec[_it["name"]] = f"{_it['scores']['coverage'] * 100:.0f}%"
+        _rec["极差"] = "—"
+        _rows.append(_rec)
+
         st.markdown("##### 📐 规则引擎评分对照（程序计算 · 同一份数据永远同一分数）")
         _cmp_df = pd.DataFrame(_rows).set_index("维度")
         st.dataframe(_cmp_df, use_container_width=True)
 
-        # ---- 对比可视化（优化清单：对比只有文字，没有可视化辅助）----
+        # ---- 对比可视化（N 家；缺哪家就标 N/A，不画 0 误导）----
         st.markdown("##### 📊 对比可视化")
-        _ma_show = (_cs.get("raw_a") or {})
-        _mb_show = (_cs.get("raw_b") or {})
+        _mets = [it["raw"] for it in _items]
         _vg1, _vg2 = st.columns(2)
         with _vg1:
-            _png = fig_compare_group(_ma_show, _mb_show, _na, _nb,
-                                     _CMP_GROUP_PROFIT, "盈利与成长对比（%）")
+            _png = fig_compare_group_n(_mets, _names, _CMP_GROUP_PROFIT, "盈利与成长对比（%）")
             if not show_png(_png, "cmp-profit"):
-                st.caption("两家公司均未取到可比的盈利类指标（%），暂不绘制。")
+                st.caption("各公司均未取到可比的盈利类指标（%），暂不绘制。")
         with _vg2:
-            _png = fig_compare_group(_ma_show, _mb_show, _na, _nb,
-                                     _CMP_GROUP_RISK, "风险与偿债对比（%）")
+            _png = fig_compare_group_n(_mets, _names, _CMP_GROUP_RISK, "风险与偿债对比（%）")
             if not show_png(_png, "cmp-risk"):
-                st.caption("两家公司均未取到可比的风险类指标（%），暂不绘制。")
-        _png = fig_compare_dims(_sa["scores"], _sb["scores"], _na, _nb)
+                st.caption("各公司均未取到可比的风险类指标（%），暂不绘制。")
+        _png = fig_compare_dims_n([it["scores"]["scores"] for it in _items], _names)
         if _png:
             show_png(_png, "cmp-dims")
 
-        _pa, _pb = (_ca["period"] or ""), (_cb["period"] or "")
         st.caption(
-            f"评分基准期：{_na} = {_pa or '未获取'}；{_nb} = {_pb or '未获取'}。"
-            "总分为各维度均分；覆盖率低于 50% 时不给综合评分。"
+            "评分基准期："
+            + "；".join(f"{it['name']} = {it['period'] or '未获取'}" for it in _items)
+            + "。总分为各维度均分；覆盖率低于 50% 时不给综合评分。"
+            + (f" 本次统一按 **{_cs.get('base_year')} 年年报**取数（口径：{_cs.get('mode')}）。"
+               if _cs.get("base_year") else f"（口径：{_cs.get('mode')}）")
         )
         # 报告期可比性：中期报告是"年初至今累计值"，与年报不可比，
-        # 跨期直接比大小会得出错误结论（优化清单：不同年度不混比）。
-        _ya = re.search(r"(20\d{2})", _pa)
-        _yb = re.search(r"(20\d{2})", _pb)
-        if _ya and _yb and _ya.group(1) != _yb.group(1):
+        # 跨期直接比大小会得出错误结论（优化清单 P1-03：不同年度不混比）。
+        _per_years = {}
+        for _it in _items:
+            _m = re.search(r"(20\d{2})", _it["period"] or "")
+            if _m:
+                _per_years[_it["name"]] = _m.group(1)
+        if len(set(_per_years.values())) > 1:
             st.warning(
-                f"⚠️ 两家公司的评分基准期不在同一年（{_ya.group(1)} vs {_yb.group(1)}），"
-                "**不同年度的数据不可直接比大小**，请先各自切换到同一报告期后再比较。"
+                "⚠️ 各公司的评分基准期不在同一年（"
+                + "、".join(f"{k}:{v}" for k, v in _per_years.items())
+                + "），**不同年度的数据不可直接比大小**，请先统一到同一报告期后再比较。"
             )
-        if ("半年报" in _pa or "季" in _pa) or ("半年报" in _pb or "季" in _pb):
-            st.caption("ℹ️ 有一侧使用了中期报告口径（年初至今累计值），与年报不可直接比较。")
+        if any(("半年报" in (_it["period"] or "")) or ("季" in (_it["period"] or ""))
+               for _it in _items):
+            st.caption("ℹ️ 有公司使用了中期报告口径（年初至今累计值），与年报不可直接比较。")
 
         # 对照表导出（优化清单 P1-03：支持 CSV 导出，且导出内容与页面一致）
         st.download_button(
             "⬇️ 导出评分对照表（CSV）",
             data=_cmp_df.to_csv().encode("utf-8-sig"),
-            file_name=f"对比评分对照_{_na}_vs_{_nb}.csv",
+            file_name=f"对比评分对照_{'_vs_'.join(_names)}.csv",
             mime="text/csv",
             use_container_width=False,
         )
         if _cs.get("cross_industry"):
             st.warning(
-                f"⚠️ 两家公司分属不同行业（**{_ca['industry']}** vs **{_cb['industry']}**），"
-                "各自按本行业基准线评分 —— **分数不可直接横向比较**，请结合下方文字对比与业务差异一起判断。"
+                "⚠️ 本次对比包含**多个行业**（"
+                + "、".join(f"{it['name']}：{it['industry']}" for it in _items)
+                + "），各自按本行业基准线评分 —— **分数不可直接横向比较，也不得作为排名依据**，"
+                "请结合下方文字对比与业务差异一起判断。"
             )
 
     cmp_report = st.session_state.get("cmp_report")
     if cmp_report:
         st.markdown("#### 📄 对比分析结论")
         st.markdown(cmp_report)
-    if cmp_report:
         st.download_button(
             "⬇️ 下载对比报告（Markdown）",
             data=cmp_report,
-            file_name="双公司对比报告.md",
+            file_name="多公司对比报告.md",
             mime="text/markdown",
             use_container_width=True,
         )
@@ -3335,7 +3817,7 @@ with tab3:
 | 📐 规则引擎评分 | 「开始结构化分析」 | 四维评分由固定阈值规则计算（同一数据必然同一分数），页面可展开查看每个分数的完整依据链 |
 | 单公司深度分析 | 「单公司深度分析」页 | 一键得到四维评分、指标图表、年报口径趋势、风险与亮点 |
 | 💬 多轮追问 | 「单公司深度分析」页底部 | 基于数据与已有结论连续追问；年报问题实时检索原文片段（带页码） |
-| ⚖️ 双公司对比 | 「双公司对比」页 | 两家公司在线取数或手动输入，生成对比表与综合结论 |
+| ⚖️ 多公司对比 | 「多公司对比」页 | 2~5 家公司在线取数或手动输入，逐年对齐后生成对照表、差额、对比图与 CSV / 报告导出 |
 | 📝 研报导出 | 各页的下载按钮 | 分析结果可保存为 Markdown 报告（双模型润色） |
 
 **行业财务基准库（同业对标）：**
