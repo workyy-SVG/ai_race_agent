@@ -11,7 +11,8 @@
   4. 一键生成完整研报并支持下载
   5. 多公司横向对比模式（2~5 家，支持在线取数）
   6. 内置行业财务基准库（主界面横向按钮选择；为四维评分/散点/象限提供同业对标基准）
-  7. 【修】追问对话：上下文实时刷新、可连续多轮提问
+  7. 【修】追问对话：上下文实时刷新、可连续多轮提问；
+     渲染顺序为「问在上 → 答在中 → 输入框在最下面」（见 tab1 里那段「顺序很关键」注释）
 
 密钥说明：所有敏感信息从 Streamlit Secrets / 环境变量读取，代码中不含任何 key。
 """
@@ -3272,23 +3273,78 @@ with tab1:
         )
 
     # ---- 追问对话（多轮，上下文实时更新） ----
+    # 【顺序很关键 · 为什么这么排】
+    # st.chat_input 只在「页面主体」才会钉在屏幕底部；写在 tab 这类容器里是**内联渲染**，
+    # 也就是"谁先执行谁在上面"。旧版把 chat_input 写在生成回答**之前**，于是：
+    # 提问 → 输入框先冒出来 → 回答又出现在输入框**下面**，读起来像"答在问前面"。
+    # 现在改成：历史(含本轮提问) → 本轮回答 → 推荐问题 → 输入框放最后，
+    # 即「问在上、答在中、继续追问的输入框在最下面」，和常见对话产品的顺序一致。
     st.divider()
-    st.markdown("##### 💬 继续追问")
-    st.caption("基于当前财务数据与已生成的分析继续提问，支持连续多轮对话。")
-
+    _chat_h, _chat_c = st.columns([5, 1])
+    with _chat_h:
+        st.markdown("##### 💬 继续追问")
     if "messages" not in st.session_state:
         st.session_state["messages"] = []
+    with _chat_c:
+        if st.session_state["messages"]:
+            if st.button("🗑️ 清空", key="clear_chat", use_container_width=True):
+                st.session_state["messages"] = []
+                st.rerun()
+    st.caption("基于当前财务数据与已生成的分析继续提问，支持连续多轮对话；新回答会出现在输入框上方。")
 
-    # 渲染历史消息
+    # 渲染历史消息。本轮的提问在上一轮提交时就已入队，因此这里会一起渲染 → 位于输入框上方。
     for m in st.session_state["messages"]:
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
 
-    # 清空对话按钮
-    if st.session_state["messages"]:
-        if st.button("🗑️ 清空对话", key="clear_chat"):
-            st.session_state["messages"] = []
-            st.rerun()
+    # 提交时的校验提示：上一轮暂存，这里渲染（否则会掉到输入框下方）
+    _chat_notice = st.session_state.pop("_chat_notice", None)
+    if _chat_notice:
+        _lvl, _txt = _chat_notice
+        (st.warning if _lvl == "warn" else st.error)(_txt)
+
+    # 本轮待回答的问题（由上一轮的输入框/推荐问题入队）
+    question = st.session_state.pop("_answer_pending", "")
+
+    # ---- 生成本轮回答 ----
+    # ⚠️ 这一整段必须放在「推荐问题」和「输入框」**之前**：
+    #    内联模式下渲染顺序就是屏幕顺序，写在这里答案才会落在输入框上方。
+    if question:
+        # 1) 组装上下文：数据 + 结构化评分 + RAG 检索 + 历史对话
+        base_context = f"【行业】{industry}\n\n【财务数据】\n{raw_data[:MAX_CHARS]}"
+        if analysis:
+            base_context += f"\n\n【已生成的结构化评分与结论】\n{json.dumps(analysis, ensure_ascii=False)[:2000]}"
+
+        # 【RAG 接通】按用户问题实时检索年报相关章节（含页码）
+        _q_hits = []
+        if rag is not None:
+            _q_hits = _rag_retrieve(question, top_k=6)
+        if _q_hits:
+            base_context += (
+                "\n\n【年报相关章节 · 按问题检索（回答时请注明引用页码，"
+                "如「见年报第X页」；检索片段之外的内容不要编造）】\n"
+                + rag.format_citations(_q_hits)
+            )
+            st.caption(f"📚 已从年报检索到 {len(_q_hits)} 个相关片段（含页码），正在结合原文回答……")
+
+        # 历史对话 = 除最后一条（本轮提问，已由上面的历史渲染展示）以外的消息，最多最近 3 轮
+        history = st.session_state["messages"][:-1]
+        history = history[-6:]
+        msgs = [{"role": "system", "content": system_prompt_with_kb()}]
+        msgs.append({"role": "user", "content": base_context + "\n\n以上是背景资料，请基于它回答后续问题。"})
+        msgs.append({"role": "assistant", "content": "好的，我已了解该公司的财务数据与行业背景，请提问。"})
+        msgs.extend(history)
+        msgs.append({"role": "user", "content": question})
+
+        # 2) 流式生成回答
+        try:
+            with st.chat_message("assistant"):
+                box = st.empty()
+                with st.spinner("正在分析……"):
+                    answer = llm_stream(msgs, box, action="followup")
+            st.session_state["messages"].append({"role": "assistant", "content": answer})
+        except Exception as e:
+            st.error(f"调用失败：{e}")
 
     # 【智能推荐提问】根据当前公司名称/行业/最新评分结果实时生成，点击即问
     _company = online_name or st.session_state.get("current_target", "")
@@ -3311,71 +3367,41 @@ with tab1:
         if rag is not None:
             _suggestions.append(f"年报风险章节提到{_company}面临哪些主要风险？请结合原文并标注页码。")
     if _suggestions:
-        st.caption("🎯 智能推荐（根据当前公司与最新评分实时生成，点击即问）：")
-        _qcols = st.columns(2)
-        for _i, _sq in enumerate(_suggestions[:6]):
-            with _qcols[_i % 2]:
-                if st.button(_sq, key=f"suggest_q_{_i}", use_container_width=True):
-                    st.session_state["_pending_question"] = _sq
-                    st.rerun()
+        # 首次进入时展开（引导提问）；对话开始后折叠，避免一堆按钮把输入框推得太远
+        with st.expander("🎯 智能推荐提问（根据当前公司与最新评分实时生成，点击即问）",
+                         expanded=not st.session_state["messages"]):
+            _qcols = st.columns(2)
+            for _i, _sq in enumerate(_suggestions[:6]):
+                with _qcols[_i % 2]:
+                    if st.button(_sq, key=f"suggest_q_{_i}", use_container_width=True):
+                        # 与输入框提交走**同一条入队逻辑**：先把用户提问写进消息列表，
+                        # 再重跑。少任何一步都会出问题 ——
+                        #   · 不 append：推荐问题在对话流里"消失"，且下面算历史时
+                        #     会误把上一条助手回答当成"本轮提问"而丢掉；
+                        #   · 不 rerun：答案会渲染到推荐按钮/输入框下面。
+                        st.session_state["messages"].append({"role": "user", "content": _sq})
+                        st.session_state["_answer_pending"] = _sq
+                        st.rerun()
 
-    # 问题来源：推荐问题点击（_pending_question）或手动输入
-    _pending = st.session_state.get("_pending_question", "")
-    if _pending:
-        try:
-            del st.session_state["_pending_question"]
-        except KeyError:
-            pass
-    question = _pending or st.chat_input("例如：这家公司的毛利率在同行业处于什么水平？", key="chat_q")
-    if question:
-        # 【长度保护】超长输入截断到 500 字，防单次调用成本与耗时失控
-        if len(question) > 500:
-            st.warning(f"⚠️ 问题过长（{len(question)} 字），已截取前 500 字进行回答。")
-            question = question[:500]
+    # ---- 提问入口：放在最后（内联模式下"最后执行 = 显示在最下面"）----
+    # ⚠️ 必须**无条件**实例化 chat_input。写成 `_pending or st.chat_input(...)` 会因
+    #    Python 短路求值而在命中上一项时整个输入框当轮消失。
+    _typed = st.chat_input("例如：这家公司的毛利率在同行业处于什么水平？", key="chat_q")
+    _new_q = (_typed or "").strip()
+    if _new_q:
+        if len(_new_q) > 500:
+            # 【长度保护】超长输入截断到 500 字，防单次调用成本与耗时失控
+            _new_q = _new_q[:500]
+            st.session_state["_chat_notice"] = ("warn", "⚠️ 问题过长，已截取前 500 字进行回答。")
         if not raw_data:
-            st.warning("请先获取或粘贴财务数据，再提问。")
+            st.session_state["_chat_notice"] = ("warn", "请先获取或粘贴财务数据，再提问。")
         elif not DEEPSEEK_API_KEY:
-            st.error("系统未配置 DEEPSEEK_API_KEY，请联系管理员。")
+            st.session_state["_chat_notice"] = ("error", "系统未配置 DEEPSEEK_API_KEY，请联系管理员。")
         else:
-            # 1) 追加用户消息并立即回显
-            st.session_state["messages"].append({"role": "user", "content": question})
-            with st.chat_message("user"):
-                st.markdown(question)
-
-            # 2) 组装上下文：数据 + 结构化评分 + RAG 检索 + 历史对话
-            base_context = f"【行业】{industry}\n\n【财务数据】\n{raw_data[:MAX_CHARS]}"
-            if analysis:
-                base_context += f"\n\n【已生成的结构化评分与结论】\n{json.dumps(analysis, ensure_ascii=False)[:2000]}"
-
-            # 【RAG 接通】按用户问题实时检索年报相关章节（含页码）
-            _q_hits = []
-            if rag is not None:
-                _q_hits = _rag_retrieve(question, top_k=6)
-            if _q_hits:
-                base_context += (
-                    "\n\n【年报相关章节 · 按问题检索（回答时请注明引用页码，"
-                    "如「见年报第X页」；检索片段之外的内容不要编造）】\n"
-                    + rag.format_citations(_q_hits)
-                )
-                st.caption(f"📚 已从年报检索到 {len(_q_hits)} 个相关片段（含页码），正在结合原文回答……")
-
-            history = st.session_state["messages"][:-1]  # 不含刚追加的这条
-            history = history[-6:]  # 最多保留最近 3 轮
-            msgs = [{"role": "system", "content": system_prompt_with_kb()}]
-            msgs.append({"role": "user", "content": base_context + "\n\n以上是背景资料，请基于它回答后续问题。"})
-            msgs.append({"role": "assistant", "content": "好的，我已了解该公司的财务数据与行业背景，请提问。"})
-            msgs.extend(history)
-            msgs.append({"role": "user", "content": question})
-
-            # 3) 流式生成回答
-            try:
-                with st.chat_message("assistant"):
-                    box = st.empty()
-                    with st.spinner("正在分析……"):
-                        answer = llm_stream(msgs, box, action="followup")
-                st.session_state["messages"].append({"role": "assistant", "content": answer})
-            except Exception as e:
-                st.error(f"调用失败：{e}")
+            # 用户消息先入队，然后立刻重跑：下一轮它由「历史消息」渲染 → 出现在输入框上方
+            st.session_state["messages"].append({"role": "user", "content": _new_q})
+            st.session_state["_answer_pending"] = _new_q
+        st.rerun()
 
 # ---------------------------------------------------------------
 # Tab 2：多公司对比（2~5 家）
@@ -3816,7 +3842,7 @@ with tab3:
 | 📄 年报 PDF 云端解析 + RAG | 取数面板内 | 一键下载年报 → 按页切片构建向量索引；分析与追问自动检索相关章节，结论标注「见年报第X页」 |
 | 📐 规则引擎评分 | 「开始结构化分析」 | 四维评分由固定阈值规则计算（同一数据必然同一分数），页面可展开查看每个分数的完整依据链 |
 | 单公司深度分析 | 「单公司深度分析」页 | 一键得到四维评分、指标图表、年报口径趋势、风险与亮点 |
-| 💬 多轮追问 | 「单公司深度分析」页底部 | 基于数据与已有结论连续追问；年报问题实时检索原文片段（带页码） |
+| 💬 多轮追问 | 「单公司深度分析」页底部 | 基于数据与已有结论连续追问（问在上、答在中、**输入框在最下面**）；年报问题实时检索原文片段（带页码） |
 | ⚖️ 多公司对比 | 「多公司对比」页 | 2~5 家公司在线取数或手动输入，逐年对齐后生成对照表、差额、对比图与 CSV / 报告导出 |
 | 📝 研报导出 | 各页的下载按钮 | 分析结果可保存为 Markdown 报告（双模型润色） |
 
