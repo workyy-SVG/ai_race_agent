@@ -9,23 +9,29 @@ headless = true
 gatherUsageStats = false
 
 # ==========================================================
-# 亮色冷蓝白主题（与 app.py 内 CUSTOM_CSS 色卡严格对齐）
-#   主背景 #EEF2F7 · 卡片 #FFFFFF · 品牌主色 #1E40AF(深蓝)
+# 亮色冷蓝白主题 + 深蓝侧边栏（与 app.py 内 CUSTOM_CSS 色卡严格对齐）
+#   主背景 #EDF3FC→#DAE6F6 · 卡片 #FFFFFF · 品牌主色 #1E40AF(深蓝)
+#   侧边栏 #0E2A5E→#16489E（深蓝渐变，v6）
 #   资本金 #D9A441 · 涨 #DC2626 · 跌 #16A34A
-#   文字 #0B1F3A / #334155 / #64748B
+#   文字 #0B1F3A / #334155 / #475569（主区）· #E8F0FF / #B7CAEA（深蓝侧栏）
 # 说明：theme 是 Streamlit 原生组件的底层变量（radio/input/
-#       dataframe/selectbox 等都会读它）。必须设成亮色，
+#       dataframe/selectbox 等都会读它）。主区必须保持亮色，
 #       否则自定义 CSS 与原生组件会「半亮半深」互相打架。
 # ==========================================================
 [theme]
 base = "light"
 primaryColor = "#1E40AF"              # 品牌主色：深蓝（按钮/高亮/AI 标识）
-backgroundColor = "#EEF2F7"           # 主背景：冷蓝灰
+backgroundColor = "#EDF3FC"           # 主背景：浅蓝灰（v6 再降一档）
 secondaryBackgroundColor = "#FFFFFF"  # 卡片背景：纯白
 textColor = "#0B1F3A"                 # 一级文字：深海军
 font = "sans serif"
 
-# 侧边栏单独加深（淡蓝灰），与主内容区形成左右分区
+# 侧边栏单独加深（深蓝）。
+# ⚠️ 这里必须与 CUSTOM_CSS 的 `section[data-testid="stSidebar"]` 保持同一色系：
+#    CSS 负责渐变主视觉，config 负责"原生组件自己读的那份侧栏底色"。
+#    若只改一边，侧栏里就会出现"深蓝渐变中嵌一块浅蓝组件"的割裂（半深半浅）。
+#    侧栏内的原生文字（caption / label / 按钮）已在 CSS 里全部显式改成浅色，
+#    所以这里把底色压深不会造成"深字压深底"。
 [theme.sidebar]
-backgroundColor = "#DDE7F2"
-secondaryBackgroundColor = "#E8EFF7"
+backgroundColor = "#0E2A5E"
+secondaryBackgroundColor = "#123A80"

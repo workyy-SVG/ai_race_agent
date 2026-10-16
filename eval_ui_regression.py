@@ -352,17 +352,19 @@ _check("全站不再使用 100px 大横幅（hero 已下线）",
        SRC.count('class="hero"') == 0, str(SRC.count('class="hero"')))
 _check("主页面改用紧凑顶栏（topbar）", 'class="topbar"' in SRC)
 
-# 6b) v5 配色收敛 + 分区标题统一
-_check("页面底色为浅冷灰（v5 降一档：靠明度差把纯白卡片分出来）",
-       "linear-gradient(180deg, #F7FAFD 0%, #EFF4FA" in SRC)
+# 6b) 配色收敛 + 分区标题统一
+# v6：底色从 v5 的"浅冷灰"再降一档到"浅蓝灰"——用户反馈 v5 跑起来"整体还是白色，
+#     布局也没变"。底色必须明显带蓝，白卡才浮得起来（#334155 压在 #DAE6F6 上 8.3:1）。
+_check("页面底色为浅蓝灰（v6 再降一档：白卡靠明度差浮起来，而不是靠描边堆）",
+       "linear-gradient(180deg, #EDF3FC 0%, #E3EDF9 48%, #DAE6F6 100%)" in SRC)
 _check("全站不再使用金色文字（金 #D9A441 压白底只有 2.25:1，等于隐形）",
        "#F5C563" not in SRC)
 _check("统一分区标题组件存在（step_head：编号方块 + 短标题 + 灰色说明）",
        "def step_head(" in SRC and 'class="step-head"' in SRC)
 _check("单公司流程 1~5 步齐备（先行业 → 再数据来源 → 取数 → 补充 → 运行）",
-       all(k in SRC for k in ('card("kb", "1"', 'card("src", "2"', 'card("fetch")',
+       all(k in SRC for k in ('card("kb", "1"', 'card("src", "2"', 'card("fetch", col=',
                               'card("extra", "4"', 'card("run", "5"')) and 'step_head("3"' in SRC,
-       str([k for k in ('card("kb", "1"', 'card("src", "2"', 'card("fetch")',
+       str([k for k in ('card("kb", "1"', 'card("src", "2"', 'card("fetch", col=',
                         'card("extra", "4"', 'card("run", "5"', 'step_head("3"')
             if k not in SRC]))
 
@@ -395,6 +397,47 @@ _CHAT_ZONE = SRC.split("# ---- 追问对话（多轮，上下文实时更新） 
 _CHECK_ZONE = _CHAT_ZONE.split("_typed = st.chat_input", 1)[0]
 _check("追问区没有被包进卡片容器（chat_input 的父容器一变就丢钉底）",
        "with card" not in _CHECK_ZONE)
+_check("追问区也没有被塞进多栏网格（列也算容器，进列同样丢钉底）",
+       "col=_single_grid" not in _CHECK_ZONE)
+# 实测（streamlit/elements/widgets/chat.py）：判定条件是
+# `root_container == MAIN and not _ancestor_block_types`。探针验证过"根层先建
+# st.columns 多栏网格、卡片进列、之后再调 chat_input"时 ancestor_block_types 仍为空，
+# 所以网格与钉底可以共存 —— 但这条前提一旦被改（比如把追问区包进 with col:）就会退化。
+
+# 6d) v6：深蓝侧边栏 + 多栏卡片网格（用户：背景还是白的、布局没变）
+_check("侧边栏改深蓝渐变（模板里的深蓝导航条）",
+       "linear-gradient(180deg, #0E2A5E 0%, #123A80 46%, #16489E 100%)" in SRC)
+_check("侧栏内层容器透明（否则 Streamlit 主题底色会把渐变盖住）",
+       'section[data-testid="stSidebar"] [data-testid="stSidebarContent"]' in SRC
+       and 'section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"]' in SRC)
+_check("深底文字全部显式上色且对比度写进注释（深底最怕漏一处 → 深字压深底）",
+       all(c in SRC for c in ("#E8F0FF", "#B7CAEA", "#67E8F9")) and "#E8F0FF 6.8:1" in SRC)
+# ⚠️ 反向守卫：侧栏文字列表里**绝不能出现 span** —— 选中态导航按钮是"白底深蓝字"，
+#    一旦通配到 span 就会被刷成浅色，变成白底白字（v3 那次"字看不见"的同型 bug）。
+_check("侧栏文字选择器没有通配到 span（否则选中态白底白字）",
+       'section[data-testid="stSidebar"] span' not in SRC)
+_check("侧栏选中态 = 白底深蓝字（白亮块压深蓝，如模板）",
+       'section[data-testid="stSidebar"] .stButton > button[kind="primary"]' in SRC
+       and "color: #14377A !important" in SRC)
+_check("侧栏未选中态 = 半透明白底 + 浅字（不是白底卡上白字）",
+       "background: rgba(255, 255, 255, 0.10)" in SRC and "#E8F0FF !important" in SRC)
+_check("分析记录滚动槽有 key（深底要单独刷凹槽，1.57 没有旧 wrapper testid 可挂）",
+       'st.container(height=210, key="khist-scroll")' in SRC
+       and '[class*="st-key-khist-scroll"]' in SRC)
+_check("card() 支持 col 参数（挂进某列 = 零缩进改动参与多栏）",
+       "def card(" in SRC and "col=None" in SRC and "col.container(key=f\"kcard-{key}\")" in SRC)
+_check("单公司 1~5 步排成三栏网格（模板里的并排小卡，而不是竖排到底）",
+       "_single_grid = st.columns(3, gap=\"medium\")" in SRC
+       and all(k in SRC for k in ("col=_single_grid[0]", "col=_single_grid[1]", "col=_single_grid[2]")))
+# 标题被第一张卡压在下面 → 整页看上去还是"一堆卡片摊着"（用户：布局没变）。
+# 第 1 步「行业财务基准库」在模块级先渲染，所以标题必须也提到模块级、且在网格之前。
+_check("单公司页面大标题移到模块级（否则渲染顺序变成「卡 1 → 标题 → 卡 2…」）",
+       SRC.index('"单公司深度分析",') < SRC.index('_single_grid = st.columns(3')
+       and SRC.count('"单公司深度分析",') == 1)
+_check("网格在标题之后创建（标题必须是最上面的元素）",
+       SRC.index('page_head(\n        "单公司深度分析"') < SRC.index("_single_grid = st.columns(3"))
+_check("_view_single 内部不再重复渲染页面标题（避免出现两个大标题）",
+       '"单公司深度分析",' not in SRC.split("def _view_single()", 1)[1].split("def _view_compare", 1)[0])
 
 # 7) 布局搬迁的结构性守卫（这两条是最容易踩的坑）
 _check("导航/记录函数定义在其调用点之前（模块级调用先于定义会 NameError）",
@@ -408,29 +451,38 @@ _check("旧的中列函数名已清理（避免留下两套实现）",
        "_render_history_column" not in SRC)
 
 # ---------------------------------------------------------------------------
-print("=== P3-01 登录页（v4 浅色版）===")
+print("=== P3-01 登录页（v6 深蓝科技版）===")
 
 # 1) 源码层：样式只在未登录分支注入
 _check("登录页样式常量存在（LOGIN_CSS）", "LOGIN_CSS = " in SRC)
 _check("LOGIN_CSS 只在未登录分支注入（登录后不得残留登录页样式）",
        SRC.count("st.markdown(LOGIN_CSS") == 1
        and SRC.index("def check_login") < SRC.index("st.markdown(LOGIN_CSS"))
-_check("登录页浅色底（与工作台同一套近白，不再深蓝渐变）",
-       "linear-gradient(180deg, #FFFFFF 0%, #F7F9FC" in SRC)
-# v4 换掉深底方案的理由：深底要求每个文字元素都显式上色且带 !important，
-# 漏一个就掉进全站 p/li/span/div{color:#334155} → 1.0:1（首屏品牌区就这么翻车的）。
-_check("登录页不再出现深底专用色（金字 / 浅蓝字）",
-       not any(c in SRC for c in ("#F5C563", "#A9C6E8", "#DBEAFE")),
-       str([c for c in ("#F5C563", "#A9C6E8", "#DBEAFE") if c in SRC]))
+_check("登录页深蓝科技底（按用户给的登录页模板：深蓝渐变 + 青蓝辉光）",
+       "linear-gradient(160deg, #061428 0%, #0A2450 46%, #0F3272 100%)" in SRC
+       and "radial-gradient(circle at 20% 26%" in SRC)
+_check("登录页不再用 v4/v5 的浅底（浅蓝灰渐变不得同时出现）",
+       "linear-gradient(180deg, #FFFFFF 0%, #F7F9FC" not in SRC)
+# v6 换回深底的理由与 v4 放弃深底的理由是同一件事：深底要求每个文字元素都显式上色 +
+# !important，漏一个就掉进全站 p/li/span/div{color:#334155} → 深字压深底 ≈1.0:1。
+# 所以这条守的是"对比度必须**被算过**并写进注释"，而不是"必须用浅底"。
+_check("深底文字全部显式上色 + 对比度量化写进注释（漏一处就是一片看不清）",
+       all(c in SRC for c in ("#EAF2FF", "#CBDCF6", "#A9C0E6", "#8FA9D4"))
+       and "L=0.036" in SRC and "5.1:1" in SRC)
 _check("登录前隐藏侧边栏（导航/额度/退出登录都不该出现）",
        'section[data-testid="stSidebar"] { display: none !important; }' in SRC)
-_check("白卡 = 登录表单本体（浅边 + 顶部品牌蓝条 + 大投影）",
-       '[data-testid="stForm"]' in SRC and "border-radius: 14px" in SRC
-       and "border-top: 4px solid #1D4ED8" in SRC)
-_check("登录按钮实心品牌蓝、去掉金色描边",
-       '[data-testid="stFormSubmitButton"] button' in SRC)
-_check("浅底文字色齐备（深墨/正文/次要/品牌蓝，均 ≥4.5:1）",
-       all(c in SRC for c in ("#0B1F3A", "#334155", "#475569", "#1D4ED8")))
+_check("深色玻璃卡 = 登录表单本体（半透明深底 + 青色顶条 + 大投影）",
+       '[data-testid="stForm"]' in SRC and "rgba(8, 22, 48, 0.78) !important" in SRC
+       and "border-top: 3px solid #22D3EE" in SRC)
+_check("登录按钮 = 青色渐变 + 深蓝字（模板「安全登录」的形态，青底最亮端 8.8:1）",
+       '[data-testid="stFormSubmitButton"] button' in SRC
+       and "linear-gradient(90deg, #22D3EE 0%, #38BDF8 100%) !important" in SRC
+       and "color: #052438 !important" in SRC)
+_check("输入框在深底上不再是白底深字（改半透明底 + 浅字 + 浅占位符）",
+       "background: rgba(255, 255, 255, 0.07) !important" in SRC
+       and "color: #8FA9D4 !important" in SRC)
+_check("卡内报错提示在深色卡上可见（否则红字压深底看不见）",
+       '[data-testid="stForm"] [data-testid="stAlert"]' in SRC)
 _check("账号/密码标签**外置**，框内放小号英文占位符",
        'st.text_input("账号", placeholder="Account")' in SRC
        and 'st.text_input("密码", type="password", placeholder="Password")' in SRC)
@@ -440,6 +492,8 @@ _check("占位符字号小于外置标签（12px < 14px，框内更轻）",
        and "font-size: 14px !important" in SRC)
 _check("品牌区用 div 而非 h1（避开 Streamlit 锚点图标 + 全站标题样式覆盖）",
        'class="lb-title"' in SRC and 'class="login-brand"' in SRC)
+_check("品牌区有发光六边形 AI 徽标（CSS 画的，不需要图片资源）",
+       'class="lb-orb"' in SRC and "clip-path: polygon(50% 0%" in SRC)
 
 # v5 登录页文案：数据源统一口径 + 去掉"系统"字样
 # （品牌是 Agent，不是传统后台系统；"登录系统/进入系统"这类措辞与定位冲突）
@@ -460,7 +514,7 @@ at6 = AppTest.from_file(APP, default_timeout=240)
 at6.run()
 _check("未登录时无异常", not [str(e.value)[:200] for e in at6.exception],
        str([str(e.value)[:200] for e in at6.exception]))
-_check("未登录时注入了浅色登录页样式", "linear-gradient(180deg, #FFFFFF" in _md(at6))
+_check("未登录时注入了深蓝登录页样式", "linear-gradient(160deg, #061428" in _md(at6))
 _check("未登录时侧边栏里没有任何元素（导航/记录都不该渲染）",
        len(at6.sidebar.get("button")) == 0,
        str([b.key for b in at6.sidebar.get("button")]))

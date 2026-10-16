@@ -465,24 +465,28 @@ BASE_SYSTEM_PROMPT = """你是一名专业、严谨的金融投研分析师。�
 CUSTOM_CSS = """
 <style>
   /* ==========================================================
-     金融智能投研 Agent · 浅冷灰 + 卡片化主题 (v5)
+     金融智能投研 Agent · 深蓝侧栏 + 浅蓝灰工作台 (v6)
      v3 → v4：颜色太多（到处蓝字、金蓝撞色）→ 收敛成单一结构色 + 深灰文字
-     v4 → v5：颜色已经干净，但**信息结构**还是"一坨"——用户反馈"主界面还是很乱"。
-              v5 只做三件事，全是结构层面的：
-                ① 页面大标题（.page-head）：进每个视图先说清"这是什么页面"
-                ② 真正的卡片（st.container(key="kcard-*")）：一步一张白卡
-                ③ 底色降一档（#F7FAFD→#E9EFF7）：靠明度差把卡片分出来，
-                   而不是靠描边一层层堆
+     v4 → v5：结构"一坨" → 页面大标题 + 一步一张白卡
+     v5 → v6：v5 的结构对了，但**整体还是白的**——用户反馈"背景还是白色、
+              布局没变"。这一轮按用户给的模板补齐三件事：
+                ① 侧边栏改深蓝渐变（模板里的深蓝导航条）+ 白字 + 选中白色亮块
+                ② 主区底色再降一档到浅蓝灰（#EDF3FC→#DAE6F6），白卡才真正浮起来
+                ③ 单公司 1~5 步排成**多栏卡片网格**（模板里的并排小卡），
+                   而不是一条竖着排到底的长列表
      正文三级： 主 #0B1F3A (16.5:1) / 次 #334155 (10.4:1) / 辅 #475569 (8.1:1)
+     深蓝侧栏（#0E2A5E→#16489E）实测对比度：
+        #E8F0FF 6.8:1 / #B7CAEA 5.05:1 / 强调青 #67E8F9 5.78:1（均 ≥4.5）
+        选中态 = 白底 #14377A 字（11.6:1）
      ========================================================== */
 
-  /* ===== 全局背景：浅冷灰 =====
-     v4 用的是"白到近白"（#FFFFFF→#F2F6FA），几乎和卡片同色 → 卡片边界糊掉，
-     用户看到的还是"一坨内容摊在页面上"。
-     v5 把底色降一档（#F7FAFD→#E9EFF7），卡片仍然是纯白，靠**明度差**把区域分出来
-     —— 分隔靠背景对比，不靠描边堆叠。 */
+  /* ===== 全局背景：浅蓝灰（v6 再降一档）=====
+     v4「白到近白」、v5「浅冷灰」都还不够 —— 用户反馈"整体背景还是白色"。
+     v6 直接压到明显带蓝的浅蓝灰（#EDF3FC→#DAE6F6）：白卡才真正"浮"在底上，
+     侧边栏的深蓝也才有对比。底色只负责分区，正文一律落在白卡里，
+     所以字号与对比度不受影响（#334155 压在 #DAE6F6 上仍有 8.3:1）。 */
   .stApp {
-    background: linear-gradient(180deg, #F7FAFD 0%, #EFF4FA 46%, #E9EFF7 100%);
+    background: linear-gradient(180deg, #EDF3FC 0%, #E3EDF9 48%, #DAE6F6 100%);
     background-attachment: fixed;
   }
   header[data-testid="stHeader"] { background: transparent; }
@@ -533,14 +537,17 @@ CUSTOM_CSS = """
         这是 1.57 里唯一稳定的容器挂钩点 —— 旧教程里常用的
         stVerticalBlockBorderWrapper 已经在本版本消失（实测 grep 前端 bundle 命中 0），
         照抄旧写法会写出一条永不生效的规则。
-     ⚠️ 卡片 key 一律以 `kcard-` 开头，且**任何控件 key 都不得以 kcard- 开头**：
-        `[class*=...]` 是子串匹配，否则控件自己也会被刷成一张卡片。 */
+  ⚠️ 卡片 key 一律以 `kcard-` 开头，且**任何控件 key 都不得以 kcard- 开头**：
+     `[class*=...]` 是子串匹配，否则控件自己也会被刷成一张卡片。
+  ⚠️ 多栏网格：`card(..., col=_grid[0])` 会把卡片挂到某一列里
+     （内部用 `col.container(key=...)`，等价于 `with col: with st.container(...)`），
+     这样**不用给已有代码加缩进**就能参与多栏排布 —— 少缩进 = 少踩坑。 */
   [class*="st-key-kcard-"] {
     background: #FFFFFF;
-    border: 1px solid #E4EAF2;
-    border-radius: 14px;
+    border: 1px solid #DCE6F3;
+    border-radius: 16px;
     padding: 15px 18px 6px 18px;
-    box-shadow: 0 2px 10px rgba(15, 35, 70, 0.045);
+    box-shadow: 0 4px 16px rgba(15, 35, 70, 0.06);
     margin-bottom: 14px;
   }
 
@@ -628,12 +635,14 @@ CUSTOM_CSS = """
   }
 
   /* ===== 侧边栏：导航 + 分析记录 =====
-     导航菜单与分析记录都住在侧边栏里（主区原本的「图标列 + 记录列」已取消）。 */
+     导航菜单与分析记录都住在侧边栏里（主区原本的「图标列 + 记录列」已取消）。
+     v6 侧栏改深蓝后，这里的分组小标题必须走浅色（#E8F0FF 6.8:1），
+     分隔线也要换成半透明白线，否则深底上"黑线 + 黑字"整片糊掉。 */
   .hist-head {
-    font-size: 13px; font-weight: 700; color: #0B1F3A !important;
-    margin-top: 6px; padding-top: 9px;
-    /* 顶部加一条细线，与上方导航按钮拉开层次 */
-    border-top: 1px solid #E2E8F0;
+    font-size: 13px; font-weight: 800; color: #FFFFFF !important;
+    margin-top: 8px; padding-top: 10px;
+    border-top: 1px solid rgba(255, 255, 255, 0.16);
+    letter-spacing: .3px;
   }
 
   /* ===== 指标卡：白底 + 浅边 ===== */
@@ -753,16 +762,38 @@ CUSTOM_CSS = """
     box-shadow: 0 2px 10px rgba(15, 35, 70, 0.045);
   }
 
-  /* ===== 侧边栏：近白 + 浅边（与主区同一套底色，只是略深一档） ===== */
+  /* ===== 侧边栏：深蓝渐变（v6 主视觉）=====
+     模板（用户手绘稿）里最显眼的一块就是"深蓝导航条 + 白色亮块选中项"：
+     深色侧栏一下子把"这是工作台"和"这是内容"分开，比在浅色里描边有效得多。
+     深底带来的唯一风险是**文字对比度**，所以下面每一条文字都显式上色并量化：
+       #E8F0FF 正文 6.8:1 / #B7CAEA 说明 5.05:1 / #67E8F9 强调 5.78:1
+     —— 均以渐变最亮的一端（#16489E）为最坏情况计算，全 ≥4.5:1。 */
   section[data-testid="stSidebar"] {
-    background: #FAFBFD;
-    border-right: 1px solid #E4EAF2;
+    background: linear-gradient(180deg, #0E2A5E 0%, #123A80 46%, #16489E 100%);
+    border-right: none;
+    box-shadow: 2px 0 18px rgba(10, 28, 60, 0.16);
+  }
+  /* 侧栏内部容器一律透明，别把渐变盖住（Streamlit 默认给内层上了主题底色） */
+  section[data-testid="stSidebar"] [data-testid="stSidebarContent"],
+  section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"],
+  section[data-testid="stSidebar"] [data-testid="stSidebarHeader"] {
+    background: transparent;
+  }
+  section[data-testid="stSidebar"] hr {
+    border-top: 1px solid rgba(255, 255, 255, 0.16);
+  }
+  /* 折叠按钮的图标在深底上是深色 → 显式改浅 */
+  section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] svg {
+    fill: #C7D7F0 !important;
+    color: #C7D7F0 !important;
   }
   /* ⚠️ 这里原来是 `section[data-testid="stSidebar"] * { color:#1E3A5F !important }`
      —— 通配符 + !important 的特异性(0,1,1) 高于 `.sb-brand`(0,1,0)，
      会把品牌卡里本该是白色的标题刷成深蓝 #1E3A5F，压在蓝色渐变卡上
      实测对比度只有 1.83:1（截图里几乎看不见）。
-     改为只给 Streamlit 原生文本上色，自定义组件各自保留自己的配色。 */
+     改为只给 Streamlit 原生文本上色，自定义组件各自保留自己的配色。
+     ⚠️ v6 同理：**绝不能把 `span` 加进这个列表** —— 选中态导航按钮是"白底深蓝字"，
+     一旦通配到 span 就会被刷成浅色，变成白底白字（又是一次看不见）。 */
   section[data-testid="stSidebar"] p,
   section[data-testid="stSidebar"] li,
   section[data-testid="stSidebar"] label,
@@ -771,35 +802,82 @@ CUSTOM_CSS = """
   section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] *,
   section[data-testid="stSidebar"] [data-testid="stWidgetLabel"],
   section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] * {
-    color: #334155 !important;
+    color: #E8F0FF !important;
+  }
+  /* 说明类文字（caption / 额度行）压暗一档，但仍要 ≥4.5:1 */
+  section[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+  section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] * {
+    color: #B7CAEA !important;
+  }
+  section[data-testid="stSidebar"] code {
+    background: rgba(255, 255, 255, 0.14);
+    color: #67E8F9;
   }
   section[data-testid="stSidebar"] h3 {
-    border-left: 3px solid #1D4ED8;
+    border-left: 3px solid #67E8F9;
     padding-left: 8px;
-    color: #0B1F3A !important;
+    color: #FFFFFF !important;
   }
+  /* 导航按钮：未选中 = 半透明白底 + 浅字；选中 = **白底深蓝字**（模板里的亮块）
+     左对齐是因为模板里的按钮是"图标 + 文字"从左边起的，居中的话不整齐。 */
   section[data-testid="stSidebar"] .stButton > button {
-    background: #FFFFFF;
-    border: 1px solid #D6E0EC;
-    color: #334155;
-    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.10);
+    border: 1px solid rgba(255, 255, 255, 0.20);
+    color: #E8F0FF !important;
+    border-radius: 9px;
+    font-weight: 600;
+    justify-content: flex-start;
+    padding-left: 13px;
   }
   section[data-testid="stSidebar"] .stButton > button:hover {
-    border-color: #1D4ED8;
-    color: #1D4ED8 !important;
+    background: rgba(255, 255, 255, 0.20);
+    border-color: #67E8F9;
+    color: #FFFFFF !important;
   }
-  /* 侧边栏品牌头：原来是深蓝渐变 + 金字卡片（全站最深的一块），
-     和工作台"近白"的基调冲突；现在改成白底 + 蓝色竖条，
-     只有标题是深墨色，整体和主区对称。 */
+  section[data-testid="stSidebar"] .stButton > button[kind="primary"] {
+    background: #FFFFFF;
+    border: none;
+    color: #14377A !important;
+    font-weight: 800;
+    box-shadow: 0 3px 12px rgba(4, 16, 40, 0.28);
+  }
+  section[data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {
+    background: #EAF1FF;
+    color: #0E2A5E !important;
+  }
+  /* 双模型开关（st.toggle）在深蓝侧栏上原本是"深蓝轨道压深蓝底"，看不出开关状态：
+     用 :has() 直接判里面的 switch 选没选中，把整颗开关放进一块可见的小底板里
+     （与上面药丸选择器的 `label:has(input:checked)` 是同一套写法）。
+     ⚠️ 只挂在侧边栏作用域内，不影响主区的开关。 */
+  section[data-testid="stSidebar"] label:has([role="switch"]) {
+    background: rgba(255, 255, 255, 0.10);
+    border: 1px solid rgba(255, 255, 255, 0.20);
+    border-radius: 10px;
+    padding: 6px 8px;
+  }
+  section[data-testid="stSidebar"] label:has([role="switch"]:checked) {
+    background: rgba(34, 211, 238, 0.14);
+    border-color: rgba(103, 232, 249, 0.55);
+  }
+  /* 分析记录：深底上单独给一个半透明凹槽，记录多了自己滚动 */
+  [class*="st-key-khist-scroll"] {
+    background: rgba(0, 0, 0, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 12px;
+  }
+  /* 侧边栏品牌头：v6 保留**白底卡**（模板里左上角就是一块白卡压深蓝栏），
+     左侧竖条换成青色提亮 —— 深蓝底上的白卡本身就是最强的视觉锚点。
+     对比度沿用 v4 的白底深字：标题 #0B1F3A 16.5:1 / 副说明 #475569 8.1:1。 */
   .sb-brand {
     background: #FFFFFF;
     border: 1px solid #E4EAF2;
-    border-left: 4px solid #1D4ED8;
+    border-left: 4px solid #22D3EE;
     border-radius: 10px;
     padding: 11px 13px;
     font-weight: 800;
     font-size: 15px;
     letter-spacing: 0.3px;
+    box-shadow: 0 4px 16px rgba(4, 16, 40, 0.22);
   }
   /* 深色文字同时作用于子元素 —— 只写 .sb-brand 时，任何作用到子元素的
      通配符规则都会把文字压成别的颜色（v3 本次事故的根因），故在此加固。
@@ -813,20 +891,28 @@ CUSTOM_CSS = """
     margin-top: 4px;
     letter-spacing: 0.2px;
   }
-  /* 侧边栏内容卡片 */
+  /* 侧边栏内容卡片（安全提醒）：同样走白底卡 + 深字（深蓝栏上的白块） */
   .sb-card {
     background: #FFFFFF;
     border: 1px solid #E4EAF2;
     border-radius: 10px;
     padding: 10px 12px;
     margin: 8px 0;
+    box-shadow: 0 4px 16px rgba(4, 16, 40, 0.18);
   }
-  .sb-card .sb-title, .sb-title {
-    color: #0B1F3A !important;
+  /* ⚠️ `.sb-title` 有两个落点，必须分开处理：
+       ① 直接压在深蓝栏上的小标题（🧭 工作台导航 / 🤖 双模型协同）→ 浅色
+       ② 白卡里的小标题（⚠️ 安全提醒）→ 深色（且该处有 inline !important 兜底）
+     把它写成同一个颜色，就一定会有一处看不清 —— 这正是 v3 那次翻车的模式。 */
+  .sb-title {
+    color: #E8F0FF !important;
     font-weight: 700;
     font-size: 13px;
     margin-bottom: 6px;
     letter-spacing: 0.3px;
+  }
+  .sb-card .sb-title {
+    color: #0B1F3A !important;
   }
   .sb-card ol, .sb-card ul {
     margin: 0;
@@ -837,24 +923,26 @@ CUSTOM_CSS = """
   }
   .sb-chip {
     display: inline-block;
-    background: #EEF3FE;
-    border: 1px solid #D8E3FA;
-    color: #1D4ED8 !important;
+    background: rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    color: #67E8F9 !important;
     border-radius: 999px;
     padding: 1px 9px;
     font-size: 11px;
     margin: 2px 2px;
     white-space: nowrap;
   }
-  .sb-quota-head { font-size: 12px; margin-bottom: 4px; color: #475569 !important; }
-  .sb-quota-head b { color: #B45309 !important; }
+  .sb-quota-head { font-size: 12px; margin-bottom: 4px; color: #B7CAEA !important; }
+  .sb-quota-head b { color: #FBBF24 !important; }
   .sb-quota-bar {
     height: 6px;
-    background: rgba(15, 35, 70, 0.08);
+    background: rgba(255, 255, 255, 0.18);
     border-radius: 999px;
     overflow: hidden;
   }
   .sb-quota-bar div { height: 100%; border-radius: 999px; }
+  /* 侧栏内的页脚（主区也有 .footer-note，但那边是浅底深字，故只做作用域覆盖） */
+  section[data-testid="stSidebar"] .footer-note { color: #B7CAEA !important; }
 
   /* ===== 提示条 ===== */
   div[data-testid="stSuccess"] {
@@ -1020,103 +1108,153 @@ st.set_page_config(
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 # ---------------------------------------------------------------
-# 登录页（v4：浅色）
+# 登录页（v6：深蓝科技版，按用户给的登录页模板）
 #
-# 为什么换掉深蓝渐变：深底方案要求"每一个文字元素都显式上色且带 !important"，
-# 漏一个就会掉进全站的 `p,li,span,div{color:#334155}` 变成 1.0:1 ——
-# 用户看到的就是"深蓝底上一片看不清的字"（首屏品牌区就是这么翻车的）。
-# v4 改成浅底深字：即使某处样式没写对，兜底色 #334155 落在近白底上
-# 依然是 10.4:1 的清晰黑字。**让设计对样式失效免疫**，而不是靠 specificity 硬撑。
+# ⚠️ v4 曾经**故意放弃**深底方案，理由是：深底要求"每一个文字元素都显式上色且带
+#    !important"，漏一个就会掉进全站的 `p,li,span,div{color:#334155}` 变成深字压深底
+#    （1.0:1），用户看到的就是"深蓝底上一片看不清的字"。
+#    v6 用户明确要求换回深蓝模板 —— 那就把这条风险**逐条堵死**：
+#      · 登录页的每一类文字（标题/副标题/说明/标签/占位符/列表/页脚）都单列规则
+#      · 每条规则都用 !important，并在注释里写上算好的对比度
+#      · 深底是最深的一档（#061428→#0F3272），最亮端 L=0.036，
+#        白 12.2:1 / #EAF2FF 11.3:1 / #A9C0E6 6.6:1 / #8FA9D4 5.1:1 / 青 #67E8F9 8.4:1
+#        青色按钮上用深字 #052438：8.8:1（青底最亮端）
 #
-# 对比度（近白底 #FFFFFF / #F8FAFC）：
-#   #0B1F3A 16.5 / #334155 10.4 / #475569 8.1 / #1D4ED8 6.7 / #B45309 5.02 —— 全 ≥4.5
+# 表单结构沿用上一轮用户的要求：
+#   · 「账号 / 密码」作为**外置标签**（14px 加粗浅色），不塞进框里
+#   · 框内放**小号英文**占位符 Account / Password（12px），比外标签小一档
 #
-# 同时按用户要求调整表单结构：
-#   · 「账号 / 密码」作为**外置标签**（14px 加粗深色），不再塞进框里
-#   · 框内放**小号英文**占位符 Account / Password（12px），字号比外标签小一档
+# ⚠️ LOGIN_CSS 只在"未登录"分支注入（见 check_login）：登录成功后这段 <style>
+#    不再输出，深蓝背景与深色卡片自动消失，不需要任何反向恢复代码。
 # ---------------------------------------------------------------
 LOGIN_CSS = """
 <style>
-  /* 登录背景：与工作台同一套近白底色（视觉对称，不再"深蓝一屏 + 浅色工作台"） */
+  /* 登录背景：深蓝科技渐变 + 两处极淡的青蓝辉光（模拟模板里的光雾）。
+     辉光透明度控制在 0.16 以内，保证最亮处的文字仍 ≥4.5:1。
+     ⚠️ 必须同时压 .stApp / stAppViewContainer：CUSTOM_CSS 里给 .stApp 上的是
+        浅蓝灰渐变（!important 级别），只压内层会从边缘漏出浅色。 */
+  .stApp,
+  [data-testid="stApp"],
   [data-testid="stAppViewContainer"] {
-    background: linear-gradient(180deg, #FFFFFF 0%, #F7F9FC 52%, #EFF3F9 100%) !important;
+    background:
+      radial-gradient(circle at 20% 26%, rgba(34, 211, 238, 0.16), transparent 42%),
+      radial-gradient(circle at 78% 74%, rgba(56, 189, 248, 0.13), transparent 46%),
+      linear-gradient(160deg, #061428 0%, #0A2450 46%, #0F3272 100%) !important;
+    background-attachment: fixed !important;
   }
-  [data-testid="stMain"] { background: transparent !important; }
+  [data-testid="stMain"], [data-testid="stMainBlockContainer"] { background: transparent !important; }
   header[data-testid="stHeader"] { background: transparent !important; }
+  /* 顶栏工具栏（Share / 星标 / GitHub）在深底上是深色图标 → 显式改浅 */
+  [data-testid="stAppToolbar"] svg, [data-testid="stAppHeader"] svg {
+    fill: #C7D7F0 !important;
+    color: #C7D7F0 !important;
+  }
   /* 登录前不显示侧边栏：导航 / 额度 / 退出登录都不该出现 */
   section[data-testid="stSidebar"] { display: none !important; }
 
-  /* 登录卡 = 表单本体（st.container(border=True) 在 1.57 没有稳定 testid 可挂钩） */
+  /* 登录卡 = 表单本体（st.container(border=True) 在 1.57 没有稳定 testid 可挂钩）
+     —— 深色玻璃卡：半透明深底 + 青色描边 + 内高光 */
   [data-testid="stForm"] {
-    background: #FFFFFF !important;
-    border: 1px solid #E4EAF2 !important;
-    border-top: 4px solid #1D4ED8 !important;
-    border-radius: 14px !important;
+    background: rgba(8, 22, 48, 0.78) !important;
+    border: 1px solid rgba(103, 232, 249, 0.30) !important;
+    border-top: 3px solid #22D3EE !important;
+    border-radius: 16px !important;
     padding: 24px 26px 20px 26px !important;
-    box-shadow: 0 10px 30px rgba(15, 35, 70, 0.07) !important;
+    box-shadow: 0 18px 44px rgba(2, 10, 26, 0.55),
+                inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
   }
 
-  /* 外置标签：账号 / 密码 —— 深墨色加粗，14px（比框内占位符大一档） */
+  /* 外置标签：账号 / 密码 —— 浅色加粗，14px（比框内占位符大一档） */
   [data-testid="stForm"] [data-testid="stWidgetLabel"] p,
   [data-testid="stForm"] [data-testid="stWidgetLabel"] label,
   [data-testid="stForm"] label[data-testid="stWidgetLabel"] p {
-    color: #0B1F3A !important;
+    color: #EAF2FF !important;
     font-size: 14px !important;
     font-weight: 700 !important;
     letter-spacing: .2px;
   }
 
-  /* 输入框：白底 + 浅边；框内是「小号英文」提示 */
+  /* 输入框：半透明白底 + 青色描边；框内是「小号英文」提示 */
   [data-testid="stForm"] input {
-    background: #FFFFFF !important;
-    border: 1px solid #D6E0EC !important;
-    border-radius: 8px !important;
-    color: #0B1F3A !important;
+    background: rgba(255, 255, 255, 0.07) !important;
+    border: 1px solid rgba(150, 190, 240, 0.34) !important;
+    border-radius: 9px !important;
+    color: #EAF2FF !important;
     font-size: 14px !important;
     padding: 9px 12px !important;
   }
+  [data-testid="stForm"] input:focus {
+    border-color: #22D3EE !important;
+    box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.18) !important;
+  }
   [data-testid="stForm"] input::placeholder {
-    color: #64748B !important;
+    color: #8FA9D4 !important;
     font-size: 12px !important;
     letter-spacing: .3px;
   }
+  /* 密码框的「显示/隐藏」眼睛图标 */
+  [data-testid="stForm"] [data-testid="stTextInputRootElement"] button svg {
+    fill: #A9C0E6 !important; color: #A9C0E6 !important;
+  }
 
-  /* 登录按钮：实心品牌蓝 + 白字（去掉金色描边，全站不再出现金蓝撞色） */
+  /* 登录按钮：青色渐变 + 深蓝字（模板里的「安全登录」就是这个形态） */
   [data-testid="stFormSubmitButton"] button {
-    background: #1D4ED8 !important;
-    color: #FFFFFF !important;
+    background: linear-gradient(90deg, #22D3EE 0%, #38BDF8 100%) !important;
+    color: #052438 !important;
     border: none !important;
-    border-radius: 9px !important;
+    border-radius: 10px !important;
     padding: 11px 18px !important;
     font-size: 15px !important;
-    font-weight: 700 !important;
+    font-weight: 800 !important;
     letter-spacing: 1px;
+    box-shadow: 0 8px 22px rgba(34, 211, 238, 0.30) !important;
   }
-  [data-testid="stFormSubmitButton"] button:hover { background: #1E40AF !important; }
+  [data-testid="stFormSubmitButton"] button:hover {
+    background: linear-gradient(90deg, #67E8F9 0%, #7DD3FC 100%) !important;
+    color: #04202F !important;
+  }
 
-  /* 卡内文字统一深灰（浅底上必然可读） */
+  /* 卡内文字统一浅色（深底上必然可读） */
   [data-testid="stForm"] p,
   [data-testid="stForm"] li,
-  [data-testid="stForm"] small { color: #334155 !important; }
+  [data-testid="stForm"] small { color: #CBDCF6 !important; }
+  [data-testid="stForm"] .stMarkdown * { color: #CBDCF6; }
+  /* 卡内报错（账号或密码错误）也要看得见：浅底红字在深色卡上完全糊掉 */
+  [data-testid="stForm"] [data-testid="stAlert"] {
+    background: rgba(220, 38, 38, 0.18) !important;
+    border-left: 4px solid #F87171 !important;
+  }
+  [data-testid="stForm"] [data-testid="stAlert"] * { color: #FECACA !important; }
 
-  /* ---- 登录页品牌区：浅底深字，全部用类选择器 ---- */
+  /* ---- 登录页品牌区（深底浅字，全部用类选择器 + !important） ---- */
+  /* 中央「AI 六边形徽标」：CSS 画的发光六边形，对应模板里那颗 AI 球 */
+  .login-brand .lb-orb {
+    width: 78px; height: 88px; margin: 0 auto 18px auto;
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    background: linear-gradient(160deg, #22D3EE 0%, #3B82F6 100%);
+    box-shadow: 0 0 34px rgba(34, 211, 238, 0.55);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 26px; font-weight: 900; letter-spacing: 1px;
+    color: #052438 !important;
+  }
   .login-brand .lb-badge {
     display: inline-block; font-size: 12px; letter-spacing: 1.2px;
-    color: #1D4ED8 !important; background: #EEF3FE;
-    border: 1px solid #D8E3FA; border-radius: 999px;
-    padding: 3px 14px; margin-bottom: 14px;
+    color: #67E8F9 !important; background: rgba(34, 211, 238, 0.10);
+    border: 1px solid rgba(103, 232, 249, 0.42); border-radius: 999px;
+    padding: 4px 15px; margin-bottom: 14px;
   }
   /* ⚠️ 这里刻意用 <div> 而不是 <h1>：Streamlit 会给 markdown 标题自动塞一个
      深色的「跳转到本节」锚点图标，压在任何底上都是一块脏点；
      用 div 就完全不会生成锚点，也顺带躲开了全站 h3/h4/h5 的样式覆盖。 */
   .login-brand .lb-title {
-    color: #0B1F3A !important; font-size: 30px; font-weight: 800;
+    color: #FFFFFF !important; font-size: 31px; font-weight: 800;
     margin: 0 0 8px 0; letter-spacing: 1px;
+    text-shadow: 0 2px 18px rgba(34, 211, 238, 0.28);
   }
-  .login-brand .lb-title em { color: #B45309 !important; font-style: normal; }
-  .login-brand .lb-sub { color: #334155 !important; font-size: 14px; margin: 0; }
-  .login-brand .lb-note { color: #475569 !important; font-size: 12px; margin-top: 6px; }
-  .login-foot { text-align: center; font-size: 12px; color: #475569 !important; margin: 16px 0 0 0; }
+  .login-brand .lb-title em { color: #67E8F9 !important; font-style: normal; }
+  .login-brand .lb-sub { color: #CBDCF6 !important; font-size: 14px; margin: 0; }
+  .login-brand .lb-note { color: #A9C0E6 !important; font-size: 12px; margin-top: 7px; }
+  .login-foot { text-align: center; font-size: 12px; color: #8FA9D4 !important; margin: 16px 0 0 0; }
 </style>
 """
 
@@ -1137,11 +1275,12 @@ def check_login():
     # LOGIN_CSS 再把侧边栏兜底隐藏，确保"登录前只有这一屏"。
     st.markdown(LOGIN_CSS, unsafe_allow_html=True)
 
-    # 品牌区（压在近白底上 → 深墨色标题 + 品牌蓝小字，均 ≥4.5:1）
+    # 品牌区（压在深蓝底上 → 全部显式浅色，见 LOGIN_CSS 的对比度清单）
     st.markdown(
         """
-        <div class="login-brand" style="text-align:center;max-width:660px;
-                    margin:5vh auto 20px auto;">
+        <div class="login-brand" style="text-align:center;max-width:680px;
+                    margin:6vh auto 22px auto;">
+          <div class="lb-orb">AI</div>
           <div class="lb-badge">第二届全国人工智能应用创新大赛 · 参赛作品</div>
           <div class="lb-title">📈 金融智能投研 <em>Agent</em></div>
           <p class="lb-sub">AI 驱动的财报深度分析 · 结构化评分 · 多公司对比 · 同业对标基准</p>
@@ -1159,8 +1298,8 @@ def check_login():
         with st.form("login_form", clear_on_submit=False):
             st.markdown(
                 '<div style="text-align:center;margin:0 0 18px 0;">'
-                '<div style="font-size:17px;font-weight:800;color:#0B1F3A !important;">账号登录</div>'
-                '<div style="font-size:12px;color:#475569 !important;margin-top:4px;">'
+                '<div style="font-size:17px;font-weight:800;color:#FFFFFF !important;">账号登录</div>'
+                '<div style="font-size:12px;color:#A9C0E6 !important;margin-top:4px;">'
                 '输入账号与密码进入投研工作台</div>'
                 "</div>",
                 unsafe_allow_html=True,
@@ -1176,13 +1315,13 @@ def check_login():
                 else:
                     st.error("账号或密码错误，请检查后重试（区分大小写）。")
             st.markdown(
-                '<div style="margin-top:16px;padding-top:13px;border-top:1px solid #E4EAF2;'
-                'font-size:12px;color:#334155 !important;line-height:1.95;">'
-                '<b style="color:#0B1F3A !important;">① 单公司深度分析</b>　联网取数 → 规则引擎四维评分 → 图表与风险提示<br>'
-                '<b style="color:#0B1F3A !important;">② 多公司横向对比</b>　2~5 家各按本行业基准评分，对照表 / 差额 / CSV 导出<br>'
-                '<b style="color:#0B1F3A !important;">③ 年报原文引用</b>　解析年报 PDF 后按页建库，结论标注「见年报第 X 页」<br>'
-                '<b style="color:#0B1F3A !important;">④ 同业对标基准</b>　消费 / 金融 / 新能源 / 医药 / 互联网 财务基准差异化<br>'
-                '<span style="color:#475569 !important;">演示路径：取数 → 结构化分析 → 年度时间轴 → 生成研报 → 多公司对比</span>'
+                '<div style="margin-top:16px;padding-top:13px;border-top:1px solid rgba(255,255,255,0.16);'
+                'font-size:12px;color:#CBDCF6 !important;line-height:1.95;">'
+                '<b style="color:#FFFFFF !important;">① 单公司深度分析</b>　联网取数 → 规则引擎四维评分 → 图表与风险提示<br>'
+                '<b style="color:#FFFFFF !important;">② 多公司横向对比</b>　2~5 家各按本行业基准评分，对照表 / 差额 / CSV 导出<br>'
+                '<b style="color:#FFFFFF !important;">③ 年报原文引用</b>　解析年报 PDF 后按页建库，结论标注「见年报第 X 页」<br>'
+                '<b style="color:#FFFFFF !important;">④ 同业对标基准</b>　消费 / 金融 / 新能源 / 医药 / 互联网 财务基准差异化<br>'
+                '<span style="color:#A9C0E6 !important;">演示路径：取数 → 结构化分析 → 年度时间轴 → 生成研报 → 多公司对比</span>'
                 "</div>",
                 unsafe_allow_html=True,
             )
@@ -1424,20 +1563,33 @@ def sec_head(num: str, title: str, note: str = "", tag: str = "") -> None:
 
 
 @contextmanager
-def card(key: str, num: str = "", title: str = "", note: str = "", tag: str = ""):
+def card(key: str, num: str = "", title: str = "", note: str = "", tag: str = "",
+         col=None):
     """一步一张白卡（样式挂在 CSS 的 `[class*="st-key-kcard-"]` 上）。
 
     用法：
         with card("src", "2", "数据来源", "在线取数已包含行情与财务指标", "二选一"):
             st.radio(...)
 
+        # 参与多栏网格：把卡片挂到某一列里
+        with card("src", "2", "数据来源", col=_grid[0]):
+            st.radio(...)
+
+    `col` 的实现在最后一行：走 `col.container(key=...)`，等价于
+    `with col: with st.container(key=...)`。这样**已有代码一行都不用加缩进**
+    就能排进多栏 —— 缩进改动是这类重构最大的事故来源（改一处、漏一处就报
+    IndentationError，而且和业务逻辑的错误混在一起很难定位）。
+
     ⚠️ key 必须以 `kcard-` 开头（实际类名是 `st-key-kcard-<key>`），
        且**不能再有别的控件用同样前缀**，否则会被子串匹配连带刷成卡片。
     ⚠️ 追问区的 st.chat_input **绝不能**放进卡片里 —— 父容器一变，
        它就从"钉在视口底部"变成"内联渲染"，用户要的钉底效果会丢
        （详见 eval_chat_order.py 的两形态断言）。
+       ⚠️ 注意：放进 st.columns 的**列**里同样会变成 inline。所以多栏网格只能装
+          1~5 步的输入卡，追问区必须留在页面根层。
     """
-    with st.container(key=f"kcard-{key}"):
+    _ctx = col.container(key=f"kcard-{key}") if col is not None else st.container(key=f"kcard-{key}")
+    with _ctx:
         if title:
             step_head(num, title, note, tag)
         yield
@@ -2977,8 +3129,11 @@ def _render_history_list() -> None:
         st.caption("⚠️ 记录仅存于当前会话内存，刷新页面即清空（暂不做持久化）。")
         return
     st.caption(f"共 {len(_hist)} 条 · 仅本次会话有效")
-    # 定高容器 → 记录多了这一段自己滚动，不把侧边栏撑得老长
-    with st.container(height=210):
+    # 定高容器 → 记录多了这一段自己滚动，不把侧边栏撑得老长。
+    # v6 加了 key：侧栏改深蓝后，这个凹槽要单独刷成"深底半透明槽 + 浅色描边"
+    # （没有 key 就没有 `st-key-*` 类名可挂钩，样式只能靠猜 testid —— 而 1.57 已经没有
+    #  旧的 stVerticalBlockBorderWrapper 了，见 MEMORY 设计约定）。
+    with st.container(height=210, key="khist-scroll"):
         for _i in range(len(_hist) - 1, -1, -1):
             _h = _hist[_i]
             _on = st.session_state.get("hist_active") == _h.get("id")
@@ -3110,6 +3265,32 @@ _cur_view = st.session_state.get("main_view", "🏢")
 # 如果已经在线取数，标题直接显示公司名称+代码+匹配行业
 _single_name = st.session_state.get("single_online_name", "")
 _single_code = st.session_state.get("single_online_code", "")
+
+# ---------------------------------------------------------------
+# 单公司视图的「页面大标题 + 多栏网格」必须在这里（模块级）先建立
+#
+# 为什么要抢在 _view_single() 之前：
+#   Streamlit 是按**执行顺序**往容器里追加元素的。第 1 步「行业财务基准库」
+#   是在模块级渲染的（它决定全站评分口径，多公司对比还要复用 industry 变量），
+#   而 _view_single() 要到文件末尾才被调用 —— 于是真实渲染顺序变成
+#   「顶栏 → 卡 1 → 大标题『单公司深度分析』→ 卡 2…」，
+#   标题被第一张卡压在下面，整页看上去仍然是"一堆卡片摊着"（用户：布局没变）。
+#   把标题与网格提到这里，顺序才对：顶栏 → 大标题 → 三栏卡片 → 结果区 → 追问区。
+#
+# 三栏怎么分（对应模板：并排的小卡片，而不是一条竖着排到底的长列表）：
+#   第 1 栏 ①行业基准 + ②数据来源 ｜ 第 2 栏 ③取数 + ④补充材料 ｜ 第 3 栏 ⑤运行分析
+# ⚠️ 追问区（st.chat_input）**不进网格**：一旦进了列，父容器就从"页面根层"
+#    变成"列"，Streamlit 会把它从"钉视口底部"降级成内联渲染（见 chat.py 判定）。
+# ---------------------------------------------------------------
+_single_grid = None
+if _cur_view == "🏢":
+    page_head(
+        "单公司深度分析",
+        "输入一家上市公司 → 在线取数（行情 / 多期财务指标 / 年报原文）→ 规则引擎四维评分 → "
+        "年报按页引用 → 一键生成研报。下面每一步都是一张卡片，按 ①②③④⑤ 从左到右读一遍即可。",
+    )
+    _single_grid = st.columns(3, gap="medium")
+
 if _cur_view == "🏢":
     # 第 1 步：行业财务基准库（整块现在住在一张白卡里 —— 卡片表头就是原来的步骤条）
     _kb_note = (
@@ -3117,7 +3298,8 @@ if _cur_view == "🏢":
         if (_single_name and _single_code)
         else "四维评分、四象限定位与散点基准线都按所选行业计算"
     )
-    with card("kb", "1", "行业财务基准库", _kb_note, tag="同业对标"):
+    with card("kb", "1", "行业财务基准库", _kb_note, tag="同业对标",
+              col=_single_grid[0]):
 
         def _on_industry_change():
             """用户手动点击才记录为「手动选择」；自动跟随写入的值不算手动。"""
@@ -3205,16 +3387,14 @@ def system_prompt_with_kb(industry_override: str = ""):
 #    函数体缩进本来就是 4，所以这里只改了一行声明，内部逻辑零改动。
 # ---------------------------------------------------------------
 def _view_single():
-    page_head(
-        "单公司深度分析",
-        "输入一家上市公司 → 在线取数（行情 / 多期财务指标 / 年报原文）→ 规则引擎四维评分 → "
-        "年报按页引用 → 一键生成研报。下面每一步都是一张卡片，按 1 → 5 从上往下走一遍即可。",
-    )
+    # ⚠️ 页面大标题放在模块级（本函数之外）渲染：第 1 步「行业财务基准库」在模块级
+    #    先执行，标题写在这里会落到第一张卡**下面**（详见模块级的说明）。
+    #    这里只负责 ②~⑤ 的卡片，全部挂进模块级建好的 _single_grid 三栏网格。
 
-    # ---- 数据来源选择 ----
+    # ---- 数据来源选择（第 1 栏） ----
     with card("src", "2", "数据来源",
               "在线取数已包含实时行情、多期财务指标与年报检索片段",
-              tag="二选一"):
+              tag="二选一", col=_single_grid[0]):
         src_mode = st.radio(
             "数据来源",
             ["🌐 在线自动取数（推荐）", "✍️ 手动粘贴 / 上传"],
@@ -3230,7 +3410,7 @@ def _view_single():
     if src_mode.startswith("🌐"):
         # 第 3 步的卡片表头由 panel 内部的 step_head("3", ...) 渲染，
         # 这里只开卡片、不再传 title —— 否则一张卡上会出现两条表头。
-        with card("fetch"):
+        with card("fetch", col=_single_grid[1]):
             online_text, online_name, online_pdftext = online_fetch_panel("single")
         # 【补充材料 · 三选一】原来这里直接摊开一块大输入框，看起来像"必须手填"。
         # 在线取数其实已经把行情、多期财务指标、年报检索全部接进来了，手填多数时候是多余的；
@@ -3239,7 +3419,7 @@ def _view_single():
         # 只有真要粘第三方材料时，才落到手写框。
         with card("extra", "4", "补充材料",
                   "在线取数已够用，仅在需要第三方材料时追加",
-                  tag="可选"):
+                  tag="可选", col=_single_grid[1]):
             _extra_mode = st.radio(
                 "补充材料方式",
                 ["🟢 不追加（推荐）", "⚡ 一键用在线数据生成摘要", "✍️ 手动粘贴自定义内容"],
@@ -3278,19 +3458,18 @@ def _view_single():
     else:
         with card("manual", "3", "手动输入 / 上传",
                   "可粘贴财报摘要，或上传 PDF / txt / md（上传的年报会按页进入检索库）",
-                  tag="二选一"):
-            col1, col2 = st.columns(2)
-            with col1:
-                data_text = st.text_area(
-                    "① 粘贴财报摘要（营收、净利润、毛利率、负债等）",
-                    height=200,
-                    key="single_text",
-                )
-            with col2:
-                up = st.file_uploader("② 或上传财报文件（支持 PDF / txt / md）", type=["pdf", "txt", "md"], key="single_upload")
-                uploaded_text, upload_err = read_upload(up)
-                if upload_err:
-                    st.warning(upload_err)
+                  tag="二选一", col=_single_grid[1]):
+            # ⚠️ 手动模式整块住在"第 2 栏"里，宽度只有主区的 1/3 ——
+            #    再分成左右两栏会把输入框挤成 ~180px，所以改成上下堆叠。
+            data_text = st.text_area(
+                "① 粘贴财报摘要（营收、净利润、毛利率、负债等）",
+                height=200,
+                key="single_text",
+            )
+            up = st.file_uploader("② 或上传财报文件（支持 PDF / txt / md）", type=["pdf", "txt", "md"], key="single_upload")
+            uploaded_text, upload_err = read_upload(up)
+            if upload_err:
+                st.warning(upload_err)
 
     # 合并所有数据源
     # 年报全文不再只截开头送模型：开头 3000 字供"公司概况"，
@@ -3332,14 +3511,13 @@ def _view_single():
 
     with card("run", "5", "运行分析",
               "规则引擎固定评分 + 千问润色 + 年报按页引用",
-              tag="出结果"):
-        c1, c2 = st.columns(2)
-        with c1:
-            run_btn = st.button("🚀 开始结构化分析", disabled=not raw_data, use_container_width=True, type="primary")
-            st.caption("先看分数：四维评分、图表、风险与亮点（结果按四个页签展开）。")
-        with c2:
-            report_btn = st.button("📝 生成完整研报", disabled=not raw_data, use_container_width=True)
-            st.caption("直接出稿：把上面的结果整理成一份可下载的 Markdown 研报。")
+              tag="出结果", col=_single_grid[2]):
+        # ⚠️ 同"手动输入"：这一栏只有 1/3 宽，两个按钮并排会各自挤到 ~180px、
+        #    按钮文案会折行，所以改成上下两个整宽按钮（主操作在上）。
+        run_btn = st.button("🚀 开始结构化分析", disabled=not raw_data, use_container_width=True, type="primary")
+        st.caption("先看分数：四维评分、图表、风险与亮点（结果按四个页签展开）。")
+        report_btn = st.button("📝 生成完整研报", disabled=not raw_data, use_container_width=True)
+        st.caption("直接出稿：把上面的结果整理成一份可下载的 Markdown 研报。")
 
         if not raw_data:
             st.info("请先通过「在线自动取数」获取数据，或手动粘贴 / 上传财报，再开始分析。")

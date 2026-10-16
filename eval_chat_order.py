@@ -192,6 +192,58 @@ check("推荐问题按钮也同样先入队（否则推荐提问会在对话流�
       'st.session_state["messages"].append({"role": "user", "content": _sq})' in SRC)
 check("清空按钮仍在（对话可重置）", 'key="clear_chat"' in SRC)
 
+print("=== 多栏网格与钉底的共存前提（v6 新增） ===")
+# 背景：v6 把单公司 1~5 步排成 st.columns(3) 多栏网格，卡片用 `col=` 挂进某一列。
+# Streamlit 判定 chat_input 位置的唯一条件是（见 elements/widgets/chat.py）：
+#     root_container == MAIN and not _ancestor_block_types
+# 所以"根层先建网格 → 卡片进列 → 之后再在根层调 chat_input"是安全的。
+# 但这条前提**不能靠记忆**：一旦有人把追问区也包进 `with col:` / `with st.container()`，
+# 它就会静默退化成内联（钉底消失，而且不报错）。这里用一段最小合成 app
+# 现场把 root / ancestors 读出来，把结论变成"测出来的"。
+import json                      # noqa: E402
+import tempfile                  # noqa: E402
+_R = os.path.join(tempfile.gettempdir(), "ai_race_chat_pin_probe.json")
+try:
+    os.remove(_R)
+except OSError:
+    pass
+_PROBE_SRC = """
+import json
+import streamlit as st
+
+g = st.columns(3, gap="medium")
+for _i in range(3):
+    with g[_i].container(key="kcard-c" + str(_i)):
+        st.write("card " + str(_i))
+
+_dg = st.chat_input.__self__._active_dg
+json.dump({"root": int(_dg._root_container),
+           "ancestors": list(_dg._ancestor_block_types)},
+          open(r"__RESULT__", "w", encoding="utf-8"))
+st.chat_input("继续追问")
+""".replace("__RESULT__", _R)
+_pf = tempfile.NamedTemporaryFile("w", suffix=".py", delete=False, encoding="utf-8")
+_pf.write(_PROBE_SRC)
+_pf.close()
+_pat = AppTest.from_file(_pf.name, default_timeout=60)
+_pat.run()
+_probe = {}
+if os.path.exists(_R):
+    with io.open(_R, encoding="utf-8") as _fh:
+        _probe = json.load(_fh)
+check("多栏网格建好后，根层仍是「MAIN + 无祖先 block」—— chat_input 仍会钉底",
+      _probe.get("root") == 0 and _probe.get("ancestors") == [],
+      f"probe={_probe} exceptions={[str(e.value)[:120] for e in _pat.exception]}")
+check("网格确实落在 app.py（单公司 1~5 步排成三栏，不再竖排到底）",
+      "_single_grid = st.columns(3" in SRC)
+# 追问区必须留在页面根层：不进卡片、也不进列
+_CHAT_SRC = SRC.split("# ---- 追问对话（多轮，上下文实时更新） ----", 1)[-1]
+_CHAT_HEAD = _CHAT_SRC.split("_typed = st.chat_input", 1)[0]
+check("追问区没有被包进卡片容器（父容器一变就丢钉底）",
+      "with card" not in _CHAT_HEAD)
+check("追问区没有被塞进多栏网格的列里（列同样是容器）",
+      "col=_single_grid" not in _CHAT_HEAD)
+
 print()
 if FAILS:
     print("FAILED:", FAILS)

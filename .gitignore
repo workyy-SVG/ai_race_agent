@@ -182,7 +182,10 @@ cython_debug/
 # 本地自检脚本（不部署）
 _selfcheck.py
 # 本地临时排查脚本（不部署、不入库）
+#   _probe_cols_chat.py 是一次性探针（验证多栏网格下 chat_input 仍钉底），
+#   沙箱里删不掉，直接忽略掉，别让它进仓库
 _check*.py
+_probe*.py
 materials/
 *.log
 # 本地向量库缓存与实验输出（运行时生成，不入库）
