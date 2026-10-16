@@ -1268,26 +1268,93 @@ LOGIN_CSS = """
      卡片就长成又高又瘦的一条。登录页单独放宽到 1560px + 中列加宽，
      文案改成横向铺开 → 视觉变宽，行数变少，而不是整体拔高。
      ⚠️ 这段 CSS 只在未登录分支注入，工作台宽度不受影响。 */
-  .block-container { max-width: 1560px !important; }
+  .block-container { max-width: 1800px !important; }
   header[data-testid="stHeader"] { background: transparent !important; }
-  /* 顶栏工具栏（Share / 星标 / GitHub）在深底上是深色图标 → 显式改浅 */
-  [data-testid="stAppToolbar"] svg, [data-testid="stAppHeader"] svg {
-    fill: #C7D7F0 !important;
-    color: #C7D7F0 !important;
+
+  /* ---- v9 修正：右上角工具栏（Share / 星标 / 菜单）终于看得清了 ----
+     ⚠️ 原来那条规则写的是 [data-testid=stAppToolbar] svg —— **选择器是错的**：
+     在 1.57 里 stAppHeader / stAppToolbar 是 **className**，
+     真正的 testid 是 stHeader / stToolbar（已在前端包里逐个核对过）：
+         <header className="stAppHeader" data-testid="stHeader">
+           <div className="stAppToolbar" data-testid="stToolbar">
+             … <div className="stToolbarActionButton" data-testid="stToolbarActionButton">
+                   <span data-testid="stToolbarActionButtonLabel">Share</span>
+     （上面这段注释刻意用不带引号的写法，免得把字面量写进源码、污染回归里的
+      `SRC` 断言 —— 这是本仓库踩过的老坑。）
+     所以那条规则**从来没生效过** → 深色图标压在深蓝底上，
+     用户反馈"share 什么什么那些根本就看不清"。改成按真实 testid 命中，
+     并且顺带把字号提上去、加一层浅色药丸底（深底上白字才立得住）。
+     ⚠️ 主菜单展开后的下拉是**浅色弹层**，绝不能把里面的字也刷浅（白底白字）
+     → 下面专门写了"弹层还原成深字"的一组规则，放在最后覆盖。 */
+  [data-testid="stToolbar"], .stAppToolbar { color: #EAF2FF !important; }
+  [data-testid="stToolbar"] button,
+  [data-testid="stToolbar"] button *,
+  [data-testid="stToolbar"] a,
+  [data-testid="stToolbar"] a * {
+    color: #EAF2FF !important;
+    font-size: 15.5px !important;
+    font-weight: 700 !important;
+    letter-spacing: .3px;
+  }
+  [data-testid="stToolbar"] svg,
+  [data-testid="stToolbar"] svg * { fill: #EAF2FF !important; color: #EAF2FF !important; }
+  /* Share / 星标 / 菜单触发器：浅色药丸底（半透明白 + 青边），深底上不糊 */
+  [data-testid="stToolbarActionButton"] button,
+  [data-testid="stAppDeployButton"] button,
+  [data-testid="stMainMenuButton"],
+  [data-testid="stMainMenu"] button {
+    background: rgba(12, 34, 70, 0.62) !important;
+    border: 1px solid rgba(150, 190, 240, 0.42) !important;
+    border-radius: 999px !important;
+    padding: 6px 14px !important;
+  }
+  [data-testid="stToolbarActionButton"] button:hover,
+  [data-testid="stAppDeployButton"] button:hover,
+  [data-testid="stMainMenuButton"]:hover,
+  [data-testid="stMainMenu"] button:hover {
+    background: rgba(34, 211, 238, 0.22) !important;
+    border-color: rgba(103, 232, 249, 0.75) !important;
+  }
+  [data-testid="stStatusWidget"], [data-testid="stStatusWidget"] * {
+    color: #EAF2FF !important; font-size: 15px !important;
+  }
+  /* ⚠️ 把"工具栏"的浅色规则**收回**到弹层里：主菜单下拉是**浅底弹层**
+     （真 testid：stMainMenuPopover / stMainMenuList / stMainMenuItem-*），
+     里面的字必须回到深色，否则就是我们自己造出来的"白底白字"。
+     ⚠️ 这条必须放在上面那些浅色规则**之后**（同优先级时后者胜）。 */
+  [data-testid="stMainMenuPopover"],
+  [data-testid="stMainMenuList"],
+  [data-baseweb="popover"] [data-baseweb="menu"],
+  [data-baseweb="popover"] ul { background: #FFFFFF !important; }
+  [data-testid^="stMainMenuItem"],
+  [data-testid="stMainMenuItemLabel"],
+  [data-testid="stMainMenuList"] *,
+  [data-baseweb="popover"] [role="menuitem"],
+  [data-baseweb="popover"] [role="menuitemradio"],
+  [data-baseweb="popover"] [role="menuitemcheckbox"],
+  [data-baseweb="popover"] [role="menuitem"] *,
+  [data-baseweb="popover"] [role="menuitemradio"] *,
+  [data-baseweb="popover"] [role="menuitemcheckbox"] * {
+    color: #0B1F3A !important; fill: #334155 !important;
+    font-size: 15px !important; font-weight: 600 !important;
   }
   /* 登录前不显示侧边栏：导航 / 额度 / 退出登录都不该出现 */
   section[data-testid="stSidebar"] { display: none !important; }
 
   /* 登录卡 = 表单本体（st.container(border=True) 在 1.57 没有稳定 testid 可挂钩）
-     —— 深色玻璃卡：半透明深底 + 青色描边 + 内高光 */
+     —— 深色玻璃卡：半透明深底 + 青色描边 + 内高光。
+     v9：与两侧面板换成**同一套玻璃材质**（底色 / 描边 / 圆角 / 投影 / 毛玻璃一致），
+     三块东西才像"同一个控制台里的三件仪表"，而不是三张各画各的贴纸 ——
+     用户原话"整体都变大，并且结合在一起、融合在一起"。 */
   [data-testid="stForm"] {
-    background: rgba(8, 22, 48, 0.78) !important;
+    background: rgba(9, 24, 52, 0.72) !important;
     border: 1px solid rgba(103, 232, 249, 0.30) !important;
-    border-top: 3px solid #22D3EE !important;
-    border-radius: 16px !important;
-    padding: 26px 30px 22px 30px !important;
-    box-shadow: 0 18px 44px rgba(2, 10, 26, 0.55),
-                inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+    border-top: 4px solid #22D3EE !important;
+    border-radius: 18px !important;
+    padding: 30px 34px 26px 34px !important;
+    box-shadow: 0 20px 48px rgba(2, 10, 26, 0.50),
+                inset 0 1px 0 rgba(255, 255, 255, 0.07) !important;
+    backdrop-filter: blur(8px);
   }
 
   /* 外置标签：账号 / 密码 —— 浅色加粗（比框内占位符大一档） */
@@ -1295,19 +1362,19 @@ LOGIN_CSS = """
   [data-testid="stForm"] [data-testid="stWidgetLabel"] label,
   [data-testid="stForm"] label[data-testid="stWidgetLabel"] p {
     color: #EAF2FF !important;
-    font-size: 16.5px !important;
+    font-size: 18.5px !important;
     font-weight: 700 !important;
-    letter-spacing: .4px;
+    letter-spacing: .5px;
   }
 
   /* 输入框：半透明白底 + 青色描边；框内是「小号英文」提示 */
   [data-testid="stForm"] input {
     background: rgba(255, 255, 255, 0.07) !important;
     border: 1px solid rgba(150, 190, 240, 0.34) !important;
-    border-radius: 9px !important;
+    border-radius: 10px !important;
     color: #EAF2FF !important;
-    font-size: 16.5px !important;
-    padding: 11px 14px !important;
+    font-size: 18.5px !important;
+    padding: 13px 17px !important;
   }
   [data-testid="stForm"] input:focus {
     border-color: #22D3EE !important;
@@ -1315,7 +1382,7 @@ LOGIN_CSS = """
   }
   [data-testid="stForm"] input::placeholder {
     color: #A9C0E6 !important;
-    font-size: 13.5px !important;
+    font-size: 15px !important;
     letter-spacing: .3px;
   }
   /* 密码框的「显示/隐藏」眼睛图标 */
@@ -1328,11 +1395,11 @@ LOGIN_CSS = """
     background: linear-gradient(90deg, #22D3EE 0%, #38BDF8 100%) !important;
     color: #052438 !important;
     border: none !important;
-    border-radius: 10px !important;
-    padding: 13px 18px !important;
-    font-size: 18px !important;
+    border-radius: 11px !important;
+    padding: 15px 20px !important;
+    font-size: 21px !important;
     font-weight: 800 !important;
-    letter-spacing: 1.6px;
+    letter-spacing: 1.8px;
     box-shadow: 0 8px 22px rgba(34, 211, 238, 0.30) !important;
   }
   [data-testid="stFormSubmitButton"] button:hover {
@@ -1357,32 +1424,32 @@ LOGIN_CSS = """
      v7：外面再套两圈旋转光环（.lb-ring），把"中间一个孤零零的六边形"变成
      "一颗悬浮在环形轨道上的核心"，是整页最省力也最见效的科技感来源。 */
   .login-brand .lb-orb {
-    width: 100px; height: 113px; margin: 0 auto 20px auto;
+    width: 118px; height: 133px; margin: 0 auto 22px auto;
     clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
     background: linear-gradient(160deg, #22D3EE 0%, #3B82F6 100%);
-    box-shadow: 0 0 38px rgba(34, 211, 238, 0.55);
+    box-shadow: 0 0 46px rgba(34, 211, 238, 0.55);
     display: flex; align-items: center; justify-content: center;
-    font-size: 34px; font-weight: 900; letter-spacing: 1px;
+    font-size: 40px; font-weight: 900; letter-spacing: 1px;
     color: #052438 !important;
   }
   .login-brand .lb-badge {
-    display: inline-block; font-size: 14.5px; letter-spacing: 2px;
+    display: inline-block; font-size: 16.5px; letter-spacing: 2.4px;
     color: #7FE9FF !important; background: rgba(34, 211, 238, 0.10);
     border: 1px solid rgba(103, 232, 249, 0.42); border-radius: 999px;
-    padding: 6px 22px; margin-bottom: 16px;
+    padding: 7px 24px; margin-bottom: 18px;
   }
   /* ⚠️ 这里刻意用 <div> 而不是 <h1>：Streamlit 会给 markdown 标题自动塞一个
      深色的「跳转到本节」锚点图标，压在任何底上都是一块脏点；
      用 div 就完全不会生成锚点，也顺带躲开了全站 h3/h4/h5 的样式覆盖。 */
   .login-brand .lb-title {
-    color: #FFFFFF !important; font-size: 40px; font-weight: 800;
-    margin: 0 0 10px 0; letter-spacing: 2px;
-    text-shadow: 0 2px 18px rgba(34, 211, 238, 0.28);
+    color: #FFFFFF !important; font-size: 48px; font-weight: 800;
+    margin: 0 0 12px 0; letter-spacing: 2.4px;
+    text-shadow: 0 2px 20px rgba(34, 211, 238, 0.30);
   }
   .login-brand .lb-title em { color: #7FE9FF !important; font-style: normal; }
-  .login-brand .lb-sub { color: #CBDCF6 !important; font-size: 17.5px; margin: 0; letter-spacing: .4px; }
-  .login-brand .lb-note { color: #A9C0E6 !important; font-size: 15.5px; margin-top: 9px; letter-spacing: .3px; }
-  .login-foot { text-align: center; font-size: 15px; color: #A9C0E6 !important; margin: 18px 0 0 0; letter-spacing: .2px; }
+  .login-brand .lb-sub { color: #CBDCF6 !important; font-size: 21px; margin: 0; letter-spacing: .5px; }
+  .login-brand .lb-note { color: #A9C0E6 !important; font-size: 17.5px; margin-top: 11px; letter-spacing: .3px; }
+  .login-foot { text-align: center; font-size: 17px; color: #A9C0E6 !important; margin: 20px 0 0 0; letter-spacing: .2px; }
 
   /* ==========================================================
      v7 新增：登录页科技装饰层（用户："不要只给我一个登录的账号，
@@ -1391,10 +1458,11 @@ LOGIN_CSS = """
        ① .lb-deco  —— fixed 全屏装饰层（pointer-events:none，绝不挡点击）
        ② .lb-ring  —— 品牌区背后的两圈光环（虚线刻度环 + 实线内环）
        ③ .lb-scan  —— 缓慢旋转的锥形扫描光（conic-gradient）
-       ④ .lb-grid  —— 底部透视网格（渐隐遮罩，像"地面"）
-       ⑤ .lb-side  —— 左右两侧的悬浮数据面板（迷你折线/圆环/节点网络）
+       ④ .lb-grid    —— 底部透视网格（渐隐遮罩，像"地面"）
+       ⑤ .lb-halo    —— 中央一枚大范围柔和辉光（把左/中/右"焊"成同一块控制台）
+       ⑥ .lb-side-col —— 左右两侧的数据面板（v9 起住进**真实列**，不再绝对定位）
      ⚠️ 这些元素都压在主内容**下面**（主内容 z-index:3，见文件上方），
-        所以即使窄屏重叠也不会糊住文字；< 1150px 时两侧面板直接隐藏。
+        所以即使重叠也不会糊住文字；< 1280px 时两侧整列隐藏。
 
      v8 修复（用户："给我放这两个上去是什么意思？代码有点让人感觉不舒服"）：
         v7 把这段装饰 HTML 写成了**带缩进、中间夹空行的多行字符串**，
@@ -1432,48 +1500,80 @@ LOGIN_CSS = """
     -webkit-mask-image: linear-gradient(to top, rgba(0,0,0,.9), transparent);
     mask-image: linear-gradient(to top, rgba(0,0,0,.9), transparent);
   }
-  .lb-side { position: absolute; top: 50%; transform: translateY(-50%);
-             width: clamp(270px, 16vw, 350px); }
-  .lb-side.l { left: 1.6vw; }
-  .lb-side.r { right: 1.6vw; }
+  /* ---- ⑤ v9：两侧数据面板不再"绝对定位浮在大屏两边"，而是**住进真实的 st.columns**
+     （左列 / 登录卡 / 右列 三列同排）。这样它们和登录卡是同一个网格里的兄弟节点：
+     宽度由布局决定（不会重叠、更不会压住输入框），并且三块东西同材质 → 视觉上"融合"。
+     用户原话："左边也有图形内容…右边也有图形和内容…但是还是太小了，能不能再大一点？
+     整体都变大，并且结合在一起、融合在一起"。 */
+  .lb-halo {
+    position: absolute; left: 50%; top: 46%;
+    width: min(1560px, 96vw); height: min(780px, 76vh);
+    transform: translate(-50%, -50%); border-radius: 50%;
+    background: radial-gradient(ellipse at 50% 50%,
+      rgba(34, 211, 238, 0.12), rgba(34, 211, 238, 0.045) 46%, transparent 74%);
+  }
+  .lb-side-col { display: flex; flex-direction: column; gap: 20px; }
+  /* 面板组在列里竖直居中：st.columns 会把列拉到与登录卡等高，
+     面板少一半高度也不至于"上重下轻"。
+     ⚠️ 这里的 testid 是**逐个核过的**（1.57 前端包）：
+        · `stColumn` 确实是 data-testid（别被 `goToFirstColumn` 那种字符串骗了，
+          直接搜 "stColumn" 会命中 DataFrame 的键盘快捷键名，是假阳性）
+        · `stVerticalBlock` 是**动态拼**出来的：`data-testid: SO(border_type)`，
+          函数体 `e===HORIZONTAL ? 'stHorizontalBlock' : 'stVerticalBlock'`，
+          所以字面量搜不到，但属性确实存在
+        · `stAppHeader` / `stAppToolbar` 则是 **className**（不是 testid）。 */
+  [data-testid="stColumn"]:has(.lb-side-col) { display: flex; flex-direction: column; }
+  [data-testid="stColumn"]:has(.lb-side-col) > [data-testid="stVerticalBlock"] {
+    flex: 1 1 auto; justify-content: center;
+  }
   .lb-panel {
-    background: rgba(11, 31, 64, 0.86);
-    border: 1px solid rgba(103, 232, 249, 0.34);
-    border-top: 3px solid rgba(103, 232, 249, 0.62);
-    border-radius: 14px;
-    padding: 13px 16px 14px 16px;
-    margin-bottom: 18px;
-    box-shadow: 0 14px 34px rgba(2, 10, 26, 0.46);
+    width: 100%;
+    background: rgba(9, 24, 52, 0.72);            /* 与登录卡同一套玻璃材质 */
+    border: 1px solid rgba(103, 232, 249, 0.30);
+    border-top: 4px solid rgba(103, 232, 249, 0.62);
+    border-radius: 18px;
+    padding: 19px 22px 20px 22px;
+    box-shadow: 0 20px 48px rgba(2, 10, 26, 0.50),
+                inset 0 1px 0 rgba(255, 255, 255, 0.07);
+    backdrop-filter: blur(8px);
   }
   .lb-panel .lp-head {
-    font-size: 16px; font-weight: 700; letter-spacing: 1.2px;
-    color: #7FE9FF !important; margin-bottom: 10px;
+    font-size: 20px; font-weight: 800; letter-spacing: 1.4px;
+    color: #7FE9FF !important; margin-bottom: 12px;
   }
   .lb-panel .lp-row {
-    display: flex; justify-content: space-between; gap: 10px;
-    font-size: 14.5px; color: #DCEBFF !important; line-height: 1.95;
+    display: flex; justify-content: space-between; gap: 12px;
+    font-size: 18px; color: #DCEBFF !important; line-height: 2.0;
   }
   /* ⚠️ 必须**显式**给 span 上色：全站有一条 `p, li, span, div { color: #334155 }`，
      它是直接规则，会盖掉从 .lp-row 继承下来的浅色 → 深灰字压深蓝底，
      用户看到的就是"指标名那一列看不清"（v8 实际事故：面板里标签列几乎隐形）。 */
   .lb-panel .lp-row span { color: #DCEBFF !important; }
-  .lb-panel .lp-row b { color: #FFFFFF !important; font-size: 15px; }
+  .lb-panel .lp-row b { color: #FFFFFF !important; font-size: 19px; }
   .lb-panel .lp-bar {
-    height: 9px; border-radius: 999px; margin-top: 10px;
+    height: 13px; border-radius: 999px; margin-top: 12px;
     background: linear-gradient(90deg, #22D3EE, #3B82F6);
   }
   /* SVG 铺满面板宽度 + 等比缩放（viewBox 提供长宽比）→ 面板变宽，图也跟着变大 */
   .lb-panel svg { display: block; width: 100%; height: auto; }
-  /* 面板用 clamp(270px…) 定位在视口左右两侧，卡片左边缘在 ~360px 之外；
-     < 1150px 时让位给表单（宁可不显示装饰，也不许压住输入框） */
-  @media (max-width: 1150px) { .lb-side { display: none; } }
+  /* 窄屏：三列挤成一列很难看 → 把两侧装饰整体撤掉。
+     `:has()` 命中时整列隐藏并让登录卡占满宽度；万一浏览器不支持 `:has()`，
+     至少内容也隐藏掉，不至于挤成一条看不清的窄柱。 */
+  @media (max-width: 1280px) {
+    .lb-side-col { display: none !important; }
+    [data-testid="stColumn"]:has(.lb-side-col) { display: none !important; }
+    [data-testid="stHorizontalBlock"]:has(.lb-side-col)
+      > [data-testid="stColumn"]:nth-child(2) {
+      width: 100% !important; flex: 1 1 100% !important;
+    }
+  }
   @media (max-width: 900px) { .lb-ring, .lb-scan { display: none; } }
 </style>
 """
 
 
 # ============================================================================
-# 登录页的两段注入 HTML（v8：一律单行、无缩进、无空行）
+# 登录页的注入 HTML（v8 起：一律单行、无缩进、无空行）
 #
 # 为什么要写成这种"丑"的一长串？——因为 markdown-it 的 HTML 块**遇到空行就结束**，
 # 之后的行会退回 markdown 解析；Streamlit 又会先对整段做去公共缩进，
@@ -1481,12 +1581,21 @@ LOGIN_CSS = """
 # 于是页面上直接打印出 `div.lb-panel`、`rect`、`circle` 这些源码
 # （v7 实际事故：登录页 6 块装饰面板只有 2 块渲染，另外 4 块变成代码块）。
 # 单行 = 一个 HTML 块，任何情况下都不会掉进代码块分支。
-# ⚠️ 改这两段时**不要**为了好看而换行/缩进/加空行。
+# ⚠️ 改这几段时**不要**为了好看而换行/缩进/加空行。
+#
+# v9：拆成三段 —— 背景装饰（LOGIN_DECO）/ 左列面板（LOGIN_PANELS_L）/
+#     右列面板（LOGIN_PANELS_R）。面板从"fixed 覆盖层"搬进真实的 st.columns，
+#     于是它们能跟着布局一起变大，也不会再和登录卡抢位置。
 # ============================================================================
 LOGIN_DECO = (
     '<div class="lb-deco" aria-hidden="true">'
+    '<div class="lb-halo"></div>'
     '<div class="lb-ring"></div><div class="lb-scan"></div><div class="lb-grid"></div>'
-    '<div class="lb-side l">'
+    '</div>'
+)
+
+LOGIN_PANELS_L = (
+    '<div class="lb-side-col">'
     '<div class="lb-panel">'
     '<div class="lp-head">■ 走势曲线 · K 线结构</div>'
     '<svg width="272" height="74" viewBox="0 0 212 58" fill="none" '
@@ -1527,7 +1636,10 @@ LOGIN_DECO = (
     '</svg>'
     '</div>'
     '</div>'
-    '<div class="lb-side r">'
+)
+
+LOGIN_PANELS_R = (
+    '<div class="lb-side-col">'
     '<div class="lb-panel">'
     '<div class="lp-head">■ 指标摘要</div>'
     '<div class="lp-row"><span>市盈率 TTM</span><b>21.4</b></div>'
@@ -1571,12 +1683,12 @@ LOGIN_DECO = (
     '<div class="lp-row"><span>低风险 / 高稳健</span><b>同业对标</b></div>'
     '</div>'
     '</div>'
-    '</div>'
 )
 
+
 LOGIN_BRAND = (
-    '<div class="login-brand" style="text-align:center;max-width:980px;'
-    'margin:3.5vh auto 22px auto;">'
+    '<div class="login-brand" style="text-align:center;max-width:1080px;'
+    'margin:2.5vh auto 18px auto;">'
     '<div class="lb-orb">AI</div>'
     '<div class="lb-badge">第二届全国人工智能应用创新大赛 · 参赛作品</div>'
     '<div class="lb-title">📈 金融智能投研 <em>Agent</em></div>'
@@ -1602,33 +1714,34 @@ def check_login():
     # LOGIN_CSS 再把侧边栏兜底隐藏，确保"登录前只有这一屏"。
     st.markdown(LOGIN_CSS, unsafe_allow_html=True)
 
-    # ---- v7/v8：两侧科技装饰层（纯 CSS + 内联 SVG，无任何图片素材）----
+    # ---- v7/v9：科技装饰层（纯 CSS + 内联 SVG，无任何图片素材）----
     # 用户反馈"不要只给我一个登录的账号，里面有很多图形，给我放一点在上面，
     # 要不然给人的感觉太空旷"。这里按参考图补上：
     #   左：走势曲线 / 财务指标 / 公司关系网络   右：指标摘要 / 财务评分 / 风险评分
-    # 全部装在一个 fixed 定位、pointer-events:none 的 `.lb-deco` 里，
-    # 且主内容 z-index:3（见 LOGIN_CSS），所以永远不会挡住表单与文字。
+    # 背景那层（光环 / 扫描光 / 网格 / 中央辉光）装在一个 fixed + pointer-events:none
+    # 的 `.lb-deco` 里，且主内容 z-index:3（见 LOGIN_CSS），永远不会挡住表单与文字。
     # ⚠️ v8：HTML 常量见文件上方（必须单行，否则会被 markdown 当代码块打出来）。
     st.markdown(LOGIN_DECO, unsafe_allow_html=True)
 
     # 品牌区（压在深蓝底上 → 全部显式浅色，见 LOGIN_CSS 的对比度清单）
-    # max-width 980px：让"AI 驱动的财报深度分析 · … · 同业对标基准"一行铺开，
+    # max-width 1080px：让"AI 驱动的财报深度分析 · … · 同业对标基准"一行铺开，
     # 而不是在窄条里折成两行（用户要求"横向变大，不要竖着变大"）。
     st.markdown(LOGIN_BRAND, unsafe_allow_html=True)
 
-    # 登录卡：只占中间一条（宽屏不拉满，窄屏自动 100%）。
-    # 卡片本体就是 st.form —— 表单的默认边框/内边距由 LOGIN_CSS 接管，
-    # 这样"卡"和"表单"是同一个元素，不会出现两张套在一起的框。
-    # v8：中列 1.5 → 2.2（容器同时放宽到 1560px）→ 卡片明显变宽，
-    #     说明文案横向铺开、行数变少；左右留出的空档正好放两侧装饰面板。
-    _, _mid, _ = st.columns([1, 2.2, 1])
+    # v9：登录页改成**真三列**（左装饰 | 登录卡 | 右装饰，比例 1.3 : 2 : 1.3）。
+    # 面板住进真实列之后：① 宽度由布局给（1800px 容器下每列 ≈ 500px，
+    # 比旧的 clamp(270~350px) 大一截）；② 与登录卡同高、同材质 → "融合在一起"；
+    # ③ 结构上不可能压住输入框（旧版是 fixed 覆盖层，全靠 media query 兜）。
+    _cl, _mid, _cr = st.columns([1.3, 2, 1.3], gap="large")
+    with _cl:
+        st.markdown(LOGIN_PANELS_L, unsafe_allow_html=True)
     with _mid:
         with st.form("login_form", clear_on_submit=False):
             st.markdown(
-                '<div style="text-align:center;margin:0 0 20px 0;">'
-                '<div style="font-size:21px;font-weight:800;color:#FFFFFF !important;'
-                'letter-spacing:.6px;">账号登录</div>'
-                '<div style="font-size:15px;color:#A9C0E6 !important;margin-top:6px;'
+                '<div style="text-align:center;margin:0 0 22px 0;">'
+                '<div style="font-size:27px;font-weight:800;color:#FFFFFF !important;'
+                'letter-spacing:.8px;">账号登录</div>'
+                '<div style="font-size:17.5px;color:#A9C0E6 !important;margin-top:8px;'
                 'letter-spacing:.3px;">'
                 '输入账号与密码进入投研工作台</div>'
                 "</div>",
@@ -1645,8 +1758,8 @@ def check_login():
                 else:
                     st.error("账号或密码错误，请检查后重试（区分大小写）。")
             st.markdown(
-                '<div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.16);'
-                'font-size:15px;color:#CBDCF6 !important;line-height:2.05;letter-spacing:.2px;">'
+                '<div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.16);'
+                'font-size:17.5px;color:#CBDCF6 !important;line-height:2.1;letter-spacing:.2px;">'
                 '<b style="color:#FFFFFF !important;">① 单公司深度分析</b>　联网取数 → 规则引擎四维评分 → 图表与风险提示<br>'
                 '<b style="color:#FFFFFF !important;">② 多公司横向对比</b>　2~5 家各按本行业基准评分，对照表 / 差额 / CSV 导出<br>'
                 '<b style="color:#FFFFFF !important;">③ 年报原文引用</b>　解析年报 PDF 后按页建库，结论标注「见年报第 X 页」<br>'
@@ -1659,6 +1772,8 @@ def check_login():
             '<p class="login-foot">🔒 本作品仅供大赛评审访问 · 分析结果仅供参考，不构成投资建议</p>',
             unsafe_allow_html=True,
         )
+    with _cr:
+        st.markdown(LOGIN_PANELS_R, unsafe_allow_html=True)
     return False
 
 if not check_login():

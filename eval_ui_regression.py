@@ -443,13 +443,13 @@ _check("自定义类的 px 字号同步上调（px 不随根字号变，必须�
        "font-size: 30px; font-weight: 800; color: #0B1F3A !important;" in SRC   # .ph-title
        and ".step-head .sh-title { font-size: 17px;" in SRC
        and "width: 23px; height: 23px; border-radius: 7px;" in SRC)              # .sh-num
-_check("登录页字号同步放大（标题 40px / 按钮 18px）",
-       ".login-brand .lb-title {" in SRC and "font-size: 40px" in SRC
-       and "font-size: 18px !important;" in SRC)
+_check("登录页字号同步放大（标题 48px / 按钮 21px）",
+       ".login-brand .lb-title {" in SRC and "font-size: 48px" in SRC
+       and "font-size: 21px !important;" in SRC)
 _check("品牌区（AI 六边形 + 大赛徽章 + 主标题）整体再加大并居中",
-       "width: 100px; height: 113px; margin: 0 auto 20px auto;" in SRC
-       and "font-size: 14.5px; letter-spacing: 2px;" in SRC
-       and "margin:3.5vh auto 22px auto;" in SRC)
+       "width: 118px; height: 133px; margin: 0 auto 22px auto;" in SRC
+       and "font-size: 16.5px; letter-spacing: 2.4px;" in SRC
+       and "margin:2.5vh auto 18px auto;" in SRC)
 
 # ② 有些字看不清 → 辅色从 #64748B（浅蓝灰底上仅 3.77:1）换成 #475569 / #3B4A5F
 _check("主区辅色不再用 #64748B 当文字色（画布上只有 3.77:1，不合格）",
@@ -553,9 +553,27 @@ _check("深底文字全部显式上色 + 对比度量化写进注释（漏一处
        and "L=0.036" in SRC and "5.1:1" in SRC)
 _check("登录前隐藏侧边栏（导航/额度/退出登录都不该出现）",
        'section[data-testid="stSidebar"] { display: none !important; }' in SRC)
-_check("深色玻璃卡 = 登录表单本体（半透明深底 + 青色顶条 + 大投影）",
-       '[data-testid="stForm"]' in SRC and "rgba(8, 22, 48, 0.78) !important" in SRC
-       and "border-top: 3px solid #22D3EE" in SRC)
+
+# v9：右上角工具栏（用户："share 什么什么那些根本就看不清，给我换一个颜色，并且字体变大"）
+# 根因：原来写的是 [data-testid="stAppToolbar"] —— 但 stAppHeader / stAppToolbar
+# 在 1.57 里是 **className**，真正的 testid 是 stHeader / stToolbar（已在前端包里核对），
+# 那条规则从来没生效过 → 深色图标压在深蓝底上。
+_check("工具栏按**真实 testid** 命中（stAppToolbar 是 className，写成 testid 永远选不中）",
+       '[data-testid="stToolbar"]' in SRC and '[data-testid="stAppToolbar"]' not in SRC)
+_check("工具栏文字换浅色并放大（15.5px + Share/星标按钮加浅色药丸底）",
+       "font-size: 15.5px !important;" in SRC
+       and '[data-testid="stToolbarActionButton"] button' in SRC
+       and '[data-testid="stAppDeployButton"] button' in SRC)
+_check("工具栏图标的 fill 也改成浅色（只改 color 的话 SVG 仍是深色）",
+       '[data-testid="stToolbar"] svg,' in SRC
+       and "fill: #EAF2FF !important; color: #EAF2FF !important;" in SRC)
+_check("工具栏的浅色规则**不得污染**主菜单弹层（真 testid 是 stMainMenuPopover/List/MenuItem-*）",
+       '[data-testid="stMainMenuPopover"]' in SRC
+       and '[data-testid^="stMainMenuItem"]' in SRC
+       and "color: #0B1F3A !important; fill: #334155 !important;" in SRC)
+_check("深色玻璃卡 = 登录表单本体（半透明深底 + 青色顶条 + 毛玻璃 + 大投影）",
+       '[data-testid="stForm"]' in SRC and "rgba(9, 24, 52, 0.72) !important" in SRC
+       and "border-top: 4px solid #22D3EE" in SRC and "backdrop-filter: blur(8px)" in SRC)
 _check("登录按钮 = 青色渐变 + 深蓝字（模板「安全登录」的形态，青底最亮端 8.8:1）",
        '[data-testid="stFormSubmitButton"] button' in SRC
        and "linear-gradient(90deg, #22D3EE 0%, #38BDF8 100%) !important" in SRC
@@ -568,10 +586,10 @@ _check("卡内报错提示在深色卡上可见（否则红字压深底看不见
 _check("账号/密码标签**外置**，框内放小号英文占位符",
        'st.text_input("账号", placeholder="Account")' in SRC
        and 'st.text_input("密码", type="password", placeholder="Password")' in SRC)
-_check("占位符字号小于外置标签（13.5px < 16.5px，框内更轻）",
+_check("占位符字号小于外置标签（15px < 18.5px，框内更轻）",
        "input::placeholder" in SRC
-       and "font-size: 13.5px !important" in SRC
-       and "font-size: 16.5px !important" in SRC)
+       and "font-size: 15px !important" in SRC
+       and "font-size: 18.5px !important" in SRC)
 _check("品牌区用 div 而非 h1（避开 Streamlit 锚点图标 + 全站标题样式覆盖）",
        'class="lb-title"' in SRC and 'class="login-brand"' in SRC)
 _check("品牌区有发光六边形 AI 徽标（CSS 画的，不需要图片资源）",
@@ -584,24 +602,34 @@ _check("登录页加了装饰层容器（fixed + pointer-events:none，不挡点
 _check("主内容抬到装饰层之上（fixed 元素默认会盖住静态内容 → 必须显式抬层）",
        '[data-testid="stMainBlockContainer"] { position: relative; z-index: 3; }' in SRC)
 
-# 先把两段注入 HTML 抽出来（LOGIN_DECO / LOGIN_BRAND 都是"多行源码、单行字符串"）
+# 先把注入 HTML 抽出来（都是"多行源码、单行字符串"）
 # —— 后面的断言要用它们，尤其是"面板必须正好 6 块"：
 #     直接数 SRC 会被 CSS 注释里的同名字面量污染，必须只数真正的 HTML 值。
+# v9：面板从 LOGIN_DECO 拆到 LOGIN_PANELS_L / LOGIN_PANELS_R（各 3 块）。
 _deco_blk = SRC.split("LOGIN_DECO = (", 1)[1].split("\n)\n", 1)[0]
+_pl_blk = SRC.split("LOGIN_PANELS_L = (", 1)[1].split("\n)\n", 1)[0]
+_pr_blk = SRC.split("LOGIN_PANELS_R = (", 1)[1].split("\n)\n", 1)[0]
 _brand_blk = SRC.split("LOGIN_BRAND = (", 1)[1].split("\n)\n", 1)[0]
 _deco_val = "".join(_deco_blk.split("'")[1::2])
+_pl_val = "".join(_pl_blk.split("'")[1::2])
+_pr_val = "".join(_pr_blk.split("'")[1::2])
+_panels_val = _pl_val + _pr_val
 _brand_val = "".join(_brand_blk.split("'")[1::2])
-_check("两侧 6 块悬浮数据面板（走势曲线 / 财务指标 / 关系网络 / 指标摘要 / 财务评分 / 风险评分）",
-       _deco_val.count('class="lb-panel"') == 6
-       and all(k in _deco_val for k in ("■ 走势曲线", "■ 财务指标", "■ 公司关系网络",
-                                        "■ 指标摘要", "■ 财务评分", "■ 风险评分")),
-       f"panels={_deco_val.count('lb-panel')}")
+_check("两侧共 6 块数据面板、按 3+3 分列（走势曲线/财务指标/关系网络 · 指标摘要/财务评分/风险评分）",
+       _pl_val.count('class="lb-panel"') == 3 and _pr_val.count('class="lb-panel"') == 3
+       and all(k in _panels_val for k in ("■ 走势曲线", "■ 财务指标", "■ 公司关系网络",
+                                          "■ 指标摘要", "■ 财务评分", "■ 风险评分")),
+       f"L={_pl_val.count('lb-panel')} R={_pr_val.count('lb-panel')}")
 _check("品牌区背后有旋转光环 + 锥形扫描光（@keyframes 动画）",
        'class="lb-ring"' in SRC and 'class="lb-scan"' in SRC
        and "@keyframes lb-spin" in SRC and "animation: lb-spin 18s linear infinite" in SRC)
-_check("底部透视网格（渐隐遮罩，做「地面」）+ 窄屏自动隐藏装饰",
+_check("底部透视网格（渐隐遮罩，做「地面」）+ 中央柔和辉光把左中右熔成同一块控制台",
        'class="lb-grid"' in SRC and "mask-image: linear-gradient(to top" in SRC
-       and "@media (max-width: 1150px) { .lb-side { display: none; } }" in SRC)
+       and 'class="lb-halo"' in SRC and ".lb-halo {" in SRC)
+_check("窄屏撤掉两侧装饰（:has 命中则整列隐藏，并让登录卡那列占满宽度）",
+       "@media (max-width: 1280px)" in SRC
+       and '[data-testid="stColumn"]:has(.lb-side-col) { display: none !important; }' in SRC
+       and '> [data-testid="stColumn"]:nth-child(2) {' in SRC)
 
 # v8：三条修复 —— ① 代码块泄漏（真事故）② 横向变宽 ③ 面板放大提亮
 # 事故复盘：v7 把装饰 HTML 写成"带缩进 + 中间夹空行"的多行字符串 →
@@ -610,23 +638,39 @@ _check("底部透视网格（渐隐遮罩，做「地面」）+ 窄屏自动隐�
 # → 登录页直接打印出面板源码（6 块只渲染出 2 块）。
 _check("注入的 HTML 一律单行（含缩进/空行就会掉进 markdown 缩进代码块，页面直接打印源码）",
        "\n" not in _deco_val and "\n" not in _brand_val
+       and "\n" not in _pl_val and "\n" not in _pr_val
        and _deco_val.startswith('<div class="lb-deco"')
+       and _pl_val.startswith('<div class="lb-side-col">')
+       and _pr_val.startswith('<div class="lb-side-col">')
        and _brand_val.startswith('<div class="login-brand"'),
        f"deco_len={len(_deco_val)} brand_len={len(_brand_val)}")
 _check("源码里不再出现「多行缩进的面板 HTML」（那正是事故的形态）",
        '\n        <div class="lb-panel">' not in SRC)
-_check("登录页横向变宽：容器上限 1320→1560 + 中列 1.5→2.2（治折行，不是拔高字号）",
-       ".block-container { max-width: 1560px !important; }" in SRC
-       and "st.columns([1, 2.2, 1])" in SRC)
-_check("品牌区宽度 680→980px（说明文字一行铺开，不再折成两行）",
-       "max-width:980px;" in SRC)
-_check("装饰面板放大（宽 clamp(270px,16vw,350px) + 内边距 13/16 + 圆角 14）",
-       "width: clamp(270px, 16vw, 350px);" in SRC
-       and "padding: 13px 16px 14px 16px;" in SRC)
-_check("面板文字放大提亮（标题 16px 青 / 行文字 14.5px #DCEBFF / 数值 15px 白）",
-       "font-size: 16px; font-weight: 700; letter-spacing: 1.2px;" in SRC
-       and "font-size: 14.5px; color: #DCEBFF !important;" in SRC
-       and ".lb-panel .lp-row b { color: #FFFFFF !important; font-size: 15px; }" in SRC)
+_check("登录页横向变宽：容器上限 1320→1560→**1800px**（治折行，不是拔高字号）",
+       ".block-container { max-width: 1800px !important; }" in SRC)
+_check("品牌区宽度再放宽到 1080px（说明文字一行铺开，不再折成两行）",
+       "max-width:1080px;" in SRC)
+_check("v9 面板搬进**真实三列**（1.3 : 2 : 1.3）→ 宽度由布局给，不再靠 clamp 硬撑、也不会压住输入框",
+       'st.columns([1.3, 2, 1.3], gap="large")' in SRC
+       and "st.markdown(LOGIN_PANELS_L, unsafe_allow_html=True)" in SRC
+       and "st.markdown(LOGIN_PANELS_R, unsafe_allow_html=True)" in SRC
+       and 'class="lb-side-col"' in SRC
+       and ".lb-side { position: absolute" not in SRC)
+_check("面板与登录卡同一套玻璃材质（同底色 / 同描边 / 同圆角 / 同毛玻璃）→ 视觉上「融合」",
+       "background: rgba(9, 24, 52, 0.72) !important" in SRC      # 表单
+       and "background: rgba(9, 24, 52, 0.72);" in SRC            # 面板
+       and "border-radius: 18px !important" in SRC
+       and "border-radius: 18px;" in SRC)
+_check("面板再放大一档（内边距 19/22 + 圆角 18 + 顶条 4px + 进度条 13px）",
+       "padding: 19px 22px 20px 22px;" in SRC
+       and "height: 13px; border-radius: 999px; margin-top: 12px;" in SRC)
+_check("面板文字再放大提亮（标题 20px 青 / 行文字 18px #DCEBFF / 数值 19px 白）",
+       "font-size: 20px; font-weight: 800; letter-spacing: 1.4px;" in SRC
+       and "font-size: 18px; color: #DCEBFF !important; line-height: 2.0;" in SRC
+       and ".lb-panel .lp-row b { color: #FFFFFF !important; font-size: 19px; }" in SRC)
+_check("面板组在列里竖直居中（列被拉高后不至于上重下轻）",
+       '[data-testid="stColumn"]:has(.lb-side-col) > [data-testid="stVerticalBlock"]' in SRC
+       and "flex: 1 1 auto; justify-content: center;" in SRC)
 _check("面板标签列显式上色（全站 p/li/span/div{color:#334155} 是直接规则，会盖掉继承来的浅色）",
        ".lb-panel .lp-row span { color: #DCEBFF !important; }" in SRC)
 _check("面板插画按比例放大（保留 viewBox，只改 width/height 等比缩放 + 铺满面板宽度）",
@@ -638,15 +682,18 @@ _check("面板插画按比例放大（保留 viewBox，只改 width/height 等�
 try:
     from markdown_it import MarkdownIt
     _md_parser = MarkdownIt("commonmark", {"html": True})
-    _deco_html = _md_parser.render(_deco_val)
-    _check("装饰 HTML 经 markdown-it 解析：0 个代码块 + 6 块面板原样通过",
-           "<pre>" not in _deco_html and _deco_html.count('class="lb-panel"') == 6,
-           f"pre={_deco_html.count('<pre>')} panels={_deco_html.count('lb-panel')}")
+    _dec_html = _md_parser.render(_deco_val)
+    _pan_html = _md_parser.render(_panels_val)
+    _check("装饰层 / 面板 HTML 经 markdown-it 解析：0 个代码块 + 6 块面板原样通过",
+           "<pre>" not in _dec_html and "<pre>" not in _pan_html
+           and _pan_html.count('class="lb-panel"') == 6,
+           f"pre={_dec_html.count('<pre>')}/{_pan_html.count('<pre>')} "
+           f"panels={_pan_html.count('lb-panel')}")
     _check("品牌区 HTML 经 markdown-it 解析：0 个代码块",
            "<pre>" not in _md_parser.render(_brand_val))
     # 反向验证：把 v7 的错误写法（多行 + 缩进 + 空行）喂进去，必须能复现出代码块
-    _bad = _deco_val.replace("</div><div", "</div>\n\n          <div", 1).replace(
-        '<div class="lb-deco"', "\n        <div class=\"lb-deco\"", 1)
+    _bad = _panels_val.replace("</div><div", "</div>\n\n          <div", 1).replace(
+        '<div class="lb-side-col">', "\n        <div class=\"lb-side-col\">", 1)
     _bad_html = MarkdownIt("commonmark", {"html": True}).render(_bad)
     _check("反向验证：多行/缩进/空行的写法确实会被判成代码块（说明这条断言有效）",
            "<pre>" in _bad_html)
@@ -698,14 +745,21 @@ _check("未登录时登录表单齐备（账号/密码/提交按钮）",
 _check("账号/密码是**外置可见标签**（不再是张冠李戴的折叠标签）",
        [str(t.label) for t in at6.get("text_input")][:2] == ["账号", "密码"],
        str([str(t.label) for t in at6.get("text_input")]))
-# v7：装饰层必须真的渲染出来（写过样式但没注入 HTML = 用户看到的还是"空旷的一张卡"）
+# v7/v9：装饰层必须真的渲染出来（写过样式但没注入 HTML = 用户看到的还是"空旷的一张卡"）
 _md6 = _md(at6)
 _PANEL = 'class="lb-panel"'
-_check("未登录时装饰层真的渲染了（6 块数据面板 + 光环 + 网格）",
+_check("未登录时装饰层真的渲染了（6 块数据面板 + 光环 + 网格 + 中央辉光）",
        _md6.count(_PANEL) == 6 and 'class="lb-deco"' in _md6
-       and 'class="lb-ring"' in _md6 and 'class="lb-grid"' in _md6,
+       and 'class="lb-ring"' in _md6 and 'class="lb-grid"' in _md6
+       and 'class="lb-halo"' in _md6,
        f"panels={_md6.count(_PANEL)}")
 _check("未登录时六边形徽标在（品牌区视觉锚点）", 'class="lb-orb"' in _md6)
+# v9：面板住进真实列（不是 fixed 覆盖层）——运行时直接读列元素校验
+_COLS6 = at6.get("column")
+_check("登录页确实是三列（左装饰 | 登录卡 | 右装饰 = 1.3 : 2 : 1.3，gap=large）",
+       [round(float(c.weight) * 4.6, 2) for c in _COLS6] == [1.3, 2.0, 1.3]
+       and "large" in str(getattr(_COLS6[0], "gap", "")),
+       str([(getattr(c, "weight", None), getattr(c, "gap", None)) for c in _COLS6]))
 
 # 3) 错误凭据：给出提示且不放行
 at6.get("text_input")[0].set_value("wrong_user")
