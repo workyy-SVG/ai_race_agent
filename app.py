@@ -464,95 +464,144 @@ BASE_SYSTEM_PROMPT = """你是一名专业、严谨的金融投研分析师。�
 CUSTOM_CSS = """
 <style>
   /* ==========================================================
-     金融智能投研 Agent · 亮色冷蓝白主题 (v3)
-     主背景: #EEF2F7   卡片: #FFFFFF   品牌主色: #1E40AF (深蓝)
-     资本金: #D9A441   涨: #DC2626   跌: #16A34A
-     文字: #0B1F3A / #334155 / #64748B
-     侧边栏: #DDE7F2 (比主背景深一档, 制造分区)
+     金融智能投研 Agent · 近白冷灰主题 (v4)
+     改版原因：v3 用「冷蓝灰 + 双光斑 + 大量蓝色标题 + 金色强调」，
+     颜色太多且深浅不一，用户反馈"到处都是蓝字，看不清、看着乱"。
+     v4 收敛成三步走：
+       ① 底色近白（和登录页同一套底色，视觉对称）
+       ② 只留一个结构色（品牌蓝 #1D4ED8），其余全部走深灰文字
+       ③ 金色只作为「数字强调」，且只在浅底使用（#B45309，白底 5.02:1）
+     正文三级： 主 #0B1F3A (16.5:1) / 次 #334155 (10.4:1) / 辅 #475569 (8.1:1)
      ========================================================== */
 
-  /* ===== 全局背景：冷蓝灰 + 微弱光斑 ===== */
+  /* ===== 全局背景：近白，无光斑 =====
+     原来叠了两个 radial-gradient（蓝 + 金）做"氛围"，实际效果是把整页
+     压成一层灰蓝，卡片和背景的边界变糊。现在改成极浅的一档到底。 */
   .stApp {
-    background:
-      radial-gradient(1250px 620px at 10% -10%, rgba(30, 64, 175, 0.10) 0%, rgba(30, 64, 175, 0) 58%),
-      radial-gradient(950px 520px at 94% 2%, rgba(217, 164, 65, 0.10) 0%, rgba(217, 164, 65, 0) 55%),
-      linear-gradient(170deg, #EEF2F7 0%, #E5ECF4 58%, #DDE7F2 100%);
+    background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 46%, #F2F6FA 100%);
     background-attachment: fixed;
   }
   header[data-testid="stHeader"] { background: transparent; }
-  .block-container { padding-top: 1.4rem; color: #334155; }
+  .block-container { padding-top: 1.2rem; color: #334155; }
 
   /* ===== 深色大横幅（.hero）已整体下线 =====
      主页面改用紧凑顶栏 .topbar；登录页改用「全屏沉浸式」深蓝渐变 + 居中白卡
      （相关样式在 LOGIN_CSS，只在未登录分支注入）。 */
 
-  /* ===== 紧凑顶栏（替代原来的大横幅）=====
-     大横幅占了近 100px 高、信息密度却很低（品牌名 + 一句口号）。
-     改成单行：品牌 + 当前分析对象 + 状态徽章，把纵向空间还给工作台。 */
+  /* ===== 紧凑顶栏 =====
+     单行：品牌 + 当前分析对象 + 状态徽章。
+     配色收敛：品牌名走深墨色（#0B1F3A），只有 "Agent" 两个字用品牌蓝，
+     不再用金色 —— 金字压在浅底上只有 2.25:1，是这个页面里最典型的"看不清"。 */
   .topbar {
     display: flex;
     align-items: center;
     gap: 12px;
     background: #FFFFFF;
-    border: 1px solid #D6E0EC;
-    border-left: 4px solid #1E40AF;
+    border: 1px solid #E4EAF2;
+    border-left: 4px solid #1D4ED8;
     border-radius: 10px;
     padding: 9px 16px;
-    margin-bottom: 10px;
-    box-shadow: 0 2px 10px rgba(30, 64, 175, 0.08);
+    margin-bottom: 14px;
+    box-shadow: 0 2px 10px rgba(15, 35, 70, 0.05);
   }
-  .tb-brand { font-size: 16px; font-weight: 800; color: #1E3A8A !important; letter-spacing: .5px; }
-  .tb-brand b { color: #B45309 !important; }
+  .tb-brand { font-size: 16px; font-weight: 800; color: #0B1F3A !important; letter-spacing: .5px; }
+  .tb-brand b { color: #1D4ED8 !important; }
   .tb-gap { flex: 1 1 auto; }
-  .tb-obj { font-size: 12.5px; color: #334155 !important; }
-  .tb-obj b { color: #1E3A8A !important; }
+  .tb-obj { font-size: 12.5px; color: #475569 !important; }
+  .tb-obj b { color: #0B1F3A !important; }
   .tb-chip {
     font-size: 11.5px; padding: 2px 10px; border-radius: 999px;
-    background: #DBEAFE; color: #1E40AF !important;
-    border: 1px solid #BFDBFE; white-space: nowrap;
+    background: #EEF3FE; color: #1D4ED8 !important;
+    border: 1px solid #D8E3FA; white-space: nowrap;
   }
   .tb-chip.warn { background: #FEF3C7; color: #92400E !important; border-color: #FDE68A; }
+
+  /* ===== 统一分区标题（步骤条）=====
+     每个区块长得一模一样：编号方块 + 深色短标题 + 灰色小字说明。
+     标题用 #0B1F3A（16.5:1）、说明用 #475569（8.1:1），
+     不再出现"一片中蓝色字挤在一起"。 */
+  .step-head {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 9px;
+    background: #FFFFFF;
+    border: 1px solid #E4EAF2;
+    border-left: 3px solid #1D4ED8;
+    border-radius: 8px;
+    padding: 8px 14px;
+    margin: 16px 0 10px 0;
+  }
+  .step-head .sh-num {
+    flex: 0 0 auto;
+    width: 19px; height: 19px; border-radius: 5px;
+    background: #1D4ED8; color: #FFFFFF !important;
+    font-size: 12px; font-weight: 800;
+    display: inline-flex; align-items: center; justify-content: center;
+    align-self: center;
+  }
+  .step-head .sh-title { font-size: 14.5px; font-weight: 800; color: #0B1F3A !important; letter-spacing: .2px; }
+  .step-head .sh-tag {
+    font-size: 11px; padding: 1px 8px; border-radius: 999px;
+    background: #EEF3FE; color: #1D4ED8 !important; border: 1px solid #D8E3FA;
+    align-self: center;
+  }
+  .step-head .sh-note { font-size: 12px; color: #475569 !important; }
+
+  /* 内容区小标题（h4/h5）：全站统一同一档字号 + 左竖条 + 统一间距
+     原来 h4/h5 混用、margin 走 Streamlit 默认值，导致区块之间忽宽忽窄，
+     观感上就是"排版乱"。现在一次锁死，全部 markdown 标题自动对齐。 */
+  h4, h5 {
+    color: #0B1F3A !important;
+    font-size: 13.5px !important;
+    font-weight: 800 !important;
+    margin: 18px 0 8px 0 !important;
+    padding-left: 9px;
+    border-left: 3px solid #93B4E8;
+    letter-spacing: .2px;
+    line-height: 1.5;
+  }
 
   /* ===== 侧边栏：导航 + 分析记录 =====
      导航菜单与分析记录都住在侧边栏里（主区原本的「图标列 + 记录列」已取消）。 */
   .hist-head {
-    font-size: 13px; font-weight: 700; color: #1E3A8A !important;
+    font-size: 13px; font-weight: 700; color: #0B1F3A !important;
     margin-top: 6px; padding-top: 9px;
     /* 顶部加一条细线，与上方导航按钮拉开层次 */
     border-top: 1px solid #E2E8F0;
   }
 
-  /* ===== 通用卡片：白底 + 蓝边 ===== */
+  /* ===== 指标卡：白底 + 浅边 ===== */
   div[data-testid="stMetric"] {
-    background: linear-gradient(140deg, #FFFFFF 0%, #F8FAFC 100%);
-    border: 1px solid #D6E0EC;
+    background: #FFFFFF;
+    border: 1px solid #E4EAF2;
     border-radius: 12px;
-    padding: 14px 16px 8px 16px;
-    box-shadow: 0 4px 14px rgba(15, 35, 70, 0.06),
-                0 0 0 1px rgba(30, 64, 175, 0.04) inset;
+    padding: 13px 16px 8px 16px;
+    box-shadow: 0 2px 8px rgba(15, 35, 70, 0.05);
   }
   div[data-testid="stMetric"] label {
-    color: #64748B !important;
+    color: #475569 !important;
     font-weight: 600;
   }
   div[data-testid="stMetric"] div {
     color: #0B1F3A !important;
     font-weight: 800;
   }
+  /* 原来这里给指标数字做了「蓝→深蓝渐变文字」（background-clip:text）。
+     深底浅字时它还算好看，但压在近白底上会掉进"一片蓝字"的坑，
+     且渐变中段对比度最低。v4 直接用纯深墨色：16.5:1，最清楚。 */
   div[data-testid="stMetric"] div[data-testid="stMetricValue"] {
-    background: linear-gradient(90deg, #0B1F3A 0%, #1E40AF 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: #0B1F3A !important;
+    -webkit-text-fill-color: #0B1F3A !important;
   }
-  div[data-testid="stMetricDelta"] svg { fill: #D9A441; }
+  div[data-testid="stMetricDelta"] svg { fill: #1D4ED8; }
 
   /* ===== Expander / 区块卡片化 ===== */
   div[data-testid="stExpander"] {
     background: #FFFFFF;
-    border: 1px solid #D6E0EC;
+    border: 1px solid #E4EAF2;
     border-radius: 12px;
-    box-shadow: 0 2px 10px rgba(15, 35, 70, 0.05);
+    box-shadow: 0 2px 8px rgba(15, 35, 70, 0.05);
     margin-bottom: 4px;
   }
   div[data-testid="stExpander"] details { background: transparent; border: none; }
@@ -562,9 +611,11 @@ CUSTOM_CSS = """
     padding: 10px 4px;
   }
   div[data-testid="stExpander"] summary * { color: #0B1F3A !important; }
-  div[data-testid="stExpander"] summary:hover { color: #1E40AF !important; }
+  div[data-testid="stExpander"] summary:hover { color: #1D4ED8 !important; }
 
-  /* ===== 行业选择 radio 药丸化（亮色版） ===== */
+  /* ===== 药丸式选择（行业 / 数据来源 / 补充材料） =====
+     选中态原来是"蓝底 + 金色文字"——金色压蓝底确实够（4.61:1），但全站到处
+     是金蓝撞色，用户反馈"颜色太多太乱"。v4 统一成蓝底白字（6.7:1）。 */
   div[role="radiogroup"] label {
     background: #FFFFFF;
     border: 1px solid #D6E0EC;
@@ -572,57 +623,63 @@ CUSTOM_CSS = """
     padding: 5px 12px;
     margin: 3px 2px;
     transition: all .18s ease;
-    color: #475569 !important;
+    color: #334155 !important;
   }
   div[role="radiogroup"] label:hover {
-    border-color: #1E40AF;
-    box-shadow: 0 0 12px rgba(30, 64, 175, 0.18);
+    border-color: #1D4ED8;
+    box-shadow: 0 0 10px rgba(29, 78, 216, 0.15);
   }
   div[role="radiogroup"] label:has(input:checked) {
-    background: linear-gradient(90deg, #1E40AF, #2563EB);
-    border-color: #1E40AF;
-    box-shadow: 0 0 16px rgba(30, 64, 175, 0.40);
+    background: #1D4ED8;
+    border-color: #1D4ED8;
+    box-shadow: 0 2px 10px rgba(29, 78, 216, 0.30);
   }
-  div[role="radiogroup"] label:has(input:checked) div { color: #F5C563 !important; font-weight: 700; }
+  div[role="radiogroup"] label:has(input:checked) div,
+  div[role="radiogroup"] label:has(input:checked) div *,
+  div[role="radiogroup"] label:has(input:checked) p,
+  div[role="radiogroup"] label:has(input:checked) span {
+    color: #FFFFFF !important; font-weight: 700;
+  }
 
-  /* ===== 按钮：主按钮深蓝渐变（强光晕） ===== */
+  /* ===== 按钮：主按钮实心品牌蓝 =====
+     原来是「蓝渐变 + 强光晕」，堆叠在一起像一排发光的牌子；
+     现在压平成一个实色块，页面立刻安静。 */
   .stButton > button[kind="primary"] {
-    background: linear-gradient(90deg, #1E40AF, #2563EB);
+    background: #1D4ED8;
     color: #FFFFFF;
     border: none;
     border-radius: 8px;
     font-weight: 700;
-    box-shadow: 0 4px 16px rgba(30, 64, 175, 0.45);
+    box-shadow: 0 2px 8px rgba(29, 78, 216, 0.24);
   }
   .stButton > button[kind="primary"]:hover {
-    background: linear-gradient(90deg, #1E3A8A, #1E40AF);
-    color: #F5C563;
-    box-shadow: 0 6px 22px rgba(30, 64, 175, 0.65);
+    background: #1E40AF;
+    color: #FFFFFF;
+    box-shadow: 0 3px 12px rgba(29, 78, 216, 0.34);
   }
   .stButton > button { color: #334155; }
 
-  /* ===== 标签页：亮色 ===== */
+  /* ===== 标签页 ===== */
   .stTabs [data-baseweb="tab-list"] { gap: 8px; }
   .stTabs [data-baseweb="tab"] {
     background-color: #FFFFFF;
     border-radius: 10px 10px 0 0;
     padding: 8px 20px;
     font-weight: 600;
-    color: #64748B;
-    border: 1px solid #D6E0EC;
+    color: #475569;
+    border: 1px solid #E4EAF2;
   }
   .stTabs [aria-selected="true"] {
-    background: linear-gradient(180deg, #2563EB, #1E40AF) !important;
-    color: #F5C563 !important;
-    border-color: #1E40AF !important;
-    box-shadow: 0 -2px 16px rgba(30, 64, 175, 0.40);
+    background: #1D4ED8 !important;
+    color: #FFFFFF !important;
+    border-color: #1D4ED8 !important;
+    box-shadow: none;
   }
 
-  /* ===== 侧边栏：冷蓝灰 + 蓝边条（与主背景区分） ===== */
+  /* ===== 侧边栏：近白 + 浅边（与主区同一套底色，只是略深一档） ===== */
   section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #DDE7F2 0%, #E8EFF7 55%, #DDE7F2 100%);
-    border-right: 2px solid rgba(30, 64, 175, 0.30);
-    box-shadow: 6px 0 20px rgba(15, 35, 70, 0.06);
+    background: #FAFBFD;
+    border-right: 1px solid #E4EAF2;
   }
   /* ⚠️ 这里原来是 `section[data-testid="stSidebar"] * { color:#1E3A5F !important }`
      —— 通配符 + !important 的特异性(0,1,1) 高于 `.sb-brand`(0,1,0)，
@@ -637,10 +694,10 @@ CUSTOM_CSS = """
   section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] *,
   section[data-testid="stSidebar"] [data-testid="stWidgetLabel"],
   section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] * {
-    color: #1E3A5F !important;
+    color: #334155 !important;
   }
   section[data-testid="stSidebar"] h3 {
-    border-left: 4px solid #1E40AF;
+    border-left: 3px solid #1D4ED8;
     padding-left: 8px;
     color: #0B1F3A !important;
   }
@@ -651,45 +708,48 @@ CUSTOM_CSS = """
     border-radius: 8px;
   }
   section[data-testid="stSidebar"] .stButton > button:hover {
-    border-color: #1E40AF;
-    color: #1E40AF !important;
+    border-color: #1D4ED8;
+    color: #1D4ED8 !important;
   }
-  /* 侧边栏品牌头（深蓝渐变卡） */
+  /* 侧边栏品牌头：原来是深蓝渐变 + 金字卡片（全站最深的一块），
+     和工作台"近白"的基调冲突；现在改成白底 + 蓝色竖条，
+     只有标题是深墨色，整体和主区对称。 */
   .sb-brand {
-    background: linear-gradient(120deg, #16266B 0%, #1E3A8A 48%, #1D4ED8 100%);
-    border: 1px solid rgba(217, 164, 65, 0.65);
-    border-radius: 12px;
-    padding: 12px 14px;
+    background: #FFFFFF;
+    border: 1px solid #E4EAF2;
+    border-left: 4px solid #1D4ED8;
+    border-radius: 10px;
+    padding: 11px 13px;
     font-weight: 800;
-    font-size: 15.5px;
-    letter-spacing: 0.5px;
-    box-shadow: 0 6px 18px rgba(30, 64, 175, 0.40);
+    font-size: 15px;
+    letter-spacing: 0.3px;
   }
-  /* 白字同时作用于子元素 —— 只写 .sb-brand 时，任何作用到子元素的
-     通配符规则都会把文字压成深色（本次事故的根因），故在此加固 */
-  .sb-brand, .sb-brand * { color: #FFFFFF !important; }
+  /* 深色文字同时作用于子元素 —— 只写 .sb-brand 时，任何作用到子元素的
+     通配符规则都会把文字压成别的颜色（v3 本次事故的根因），故在此加固。
+     v4 一律走深墨色：即使被全局规则改写，落在白底上依然清晰可读。 */
+  .sb-brand, .sb-brand * { color: #0B1F3A !important; }
   .sb-brand .sb-sub, .sb-brand .sb-sub * {
     display: block;
-    color: #FFDFA0 !important;   /* 11px 小字：金色提亮后对比度约 5:1 */
+    color: #475569 !important;
     font-size: 11px;
     font-weight: 600;
     margin-top: 4px;
-    letter-spacing: 0.3px;
+    letter-spacing: 0.2px;
   }
   /* 侧边栏内容卡片 */
   .sb-card {
-    background: rgba(255, 255, 255, 0.7);
-    border: 1px solid #D6E0EC;
+    background: #FFFFFF;
+    border: 1px solid #E4EAF2;
     border-radius: 10px;
     padding: 10px 12px;
     margin: 8px 0;
   }
   .sb-card .sb-title, .sb-title {
-    color: #1E40AF !important;
+    color: #0B1F3A !important;
     font-weight: 700;
     font-size: 13px;
     margin-bottom: 6px;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.3px;
   }
   .sb-card ol, .sb-card ul {
     margin: 0;
@@ -700,9 +760,9 @@ CUSTOM_CSS = """
   }
   .sb-chip {
     display: inline-block;
-    background: rgba(30, 64, 175, 0.10);
-    border: 1px solid rgba(30, 64, 175, 0.30);
-    color: #1E40AF !important;
+    background: #EEF3FE;
+    border: 1px solid #D8E3FA;
+    color: #1D4ED8 !important;
     border-radius: 999px;
     padding: 1px 9px;
     font-size: 11px;
@@ -710,7 +770,7 @@ CUSTOM_CSS = """
     white-space: nowrap;
   }
   .sb-quota-head { font-size: 12px; margin-bottom: 4px; color: #475569 !important; }
-  .sb-quota-head b { color: #D9A441 !important; }
+  .sb-quota-head b { color: #B45309 !important; }
   .sb-quota-bar {
     height: 6px;
     background: rgba(15, 35, 70, 0.08);
@@ -739,9 +799,9 @@ CUSTOM_CSS = """
     border-radius: 0 10px 10px 0;
   }
   div[data-testid="stInfo"] {
-    background-color: rgba(30, 64, 175, 0.08);
-    border-left: 4px solid #1E40AF;
-    color: #1E3A8A !important;
+    background-color: rgba(29, 78, 216, 0.07);
+    border-left: 4px solid #1D4ED8;
+    color: #0B1F3A !important;
     border-radius: 0 10px 10px 0;
   }
 
@@ -756,11 +816,11 @@ CUSTOM_CSS = """
   /* ===== 页脚 ===== */
   .footer-note {
     text-align: center;
-    color: #64748B;
+    color: #475569;
     font-size: 12px;
     padding: 8px;
   }
-  .footer-note b { color: #D9A441; }
+  .footer-note b { color: #B45309; }
 
   /* ===== 双模型徽章 ===== */
   /* 渐变右端原来是 #93B5E0（浅蓝），白字压上去只有 2.2:1 看不清；
@@ -777,21 +837,24 @@ CUSTOM_CSS = """
     box-shadow: 0 4px 14px rgba(30, 64, 175, 0.40);
   }
 
-  /* ===== 区块小标题：深色 ===== */
+  /* ===== 区块小标题：统一深墨色 =====
+     原来 h4/h5 混用 + 中蓝色 #1E40AF，一屏里出现七八种蓝，
+     用户反馈"一片蓝字看不清"。现在标题只有一档深墨色。 */
   h3, h4, h5 { color: #0B1F3A !important; font-weight: 700 !important; }
   h3, h4 { letter-spacing: 0.3px; }
   p, li, span, div { color: #334155; }
-  small, .stCaption, [data-testid="stCaptionContainer"] { color: #64748B !important; }
-  code { background: #E0E9F5; color: #1E3A8A; padding: 1px 6px; border-radius: 4px; }
-  a { color: #1E40AF !important; }
+  small, .stCaption, [data-testid="stCaptionContainer"],
+  [data-testid="stCaptionContainer"] * { color: #475569 !important; }
+  code { background: #EEF3FE; color: #1D4ED8; padding: 1px 6px; border-radius: 4px; }
+  a { color: #1D4ED8 !important; }
 
   /* ===== RAG 检索结果卡 ===== */
   .rag-hit {
     background: #FFFFFF;
-    border-left: 3px solid #1E40AF;
-    border-top: 1px solid #D6E0EC;
-    border-right: 1px solid #D6E0EC;
-    border-bottom: 1px solid #D6E0EC;
+    border-left: 3px solid #1D4ED8;
+    border-top: 1px solid #E4EAF2;
+    border-right: 1px solid #E4EAF2;
+    border-bottom: 1px solid #E4EAF2;
     border-radius: 8px;
     padding: 10px 12px;
     margin: 6px 0;
@@ -800,43 +863,42 @@ CUSTOM_CSS = """
     line-height: 1.7;
   }
   .rag-hit .rag-rank {
-    color: #D9A441;
+    color: #1D4ED8;
     font-weight: 700;
     margin-right: 8px;
   }
   .rag-hit .rag-page {
-    color: #1E40AF;
+    color: #0B1F3A;
     font-weight: 700;
   }
-  .rag-hit .rag-sim-high { color: #16A34A; font-weight: 700; }
-  .rag-hit .rag-sim-mid { color: #D9A441; font-weight: 700; }
-  .rag-hit .rag-sim-low { color: #94A3B8; font-weight: 700; }
+  .rag-hit .rag-sim-high { color: #15803D; font-weight: 700; }
+  .rag-hit .rag-sim-mid { color: #B45309; font-weight: 700; }
+  .rag-hit .rag-sim-low { color: #64748B; font-weight: 700; }
 
   /* ===== 图表解读卡 ===== */
   .insight-card {
-    background: linear-gradient(120deg, rgba(30, 64, 175, 0.08) 0%, rgba(255, 255, 255, 0.6) 100%);
-    border: 1px solid #D6E0EC;
-    border-left: 4px solid #D9A441;
+    background: #F8FAFC;
+    border: 1px solid #E4EAF2;
+    border-left: 3px solid #93B4E8;
     border-radius: 10px;
     padding: 10px 14px;
     margin: 8px 0 14px 0;
     color: #334155;
     font-size: 13px;
     line-height: 1.75;
-    box-shadow: 0 2px 10px rgba(15, 35, 70, 0.05);
   }
-  .insight-card b { color: #1E3A8A; }
+  .insight-card b { color: #0B1F3A; }
   .insight-card .up { color: #DC2626; font-weight: 700; }
   .insight-card .down { color: #16A34A; font-weight: 700; }
   .insight-card .neutral { color: #64748B; }
 
   /* ===== 分割线 ===== */
-  hr { border: none; border-top: 1px dashed rgba(30, 64, 175, 0.20); }
+  hr { border: none; border-top: 1px solid #E4EAF2; }
 
   /* ===== 散点图四象限说明卡 ===== */
   .quad-note {
     background: #FFFFFF;
-    border: 1px solid #D6E0EC;
+    border: 1px solid #E4EAF2;
     border-radius: 10px;
     padding: 10px 14px;
     margin: 6px 0 12px 0;
@@ -845,28 +907,28 @@ CUSTOM_CSS = """
     color: #334155;
   }
   .quad-note .q-star { color: #DC2626; font-weight: 700; }
-  .quad-note .q-cash { color: #D9A441; font-weight: 700; }
-  .quad-note .q-quest { color: #1E40AF; font-weight: 700; }
-  .quad-note .q-dog { color: #94A3B8; font-weight: 700; }
+  .quad-note .q-cash { color: #B45309; font-weight: 700; }
+  .quad-note .q-quest { color: #1D4ED8; font-weight: 700; }
+  .quad-note .q-dog { color: #64748B; font-weight: 700; }
 
   /* ===== 同业对标基准条（行业选择器下方） =====
      说明: 只用类选择器, 不用通配符 + !important
      (通配符特异性 (0,1,1) 会压掉组件自身配色, 见 MEMORY 设计约定 16) */
   .base-bar {
-    background: #FFFFFF;
-    border: 1px solid #BFDBFE;
-    border-left: 3px solid #1E40AF;
+    background: #F8FAFC;
+    border: 1px solid #E4EAF2;
+    border-left: 3px solid #1D4ED8;
     border-radius: 8px;
     padding: 9px 14px;
     margin: 4px 0 12px 0;
     font-size: 13px;
     line-height: 1.75;
-    color: #1E3A8A;
+    color: #334155;
     text-align: left;
   }
-  .base-bar b { color: #1E40AF; }
+  .base-bar b { color: #0B1F3A; }
   .base-bar .bb-num { color: #B45309; font-weight: 700; }
-  .base-bar .bb-note { color: #64748B; }
+  .base-bar .bb-note { color: #475569; }
 </style>
 """
 
@@ -881,69 +943,103 @@ st.set_page_config(
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
 
 # ---------------------------------------------------------------
-# 全屏沉浸式登录页（方案 3）
+# 登录页（v4：浅色）
 #
-# 只在「未登录」分支注入：登录成功后不再输出这段 <style>，深色背景/白卡样式
-# 随之消失 —— 天然不会污染工作台，不需要靠 session 标记去"恢复"。
+# 为什么换掉深蓝渐变：深底方案要求"每一个文字元素都显式上色且带 !important"，
+# 漏一个就会掉进全站的 `p,li,span,div{color:#334155}` 变成 1.0:1 ——
+# 用户看到的就是"深蓝底上一片看不清的字"（首屏品牌区就是这么翻车的）。
+# v4 改成浅底深字：即使某处样式没写对，兜底色 #334155 落在近白底上
+# 依然是 10.4:1 的清晰黑字。**让设计对样式失效免疫**，而不是靠 specificity 硬撑。
 #
-# ⚠️ 深底文字必须显式上色（并带 !important）：
-#    全站有 `p, li, span, div { color:#334155 }` 这类元素级规则，一旦某个包装元素
-#    命中它，压在深蓝底上就是 1.0:1（几乎看不见）。已算过的对比度（压 #1E3A8A）：
-#    白 #F8FAFC 9.9:1 / #DBEAFE 8.49:1 / #A9C6E8 5.88:1 / 金 #F5C563 6.44:1 —— 全部 ≥4.5:1。
-#    ⚠️ 金色只用在这个深底上：金 #D9A441 压白卡只有 2.25:1，白底要金色文字得用 #B45309（5.02:1）。
+# 对比度（近白底 #FFFFFF / #F8FAFC）：
+#   #0B1F3A 16.5 / #334155 10.4 / #475569 8.1 / #1D4ED8 6.7 / #B45309 5.02 —— 全 ≥4.5
+#
+# 同时按用户要求调整表单结构：
+#   · 「账号 / 密码」作为**外置标签**（14px 加粗深色），不再塞进框里
+#   · 框内放**小号英文**占位符 Account / Password（12px），字号比外标签小一档
 # ---------------------------------------------------------------
 LOGIN_CSS = """
 <style>
-  /* 全屏深蓝渐变背景（160deg，铺满视口） */
+  /* 登录背景：与工作台同一套近白底色（视觉对称，不再"深蓝一屏 + 浅色工作台"） */
   [data-testid="stAppViewContainer"] {
-    background: linear-gradient(160deg, #0B1F3A 0%, #1E3A8A 58%, #16337D 100%) !important;
+    background: linear-gradient(180deg, #FFFFFF 0%, #F7F9FC 52%, #EFF3F9 100%) !important;
   }
   [data-testid="stMain"] { background: transparent !important; }
   header[data-testid="stHeader"] { background: transparent !important; }
   /* 登录前不显示侧边栏：导航 / 额度 / 退出登录都不该出现 */
   section[data-testid="stSidebar"] { display: none !important; }
 
-  /* 白卡就用登录表单本体（比 st.container(border=True) 可控：
-     后者在 1.57 里没有稳定的 testid 可挂钩） */
+  /* 登录卡 = 表单本体（st.container(border=True) 在 1.57 没有稳定 testid 可挂钩） */
   [data-testid="stForm"] {
     background: #FFFFFF !important;
-    border: 1px solid rgba(217, 164, 65, 0.55) !important;
-    border-radius: 16px !important;
-    padding: 26px 28px 20px 28px !important;
-    box-shadow: 0 24px 64px rgba(4, 18, 44, 0.45) !important;
+    border: 1px solid #E4EAF2 !important;
+    border-top: 4px solid #1D4ED8 !important;
+    border-radius: 14px !important;
+    padding: 24px 26px 20px 26px !important;
+    box-shadow: 0 10px 30px rgba(15, 35, 70, 0.07) !important;
   }
-  /* 登录按钮：加大 + 金色描边 */
-  [data-testid="stFormSubmitButton"] button {
-    background: #1E40AF !important;
-    color: #FFFFFF !important;
-    border: 2px solid #D9A441 !important;
-    border-radius: 10px !important;
-    padding: 12px 18px !important;
-    font-size: 15px !important;
+
+  /* 外置标签：账号 / 密码 —— 深墨色加粗，14px（比框内占位符大一档） */
+  [data-testid="stForm"] [data-testid="stWidgetLabel"] p,
+  [data-testid="stForm"] [data-testid="stWidgetLabel"] label,
+  [data-testid="stForm"] label[data-testid="stWidgetLabel"] p {
+    color: #0B1F3A !important;
+    font-size: 14px !important;
     font-weight: 700 !important;
+    letter-spacing: .2px;
   }
-  [data-testid="stFormSubmitButton"] button:hover {
-    background: #1D4ED8 !important;
-    border-color: #F5C563 !important;
-  }
-  /* 白卡里的输入框：浅底浅边，视觉更干净 */
+
+  /* 输入框：白底 + 浅边；框内是「小号英文」提示 */
   [data-testid="stForm"] input {
-    background: #F8FAFC !important;
+    background: #FFFFFF !important;
     border: 1px solid #D6E0EC !important;
     border-radius: 8px !important;
     color: #0B1F3A !important;
+    font-size: 14px !important;
+    padding: 9px 12px !important;
   }
-  /* 白卡内正文统一色，避免被全局规则带偏 */
+  [data-testid="stForm"] input::placeholder {
+    color: #64748B !important;
+    font-size: 12px !important;
+    letter-spacing: .3px;
+  }
+
+  /* 登录按钮：实心品牌蓝 + 白字（去掉金色描边，全站不再出现金蓝撞色） */
+  [data-testid="stFormSubmitButton"] button {
+    background: #1D4ED8 !important;
+    color: #FFFFFF !important;
+    border: none !important;
+    border-radius: 9px !important;
+    padding: 11px 18px !important;
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    letter-spacing: 1px;
+  }
+  [data-testid="stFormSubmitButton"] button:hover { background: #1E40AF !important; }
+
+  /* 卡内文字统一深灰（浅底上必然可读） */
   [data-testid="stForm"] p,
   [data-testid="stForm"] li,
-  [data-testid="stForm"] label,
   [data-testid="stForm"] small { color: #334155 !important; }
 
-  /* 关掉 Streamlit 自动塞进标题内部的「跳转到本节」锚点图标：
-     在深色底上它是一块几乎看不见的深色脏点，还会破坏居中。 */
-  .login-brand h1 a,
-  .login-brand a.anchor-link,
-  .login-brand [data-testid="stHeaderActionElements"] { display: none !important; }
+  /* ---- 登录页品牌区：浅底深字，全部用类选择器 ---- */
+  .login-brand .lb-badge {
+    display: inline-block; font-size: 12px; letter-spacing: 1.2px;
+    color: #1D4ED8 !important; background: #EEF3FE;
+    border: 1px solid #D8E3FA; border-radius: 999px;
+    padding: 3px 14px; margin-bottom: 14px;
+  }
+  /* ⚠️ 这里刻意用 <div> 而不是 <h1>：Streamlit 会给 markdown 标题自动塞一个
+     深色的「跳转到本节」锚点图标，压在任何底上都是一块脏点；
+     用 div 就完全不会生成锚点，也顺带躲开了全站 h3/h4/h5 的样式覆盖。 */
+  .login-brand .lb-title {
+    color: #0B1F3A !important; font-size: 30px; font-weight: 800;
+    margin: 0 0 8px 0; letter-spacing: 1px;
+  }
+  .login-brand .lb-title em { color: #B45309 !important; font-style: normal; }
+  .login-brand .lb-sub { color: #334155 !important; font-size: 14px; margin: 0; }
+  .login-brand .lb-note { color: #475569 !important; font-size: 12px; margin-top: 6px; }
+  .login-foot { text-align: center; font-size: 12px; color: #475569 !important; margin: 16px 0 0 0; }
 </style>
 """
 
@@ -959,73 +1055,62 @@ def check_login():
         st.session_state["demo_mode"] = True
         st.rerun()
 
-    # ---- 全屏沉浸式登录页（方案 3）：深蓝渐变铺满 + 居中悬浮白卡 ----
+    # ---- 登录页（浅色近白）：品牌区 + 居中白卡 ----
     # 侧边栏与主工作台在此分支根本不渲染（check_login 返回 False → st.stop()），
     # LOGIN_CSS 再把侧边栏兜底隐藏，确保"登录前只有这一屏"。
     st.markdown(LOGIN_CSS, unsafe_allow_html=True)
 
-    # 品牌区（压在深蓝渐变上 → 金字 + 浅蓝副题，均 ≥4.5:1）
+    # 品牌区（压在近白底上 → 深墨色标题 + 品牌蓝小字，均 ≥4.5:1）
     st.markdown(
         """
         <div class="login-brand" style="text-align:center;max-width:660px;
-                    margin:6vh auto 20px auto;">
-          <div style="display:inline-block;font-size:12px;letter-spacing:1.5px;
-                      color:#F5C563 !important;border:1px solid rgba(245,197,99,.6);
-                      border-radius:999px;padding:3px 14px;margin-bottom:14px;">
-            第二届全国人工智能应用创新大赛 · 参赛作品
-          </div>
-          <h1 style="color:#F8FAFC !important;font-size:32px;font-weight:800;
-                     margin:0 0 8px 0;letter-spacing:1px;text-shadow:0 2px 14px rgba(0,0,0,.35);">
-            📈 金融智能投研 <span style="color:#F5C563 !important;">Agent</span>
-          </h1>
-          <p style="color:#DBEAFE !important;font-size:14px;margin:0;">
-            AI 驱动的财报深度分析 · 结构化评分 · 多公司对比 · 同业对标基准
-          </p>
-          <p style="color:#A9C6E8 !important;font-size:12px;margin-top:6px;">
-            数据来自巨潮资讯网 / 东方财富公开接口 · 结论仅供参考
-          </p>
+                    margin:5vh auto 20px auto;">
+          <div class="lb-badge">第二届全国人工智能应用创新大赛 · 参赛作品</div>
+          <div class="lb-title">📈 金融智能投研 <em>Agent</em></div>
+          <p class="lb-sub">AI 驱动的财报深度分析 · 结构化评分 · 多公司对比 · 同业对标基准</p>
+          <p class="lb-note">数据来自巨潮资讯网 / 东方财富公开接口 · 结论仅供参考</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    # 登录白卡：只占中间一条（宽屏不拉满，窄屏自动 100%）。
+    # 登录卡：只占中间一条（宽屏不拉满，窄屏自动 100%）。
     # 卡片本体就是 st.form —— 表单的默认边框/内边距由 LOGIN_CSS 接管，
     # 这样"卡"和"表单"是同一个元素，不会出现两张套在一起的框。
     _, _mid, _ = st.columns([1, 1.5, 1])
     with _mid:
         with st.form("login_form", clear_on_submit=False):
             st.markdown(
-                '<div style="text-align:center;margin:0 0 16px 0;">'
-                '<div style="font-size:18px;font-weight:800;color:#1E3A8A !important;">🔐 访问登录</div>'
-                '<div style="font-size:12px;color:#64748B !important;margin-top:4px;">'
+                '<div style="text-align:center;margin:0 0 18px 0;">'
+                '<div style="font-size:17px;font-weight:800;color:#0B1F3A !important;">访问登录</div>'
+                '<div style="font-size:12px;color:#475569 !important;margin-top:4px;">'
                 '输入访问账号与密码进入投研工作台</div>'
                 "</div>",
                 unsafe_allow_html=True,
             )
-            user = st.text_input("账号", placeholder="请输入访问账号")
-            pw = st.text_input("密码", type="password", placeholder="请输入访问密码")
+            # 标签外置（账号 / 密码），框内只放小号英文占位符
+            user = st.text_input("账号", placeholder="Account")
+            pw = st.text_input("密码", type="password", placeholder="Password")
             submitted = st.form_submit_button("进入系统", use_container_width=True, type="primary")
             if submitted:
                 if user == APP_USER and pw == APP_PASSWORD:
                     st.session_state["authenticated"] = True
                     st.rerun()
                 else:
-                    st.error("❌ 账号或密码错误，请检查后重试（区分大小写）。")
+                    st.error("账号或密码错误，请检查后重试（区分大小写）。")
             st.markdown(
-                '<div style="margin-top:16px;padding-top:13px;border-top:1px dashed #D6E0EC;'
-                'font-size:12px;color:#64748B !important;line-height:1.95;">'
-                '<b style="color:#1E3A8A !important;">① 单公司深度分析</b>　联网取数 → 规则引擎四维评分 → 图表与风险提示<br>'
-                '<b style="color:#1E3A8A !important;">② 多公司横向对比</b>　2~5 家各按本行业基准评分，对照表 / 差额 / CSV 导出<br>'
-                '<b style="color:#1E3A8A !important;">③ 年报原文引用</b>　解析年报 PDF 后按页建库，结论标注「见年报第 X 页」<br>'
-                '<b style="color:#1E3A8A !important;">④ 同业对标基准</b>　消费 / 金融 / 新能源 / 医药 / 互联网 财务基准差异化<br>'
-                '<span style="color:#94A3B8 !important;">演示路径：取数 → 结构化分析 → 年度时间轴 → 生成研报 → 多公司对比</span>'
+                '<div style="margin-top:16px;padding-top:13px;border-top:1px solid #E4EAF2;'
+                'font-size:12px;color:#334155 !important;line-height:1.95;">'
+                '<b style="color:#0B1F3A !important;">① 单公司深度分析</b>　联网取数 → 规则引擎四维评分 → 图表与风险提示<br>'
+                '<b style="color:#0B1F3A !important;">② 多公司横向对比</b>　2~5 家各按本行业基准评分，对照表 / 差额 / CSV 导出<br>'
+                '<b style="color:#0B1F3A !important;">③ 年报原文引用</b>　解析年报 PDF 后按页建库，结论标注「见年报第 X 页」<br>'
+                '<b style="color:#0B1F3A !important;">④ 同业对标基准</b>　消费 / 金融 / 新能源 / 医药 / 互联网 财务基准差异化<br>'
+                '<span style="color:#475569 !important;">演示路径：取数 → 结构化分析 → 年度时间轴 → 生成研报 → 多公司对比</span>'
                 "</div>",
                 unsafe_allow_html=True,
             )
         st.markdown(
-            '<p style="text-align:center;font-size:12px;color:#A9C6E8 !important;'
-            'margin:16px 0 0 0;">🔒 本系统仅供大赛评审访问 · 分析结果仅供参考，不构成投资建议</p>',
+            '<p class="login-foot">🔒 本系统仅供大赛评审访问 · 分析结果仅供参考，不构成投资建议</p>',
             unsafe_allow_html=True,
         )
     return False
@@ -1214,6 +1299,22 @@ def render_score_card(label, value):
     else:
         st.metric(label, f"{value} / 10")
         st.progress(min(max(value / 10.0, 0.0), 1.0))
+
+
+# ============ 统一分区标题（「步骤条」） ============
+# 为什么要有这个东西：原来每个区块的标题都是 `##### 长标题 —— 一句很长的解释`，
+# 有的用 h4、有的用 h5、有的加粗，字号/颜色/间距全不一致；长解释跟标题挤在一行里
+# 会折行，视觉上就变成"一堆颜色差不多的蓝字堆在一起"（用户反馈：排版乱、看不清）。
+# 现在统一成：编号方块 + 短标题（深色加粗） + 小号灰色说明（不抢视线），
+# 每个区块长得一样，从上到下就是一条清晰的步骤线。
+def step_head(num: str, title: str, note: str = "", tag: str = "") -> None:
+    _tag = f'<span class="sh-tag">{tag}</span>' if tag else ""
+    _note = f'<span class="sh-note">{note}</span>' if note else ""
+    st.markdown(
+        f'<div class="step-head"><span class="sh-num">{num}</span>'
+        f'<span class="sh-title">{title}</span>{_tag}{_note}</div>',
+        unsafe_allow_html=True,
+    )
 
 
 # ============ 图表与解读（雷达 / 圆环 / 横向对比 / 自动解读） ============
@@ -2383,10 +2484,12 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
         否则 3~5 家公司并列时，光取数 UI 就把页面撑得无法使用。
         取数逻辑、防"猜代码"逻辑与完整模式**完全一致**。
     """
-    st.markdown(
-        "**🌐 在线取数**" if compact
-        else "##### 🌐 在线取数（自动从巨潮资讯网 + 东方财富获取）"
-    )
+    if compact:
+        st.markdown('<div class="sec-head">🌐 在线取数</div>', unsafe_allow_html=True)
+    else:
+        step_head("3", "在线取数",
+                  "从巨潮资讯网 / 东方财富公开接口自动获取",
+                  tag="推荐")
     if compact:
         c1, c3 = st.columns([3, 1])
     else:
@@ -2871,83 +2974,100 @@ if _default_industry not in INDUSTRY_KB:
     _default_industry = "通用"
     st.session_state["industry_widget"] = "通用"
 
+# ⚠️ 视图分发写在文件末尾，但这里必须**提前**知道当前视图：
+#    「单公司行业基准库」整块（行业按钮 + 金融子行业口径 + 同业对标基准条）
+#    只属于「🏢 单公司深度分析」。v3 把它写在模块级 → 切到「⚖️ 多公司对比」
+#    和「📖 使用说明」时，页面顶部还顶着一个"请选择待分析公司所属行业"的
+#    单公司选择器 + 基准条，是"主界面看着乱"最直接的一个原因。
+_cur_view = st.session_state.get("main_view", "🏢")
+
 # 如果已经在线取数，标题直接显示公司名称+代码+匹配行业
 _single_name = st.session_state.get("single_online_name", "")
 _single_code = st.session_state.get("single_online_code", "")
-if _single_name and _single_code:
-    st.markdown(
-        f"##### 📚 行业财务基准库（同业对标） —— 当前分析对象：**{_single_name}（{_single_code}）** → **{_default_industry}**\n"
-        f"*将按该行业基准做差异化评分与象限判定，基准条见下方*"
-    )
-else:
-    st.markdown("##### 📚 行业财务基准库（同业对标） —— 请选择待分析公司所属行业（将按该行业基准做差异化评分）")
+if _cur_view == "🏢":
+    if _single_name and _single_code:
+        step_head("1", "行业财务基准库",
+                  f"{_single_name}（{_single_code}）→ 已按该行业基准计算",
+                  tag="同业对标")
+    else:
+        step_head("1", "行业财务基准库",
+                  "四维评分、四象限定位与散点基准线都按所选行业计算",
+                  tag="同业对标")
 
 
-def _on_industry_change():
-    """用户手动点击才记录为「手动选择」；自动跟随写入的值不算手动。"""
-    _v = st.session_state.get("industry_widget", "")
-    if _v != st.session_state.get("single_auto_industry"):
-        st.session_state["industry_manual"] = _v
+    def _on_industry_change():
+        """用户手动点击才记录为「手动选择」；自动跟随写入的值不算手动。"""
+        _v = st.session_state.get("industry_widget", "")
+        if _v != st.session_state.get("single_auto_industry"):
+            st.session_state["industry_manual"] = _v
 
 
-industry = st.radio(
-    "行业",
-    list(INDUSTRY_KB.keys()),
-    index=list(INDUSTRY_KB.keys()).index(_default_industry),
-    horizontal=True,
-    label_visibility="collapsed",
-    key="industry_widget",
-    on_change=_on_industry_change,
-)
-# 如果是自动匹配过来的，提示一下
-if _auto_matched and industry == _auto_matched:
-    st.caption(f"🤖 已根据在线取数结果自动匹配行业：**{industry}**（如需切换，点击上方按钮即可）")
-else:
-    # 行业细分范围由下方「同业对标基准条」呈现，这里只报当前行业，避免文案重复
-    st.caption(f"当前行业：**{industry}**")
-    if _auto_matched and industry != _auto_matched:
-        st.warning(
-            f"⚠️ 系统识别到的行业是 **{_auto_matched}**，当前却是 **{industry}**，"
-            f"评分基准与散点图基准会按「{industry}」计算，请确认是否选错。"
-        )
-
-# ---- 金融子行业口径（优化清单 P1-04：拆分银行 / 保险 / 证券的适用指标）----
-# 把「金融」当一个桶是有代价的：银行看净息差 + 不良率 + 资本充足率；
-# 险企看新业务价值率 + 偿付能力充足率；而券商的高杠杆是**业务模式**
-# （大头是客户保证金），拿通用"资产负债率 >70% 需警惕"去打分是错的。
-if industry == "金融":
-    _fk = st.radio(
-        "金融子行业口径",
-        ["🤖 自动识别（按取到的指标判定）", "🏦 银行", "🛡️ 保险", "📈 证券"],
+    industry = st.radio(
+        "行业",
+        list(INDUSTRY_KB.keys()),
+        index=list(INDUSTRY_KB.keys()).index(_default_industry),
         horizontal=True,
-        key="single_finance_kind_widget",
-        help="银行：净息差 · 不良率 · 拨备覆盖率 · 核心一级资本充足率；"
-             "保险：新业务价值率 · 偿付能力充足率；"
-             "证券：ROE · 净利率 + 金融杠杆表（80% 负债率属常态）。",
+        label_visibility="collapsed",
+        key="industry_widget",
+        on_change=_on_industry_change,
     )
-    _fk_val = {"🏦 银行": "银行", "🛡️ 保险": "保险", "📈 证券": "证券"}.get(_fk, "")
-    st.session_state["single_finance_kind"] = _fk_val
-    st.caption(
-        f"当前金融口径：**{_fk_val or '自动识别'}** —— "
-        "四维指标构成与判读标准会随该选择切换（这就是「行业变化影响实际指标与评价依据」）。"
+    # 如果是自动匹配过来的，提示一下
+    if _auto_matched and industry == _auto_matched:
+        st.caption(f"🤖 已根据在线取数结果自动匹配行业：**{industry}**（如需切换，点击上方按钮即可）")
+    else:
+        # 行业细分范围由下方「同业对标基准条」呈现，这里只报当前行业，避免文案重复
+        st.caption(f"当前行业：**{industry}**")
+        if _auto_matched and industry != _auto_matched:
+            st.warning(
+                f"⚠️ 系统识别到的行业是 **{_auto_matched}**，当前却是 **{industry}**，"
+                f"评分基准与散点图基准会按「{industry}」计算，请确认是否选错。"
+            )
+
+    # ---- 金融子行业口径（优化清单 P1-04：拆分银行 / 保险 / 证券的适用指标）----
+    # 把「金融」当一个桶是有代价的：银行看净息差 + 不良率 + 资本充足率；
+    # 险企看新业务价值率 + 偿付能力充足率；而券商的高杠杆是**业务模式**
+    # （大头是客户保证金），拿通用"资产负债率 >70% 需警惕"去打分是错的。
+    if industry == "金融":
+        _fk = st.radio(
+            "金融子行业口径",
+            ["🤖 自动识别（按取到的指标判定）", "🏦 银行", "🛡️ 保险", "📈 证券"],
+            horizontal=True,
+            key="single_finance_kind_widget",
+            help="银行：净息差 · 不良率 · 拨备覆盖率 · 核心一级资本充足率；"
+                 "保险：新业务价值率 · 偿付能力充足率；"
+                 "证券：ROE · 净利率 + 金融杠杆表（80% 负债率属常态）。",
+        )
+        _fk_val = {"🏦 银行": "银行", "🛡️ 保险": "保险", "📈 证券": "证券"}.get(_fk, "")
+        st.session_state["single_finance_kind"] = _fk_val
+        st.caption(
+            f"当前金融口径：**{_fk_val or '自动识别'}** —— "
+            "四维指标构成与判读标准会随该选择切换（这就是「行业变化影响实际指标与评价依据」）。"
+        )
+    else:
+        st.session_state["single_finance_kind"] = ""
+
+    # ---- 同业对标基准条：把「对标」这个动作直接摆到用户面前 ----
+    # 同一组财务数据只有在对标了行业基准后才具备可比性（银行 ROE 11% 已属优秀，
+    # 白酒 ROE 11% 则严重落后）——「同业对标」是金融分析的规定动作，必须显式标注。
+    _base_roe, _base_grow = _industry_base(industry)
+    st.markdown(
+        f'<div class="base-bar">'
+        f'📐 <b>同业对标基准（{industry}）</b>'
+        f' · ROE 优秀线 <span class="bb-num">{_base_roe:g}%</span>'
+        f' · 营收增速稳健线 <span class="bb-num">{_base_grow:g}%</span>'
+        f'<br><span class="bb-note">四维评分、四象限定位与散点基准线均按该行业口径计算；'
+        f'切换上方行业按钮，全部基准随之调整。</span>'
+        f'</div>',
+        unsafe_allow_html=True,
     )
 else:
-    st.session_state["single_finance_kind"] = ""
-
-# ---- 同业对标基准条：把「对标」这个动作直接摆到用户面前 ----
-# 同一组财务数据只有在对标了行业基准后才具备可比性（银行 ROE 11% 已属优秀，
-# 白酒 ROE 11% 则严重落后）——「同业对标」是金融分析的规定动作，必须显式标注。
-_base_roe, _base_grow = _industry_base(industry)
-st.markdown(
-    f'<div class="base-bar">'
-    f'📐 <b>同业对标基准（{industry}）</b>'
-    f' · ROE 优秀线 <span class="bb-num">{_base_roe:g}%</span>'
-    f' · 营收增速稳健线 <span class="bb-num">{_base_grow:g}%</span>'
-    f'<br><span class="bb-note">四维评分、四象限定位与散点基准线均按该行业口径计算；'
-    f'切换行业按钮，全部基准随之调整。</span>'
-    f'</div>',
-    unsafe_allow_html=True,
-)
+    # 非单公司视图：不渲染行业选择器与基准条（它们只对单公司分析有意义），
+    # 沿用上次选择的行业作为「多公司对比」的默认口径。
+    industry = st.session_state.get("industry_widget", "通用")
+    if industry not in INDUSTRY_KB:
+        industry = "通用"
+    if industry != "金融":
+        st.session_state["single_finance_kind"] = ""
 
 def system_prompt_with_kb(industry_override: str = ""):
     """拼装系统提示词。可指定行业口径 —— 双公司对比时必须能传「另一家的行业」，
@@ -2963,6 +3083,9 @@ def system_prompt_with_kb(industry_override: str = ""):
 # ---------------------------------------------------------------
 def _view_single():
     # ---- 数据来源选择 ----
+    step_head("2", "数据来源",
+              "在线取数已包含实时行情、多期财务指标与年报检索片段",
+              tag="二选一")
     src_mode = st.radio(
         "数据来源",
         ["🌐 在线自动取数（推荐）", "✍️ 手动粘贴 / 上传"],
@@ -2982,7 +3105,9 @@ def _view_single():
         # 但"系统拿不到的材料"（业绩说明会纪要、券商研报结论、自有 Excel）又确实需要入口。
         # 于是改成可选：默认不追加；需要时一键用在线数据生成摘要（完全不用打字）；
         # 只有真要粘第三方材料时，才落到手写框。
-        st.markdown("##### ✍️ 补充材料（可选）")
+        step_head("4", "补充材料",
+                  "在线取数已够用，仅在需要第三方材料时追加",
+                  tag="可选")
         _extra_mode = st.radio(
             "补充材料方式",
             ["🟢 不追加（推荐）", "⚡ 一键用在线数据生成摘要", "✍️ 手动粘贴自定义内容"],
@@ -3070,6 +3195,9 @@ def _view_single():
     elif _PIPELINE_SOURCE == "file":
         st.caption("ℹ️ 统一流程模块已就绪（常规 import 失败，已按绝对路径加载）。")
 
+    step_head("5", "运行分析",
+              "规则引擎固定评分 + 千问润色 + 年报按页引用",
+              tag="出结果")
     c1, c2 = st.columns(2)
     with c1:
         run_btn = st.button("🚀 开始结构化分析", disabled=not raw_data, use_container_width=True, type="primary")
@@ -3929,9 +4057,11 @@ def _view_single():
 # 视图 2：多公司对比（2~5 家）
 # ---------------------------------------------------------------
 def _view_compare():
-    st.markdown(
-        "支持 **2~5 家**公司横向对比：在线自动取数或手动输入，"
-        "程序生成对照表、差额与对比图（同一份数据永远同一分数）。"
+    step_head("1", "选择对比公司",
+              "2~5 家 · 在线取数或手动输入 · 每家按各自所属行业基准评分",
+              tag="横向对比")
+    st.caption(
+        "程序生成对照表、差额与对比图（同一份数据永远同一分数），可导出 CSV 与对比报告。"
     )
 
     # ---- 公司数量：动态增删（优化清单 P1-02）----

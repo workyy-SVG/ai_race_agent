@@ -307,6 +307,11 @@ at4.run()
 _check("切到「多公司对比」后出现对比控件",
        any((c.key or "") == "cmp0_use_online" for c in at4.checkbox),
        str([c.key for c in at4.checkbox][:6]))
+_check("对比视图**不再**出现单公司行业选择器（v4 把这块收进单公司视图）",
+       not any((r.key or "") == "industry_widget" for r in at4.radio),
+       str([r.key for r in at4.radio]))
+_check("对比视图也不再出现单公司同业对标基准条",
+       "同业对标基准（" not in _md(at4))
 
 # 3) 切到使用说明：原侧边栏「快速上手」4 步并入这里，内容不丢
 at4.session_state["main_view"] = "📖"
@@ -314,6 +319,8 @@ at4.run()
 _check("切到「使用说明」后渲染说明正文", "使用说明" in _md(at4))
 _check("「使用说明」承接了快速上手 4 步（内容没丢，只是换了地方）",
        "快速上手" in _md(at4))
+_check("使用说明页同样不出现单公司取数/行业选择器",
+       not any((r.key or "") == "industry_widget" for r in at4.radio))
 _check("「使用说明」记录了侧边栏导航入口", "左侧边栏" in _md(at4))
 
 # 4) 侧边栏分析记录：空态 + 有记录
@@ -345,6 +352,17 @@ _check("全站不再使用 100px 大横幅（hero 已下线）",
        SRC.count('class="hero"') == 0, str(SRC.count('class="hero"')))
 _check("主页面改用紧凑顶栏（topbar）", 'class="topbar"' in SRC)
 
+# 6b) v4 配色收敛 + 分区标题统一
+_check("页面底色为近白（用户要求：整体大背景偏白，与登录页对称）",
+       "linear-gradient(180deg, #FFFFFF 0%, #F8FAFC" in SRC)
+_check("全站不再使用金色文字（金 #D9A441 压白底只有 2.25:1，等于隐形）",
+       "#F5C563" not in SRC)
+_check("统一分区标题组件存在（step_head：编号方块 + 短标题 + 灰色说明）",
+       "def step_head(" in SRC and 'class="step-head"' in SRC)
+_check("单公司流程分区编号 1~5 齐备（先行业 → 再数据来源 → 取数 → 补充 → 运行）",
+       all(('step_head("%d"' % i) in SRC for i in range(1, 6)),
+       str([i for i in range(1, 6) if ('step_head("%d"' % i) not in SRC]))
+
 # 7) 布局搬迁的结构性守卫（这两条是最容易踩的坑）
 _check("导航/记录函数定义在其调用点之前（模块级调用先于定义会 NameError）",
        SRC.index("def _render_icon_menu") < SRC.index("\n    _render_icon_menu()")
@@ -357,29 +375,45 @@ _check("旧的中列函数名已清理（避免留下两套实现）",
        "_render_history_column" not in SRC)
 
 # ---------------------------------------------------------------------------
-print("=== P3-01 全屏沉浸式登录页（方案 3）===")
+print("=== P3-01 登录页（v4 浅色版）===")
 
 # 1) 源码层：样式只在未登录分支注入
 _check("登录页样式常量存在（LOGIN_CSS）", "LOGIN_CSS = " in SRC)
-_check("LOGIN_CSS 只在未登录分支注入（登录后不得残留深色背景）",
+_check("LOGIN_CSS 只在未登录分支注入（登录后不得残留登录页样式）",
        SRC.count("st.markdown(LOGIN_CSS") == 1
        and SRC.index("def check_login") < SRC.index("st.markdown(LOGIN_CSS"))
-_check("全屏深蓝渐变背景", "linear-gradient(160deg, #0B1F3A" in SRC)
+_check("登录页浅色底（与工作台同一套近白，不再深蓝渐变）",
+       "linear-gradient(180deg, #FFFFFF 0%, #F7F9FC" in SRC)
+# v4 换掉深底方案的理由：深底要求每个文字元素都显式上色且带 !important，
+# 漏一个就掉进全站 p/li/span/div{color:#334155} → 1.0:1（首屏品牌区就这么翻车的）。
+_check("登录页不再出现深底专用色（金字 / 浅蓝字）",
+       not any(c in SRC for c in ("#F5C563", "#A9C6E8", "#DBEAFE")),
+       str([c for c in ("#F5C563", "#A9C6E8", "#DBEAFE") if c in SRC]))
 _check("登录前隐藏侧边栏（导航/额度/退出登录都不该出现）",
        'section[data-testid="stSidebar"] { display: none !important; }' in SRC)
-_check("白卡 = 登录表单本体（radius 16 + 金色描边 + 大投影）",
-       '[data-testid="stForm"]' in SRC and "border-radius: 16px" in SRC)
-_check("登录按钮加大 + 金色描边",
+_check("白卡 = 登录表单本体（浅边 + 顶部品牌蓝条 + 大投影）",
+       '[data-testid="stForm"]' in SRC and "border-radius: 14px" in SRC
+       and "border-top: 4px solid #1D4ED8" in SRC)
+_check("登录按钮实心品牌蓝、去掉金色描边",
        '[data-testid="stFormSubmitButton"] button' in SRC)
-_check("深色底文字白名单齐备（否则全局 p/div 规则会把字压成 #334155 看不见）",
-       all(c in SRC for c in ("#F8FAFC", "#DBEAFE", "#A9C6E8", "#F5C563")))
+_check("浅底文字色齐备（深墨/正文/次要/品牌蓝，均 ≥4.5:1）",
+       all(c in SRC for c in ("#0B1F3A", "#334155", "#475569", "#1D4ED8")))
+_check("账号/密码标签**外置**，框内放小号英文占位符",
+       'st.text_input("账号", placeholder="Account")' in SRC
+       and 'st.text_input("密码", type="password", placeholder="Password")' in SRC)
+_check("占位符字号小于外置标签（12px < 14px，框内更轻）",
+       "input::placeholder" in SRC
+       and "font-size: 12px !important" in SRC
+       and "font-size: 14px !important" in SRC)
+_check("品牌区用 div 而非 h1（避开 Streamlit 锚点图标 + 全站标题样式覆盖）",
+       'class="lb-title"' in SRC and 'class="login-brand"' in SRC)
 
-# 2) 运行时：未登录 → 深色样式在、侧边栏为空、表单可交互
+# 2) 运行时：未登录 → 浅色样式在、侧边栏为空、表单可交互
 at6 = AppTest.from_file(APP, default_timeout=240)
 at6.run()
 _check("未登录时无异常", not [str(e.value)[:200] for e in at6.exception],
        str([str(e.value)[:200] for e in at6.exception]))
-_check("未登录时注入了全屏渐变样式", "linear-gradient(160deg" in _md(at6))
+_check("未登录时注入了浅色登录页样式", "linear-gradient(180deg, #FFFFFF" in _md(at6))
 _check("未登录时侧边栏里没有任何元素（导航/记录都不该渲染）",
        len(at6.sidebar.get("button")) == 0,
        str([b.key for b in at6.sidebar.get("button")]))
@@ -387,6 +421,9 @@ _check("未登录时登录表单齐备（账号/密码/提交按钮）",
        len(at6.get("text_input")) >= 2
        and any("进入系统" in str(b.label) for b in at6.get("button")),
        str([str(b.label) for b in at6.get("button")]))
+_check("账号/密码是**外置可见标签**（不再是张冠李戴的折叠标签）",
+       [str(t.label) for t in at6.get("text_input")][:2] == ["账号", "密码"],
+       str([str(t.label) for t in at6.get("text_input")]))
 
 # 3) 错误凭据：给出提示且不放行
 at6.get("text_input")[0].set_value("wrong_user")
@@ -396,13 +433,13 @@ _check("密码错误时明确提示且不放行",
        bool(at6.error) and not _ss(at6, "authenticated", False),
        str([str(e.value)[:60] for e in at6.error]))
 
-# 4) 演示链接（?key=）可进入，且进入后深色背景不残留
+# 4) 演示链接（?key=）可进入，且进入后登录页样式不残留
 at7 = AppTest.from_file(APP, default_timeout=240)
 at7.query_params["key"] = "ai2026demo"
 at7.run()
 _check("演示令牌（?key=）可免登录进入", bool(_ss(at7, "authenticated", False)))
-_check("进入工作台后不再注入全屏渐变（深色背景不会带进来）",
-       "linear-gradient(160deg" not in _md(at7))
+_check("进入工作台后不再注入登录页样式（不会重复叠加）",
+       "linear-gradient(180deg, #FFFFFF 0%, #F7F9FC" not in _md(at7))
 _check("进入工作台后侧边栏导航出现（3 个入口）",
        len([b for b in at7.sidebar.get("button")
             if (b.key or "").startswith("nav_btn_")]) == 3)
