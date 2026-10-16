@@ -352,16 +352,49 @@ _check("全站不再使用 100px 大横幅（hero 已下线）",
        SRC.count('class="hero"') == 0, str(SRC.count('class="hero"')))
 _check("主页面改用紧凑顶栏（topbar）", 'class="topbar"' in SRC)
 
-# 6b) v4 配色收敛 + 分区标题统一
-_check("页面底色为近白（用户要求：整体大背景偏白，与登录页对称）",
-       "linear-gradient(180deg, #FFFFFF 0%, #F8FAFC" in SRC)
+# 6b) v5 配色收敛 + 分区标题统一
+_check("页面底色为浅冷灰（v5 降一档：靠明度差把纯白卡片分出来）",
+       "linear-gradient(180deg, #F7FAFD 0%, #EFF4FA" in SRC)
 _check("全站不再使用金色文字（金 #D9A441 压白底只有 2.25:1，等于隐形）",
        "#F5C563" not in SRC)
 _check("统一分区标题组件存在（step_head：编号方块 + 短标题 + 灰色说明）",
        "def step_head(" in SRC and 'class="step-head"' in SRC)
-_check("单公司流程分区编号 1~5 齐备（先行业 → 再数据来源 → 取数 → 补充 → 运行）",
-       all(('step_head("%d"' % i) in SRC for i in range(1, 6)),
-       str([i for i in range(1, 6) if ('step_head("%d"' % i) not in SRC]))
+_check("单公司流程 1~5 步齐备（先行业 → 再数据来源 → 取数 → 补充 → 运行）",
+       all(k in SRC for k in ('card("kb", "1"', 'card("src", "2"', 'card("fetch")',
+                              'card("extra", "4"', 'card("run", "5"')) and 'step_head("3"' in SRC,
+       str([k for k in ('card("kb", "1"', 'card("src", "2"', 'card("fetch")',
+                        'card("extra", "4"', 'card("run", "5"', 'step_head("3"')
+            if k not in SRC]))
+
+# 6c) v5 结构层：页面大标题 + 真正的卡片（用户：主界面还是很乱 → 要一个合理规划）
+_check("页面大标题组件存在（page_head：25px 标题 + 品牌蓝短横 + 灰说明）",
+       "def page_head(" in SRC and 'class="page-head"' in SRC)
+_check("小节标题组件存在（sec_head：19px + 左侧蓝竖条，用于页面级分段）",
+       "def sec_head(" in SRC and 'class="sec-head"' in SRC)
+_check("卡片容器组件存在（card：st.container(key=kcard-*) → 一步一张白卡）",
+       "def card(" in SRC and 'key=f"kcard-{key}"' in SRC)
+_check("卡片样式挂在 st-key- 前缀类名上（Streamlit 1.57 唯一稳定的容器挂钩点）",
+       '[class*="st-key-kcard-"]' in SRC)
+_check("卡片不用已失效的 testid 挂钩（stVerticalBlockBorderWrapper 在 1.57 命中 0）",
+       'data-testid="stVerticalBlockBorderWrapper"' not in SRC)
+_check("step-head 降级成卡片内表头（去底色描边、只留一条分隔线 → 不盒子里套盒子）",
+       "border-bottom: 1px solid #EDF2F8" in SRC)
+_check("三个视图都有页面大标题（单公司 / 多公司 / 使用说明）",
+       all(t in SRC for t in ('"单公司深度分析",', '"多公司对比",', '"使用说明",')))
+_check("多公司对比做了页面级分段（1. 对比公司管理 / 2. 开始对比分析）",
+       'sec_head("1", "对比公司管理"' in SRC and 'sec_head("2", "开始对比分析"' in SRC)
+_check("对比页每家公司一张白卡（三列各一张，卡片边界即公司边界）",
+       'with card(f"cmp{_i}")' in SRC and "st.columns(_n_cmp)" in SRC)
+_check("结果区四个页签的面板也做成卡片（CSS 补底色，不多包一层容器）",
+       '.stTabs [data-baseweb="tab-panel"]' in SRC)
+_check("使用说明页卡片化（5 张分类卡：快速上手/主要能力/基准库/数据来源/技术说明）",
+       all(k in SRC for k in ('card("help-quick"', 'card("help-cap"', 'card("help-kb"',
+                              'card("help-src"', 'card("help-tech"')))
+# 追问区的 chat_input 一旦被容器包住，就会从"钉在视口底部"退回"内联渲染"（用户明确要钉底）
+_CHAT_ZONE = SRC.split("# ---- 追问对话（多轮，上下文实时更新） ----", 1)[-1]
+_CHECK_ZONE = _CHAT_ZONE.split("_typed = st.chat_input", 1)[0]
+_check("追问区没有被包进卡片容器（chat_input 的父容器一变就丢钉底）",
+       "with card" not in _CHECK_ZONE)
 
 # 7) 布局搬迁的结构性守卫（这两条是最容易踩的坑）
 _check("导航/记录函数定义在其调用点之前（模块级调用先于定义会 NameError）",
@@ -408,6 +441,20 @@ _check("占位符字号小于外置标签（12px < 14px，框内更轻）",
 _check("品牌区用 div 而非 h1（避开 Streamlit 锚点图标 + 全站标题样式覆盖）",
        'class="lb-title"' in SRC and 'class="login-brand"' in SRC)
 
+# v5 登录页文案：数据源统一口径 + 去掉"系统"字样
+# （品牌是 Agent，不是传统后台系统；"登录系统/进入系统"这类措辞与定位冲突）
+_LOGIN_ZONE = SRC.split("def check_login", 1)[-1].split("if not check_login()", 1)[0]
+_check("登录页来源文案改成「数据源类型式」（用户三选一里的第二档）",
+       "交易所公开披露数据 · 上市公司年报 · 财务指标库" in _LOGIN_ZONE)
+_check("登录页不再点名具体数据源接口（巨潮 / 东方财富）",
+       not any(k in _LOGIN_ZONE for k in ("巨潮", "东方财富")),
+       str([k for k in ("巨潮", "东方财富") if k in _LOGIN_ZONE]))
+_check("卡头「账号登录」+ 按钮「安全登录」（不再出现「系统」二字）",
+       ">账号登录<" in _LOGIN_ZONE and 'st.form_submit_button("安全登录"' in _LOGIN_ZONE)
+_check("用户可见文案里彻底不再出现「系统」字样",
+       not any(k in SRC for k in ("进入系统", "本系统仅供", "系统未配置", "系统识别到的行业")),
+       str([k for k in ("进入系统", "本系统仅供", "系统未配置", "系统识别到的行业") if k in SRC]))
+
 # 2) 运行时：未登录 → 浅色样式在、侧边栏为空、表单可交互
 at6 = AppTest.from_file(APP, default_timeout=240)
 at6.run()
@@ -419,7 +466,7 @@ _check("未登录时侧边栏里没有任何元素（导航/记录都不该渲�
        str([b.key for b in at6.sidebar.get("button")]))
 _check("未登录时登录表单齐备（账号/密码/提交按钮）",
        len(at6.get("text_input")) >= 2
-       and any("进入系统" in str(b.label) for b in at6.get("button")),
+       and any("安全登录" in str(b.label) for b in at6.get("button")),
        str([str(b.label) for b in at6.get("button")]))
 _check("账号/密码是**外置可见标签**（不再是张冠李戴的折叠标签）",
        [str(t.label) for t in at6.get("text_input")][:2] == ["账号", "密码"],
@@ -428,7 +475,7 @@ _check("账号/密码是**外置可见标签**（不再是张冠李戴的折叠�
 # 3) 错误凭据：给出提示且不放行
 at6.get("text_input")[0].set_value("wrong_user")
 at6.get("text_input")[1].set_value("wrong_pw")
-next(b for b in at6.get("button") if "进入系统" in str(b.label)).click().run()
+next(b for b in at6.get("button") if "安全登录" in str(b.label)).click().run()
 _check("密码错误时明确提示且不放行",
        bool(at6.error) and not _ss(at6, "authenticated", False),
        str([str(e.value)[:60] for e in at6.error]))

@@ -25,6 +25,7 @@ import base64
 import math
 import tempfile
 import datetime
+from contextlib import contextmanager
 from pathlib import Path
 import streamlit as st
 import pandas as pd
@@ -460,29 +461,33 @@ BASE_SYSTEM_PROMPT = """你是一名专业、严谨的金融投研分析师。�
   注意不同行业的合理区间本就不同（例如银行业 ROE 11% 已属优秀，白酒业 ROE 11% 则明显落后），
   切勿用同一把尺子衡量所有行业。"""
 
-# ============ 全局样式（金融主题：深藏青 + 金色） ============
+# ============ 全局样式（金融主题：浅冷灰底 + 单一品牌蓝） ============
 CUSTOM_CSS = """
 <style>
   /* ==========================================================
-     金融智能投研 Agent · 近白冷灰主题 (v4)
-     改版原因：v3 用「冷蓝灰 + 双光斑 + 大量蓝色标题 + 金色强调」，
-     颜色太多且深浅不一，用户反馈"到处都是蓝字，看不清、看着乱"。
-     v4 收敛成三步走：
-       ① 底色近白（和登录页同一套底色，视觉对称）
-       ② 只留一个结构色（品牌蓝 #1D4ED8），其余全部走深灰文字
-       ③ 金色只作为「数字强调」，且只在浅底使用（#B45309，白底 5.02:1）
+     金融智能投研 Agent · 浅冷灰 + 卡片化主题 (v5)
+     v3 → v4：颜色太多（到处蓝字、金蓝撞色）→ 收敛成单一结构色 + 深灰文字
+     v4 → v5：颜色已经干净，但**信息结构**还是"一坨"——用户反馈"主界面还是很乱"。
+              v5 只做三件事，全是结构层面的：
+                ① 页面大标题（.page-head）：进每个视图先说清"这是什么页面"
+                ② 真正的卡片（st.container(key="kcard-*")）：一步一张白卡
+                ③ 底色降一档（#F7FAFD→#E9EFF7）：靠明度差把卡片分出来，
+                   而不是靠描边一层层堆
      正文三级： 主 #0B1F3A (16.5:1) / 次 #334155 (10.4:1) / 辅 #475569 (8.1:1)
      ========================================================== */
 
-  /* ===== 全局背景：近白，无光斑 =====
-     原来叠了两个 radial-gradient（蓝 + 金）做"氛围"，实际效果是把整页
-     压成一层灰蓝，卡片和背景的边界变糊。现在改成极浅的一档到底。 */
+  /* ===== 全局背景：浅冷灰 =====
+     v4 用的是"白到近白"（#FFFFFF→#F2F6FA），几乎和卡片同色 → 卡片边界糊掉，
+     用户看到的还是"一坨内容摊在页面上"。
+     v5 把底色降一档（#F7FAFD→#E9EFF7），卡片仍然是纯白，靠**明度差**把区域分出来
+     —— 分隔靠背景对比，不靠描边堆叠。 */
   .stApp {
-    background: linear-gradient(180deg, #FFFFFF 0%, #F8FAFC 46%, #F2F6FA 100%);
+    background: linear-gradient(180deg, #F7FAFD 0%, #EFF4FA 46%, #E9EFF7 100%);
     background-attachment: fixed;
   }
   header[data-testid="stHeader"] { background: transparent; }
-  .block-container { padding-top: 1.2rem; color: #334155; }
+  /* 限宽：卡片是整行白底，超过 ~1300px 会拉成"长条白板"，一行文字也过长难读 */
+  .block-container { padding-top: 1.2rem; max-width: 1320px; color: #334155; }
 
   /* ===== 深色大横幅（.hero）已整体下线 =====
      主页面改用紧凑顶栏 .topbar；登录页改用「全屏沉浸式」深蓝渐变 + 居中白卡
@@ -516,8 +521,68 @@ CUSTOM_CSS = """
   }
   .tb-chip.warn { background: #FEF3C7; color: #92400E !important; border-color: #FDE68A; }
 
-  /* ===== 统一分区标题（步骤条）=====
-     每个区块长得一模一样：编号方块 + 深色短标题 + 灰色小字说明。
+  /* ===== 卡片容器（st.container(key="kcard-*")）=====
+     为什么要卡片：v4 的每个步骤是"一条白底标题条 + 直接摊在页面上的控件"，
+     控件之间没有边界，一屏十来个控件读起来依然"到处都是东西"（用户：主界面很乱）。
+     v5 给每一步一个**真正的卡片**：白底 + 圆角 + 细边 + 浅投影；
+     标题条降级成"卡片内的表头"（去掉底色，只留一条分隔线）→ 不再盒子里套盒子。
+
+     ⚠️ 选择器为什么是 `st-key-` 前缀类名：
+        Streamlit 1.57 会给**带 key 的容器**自动加 `st-key-<key>` 类
+        （前端 DO()/OO() 从元素 id `$$ID-<hash>-<user_key>` 里还原用户 key），
+        这是 1.57 里唯一稳定的容器挂钩点 —— 旧教程里常用的
+        stVerticalBlockBorderWrapper 已经在本版本消失（实测 grep 前端 bundle 命中 0），
+        照抄旧写法会写出一条永不生效的规则。
+     ⚠️ 卡片 key 一律以 `kcard-` 开头，且**任何控件 key 都不得以 kcard- 开头**：
+        `[class*=...]` 是子串匹配，否则控件自己也会被刷成一张卡片。 */
+  [class*="st-key-kcard-"] {
+    background: #FFFFFF;
+    border: 1px solid #E4EAF2;
+    border-radius: 14px;
+    padding: 15px 18px 6px 18px;
+    box-shadow: 0 2px 10px rgba(15, 35, 70, 0.045);
+    margin-bottom: 14px;
+  }
+
+  /* ===== 页面大标题（每个视图顶部一条）=====
+     原来是"进来就是一堆编号方块"，没有一句"这是什么页面"。
+     现在每个视图先给一个大标题 + 一句说明 + 一条蓝色短横。 */
+  .page-head { margin: 4px 0 16px 0; }
+  .page-head .ph-title {
+    font-size: 25px; font-weight: 800; color: #0B1F3A !important;
+    letter-spacing: .6px; line-height: 1.3;
+  }
+  .page-head .ph-title em { color: #1D4ED8 !important; font-style: normal; }
+  .page-head .ph-rule {
+    display: block; width: 52px; height: 3px; border-radius: 2px;
+    background: #1D4ED8; margin: 10px 0 9px 0;
+  }
+  .page-head .ph-note {
+    display: block; font-size: 12.5px; color: #475569 !important; line-height: 1.85;
+  }
+
+  /* ===== 小节标题（多公司对比：1. 对比公司管理 / 2. 开始对比分析）=====
+     与卡片内表头（.step-head，14.5px）刻意拉开一档：小节标题 19px，
+     用于"页面级分段"，卡片表头只用于"卡片内分区"。 */
+  .sec-head {
+    display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px;
+    margin: 20px 0 12px 0; padding-left: 12px;
+    border-left: 4px solid #1D4ED8;
+  }
+  .sec-head .sec-num { font-size: 19px; font-weight: 800; color: #1D4ED8 !important; }
+  .sec-head .sec-title { font-size: 19px; font-weight: 800; color: #0B1F3A !important; letter-spacing: .3px; }
+  .sec-head .sec-note { font-size: 12.5px; color: #475569 !important; }
+  .sec-head .sec-tag {
+    font-size: 11px; padding: 1px 9px; border-radius: 999px;
+    background: #EEF3FE; color: #1D4ED8 !important; border: 1px solid #D8E3FA;
+    align-self: center;
+  }
+
+  /* ===== 卡片内小标题（紧凑取数面板等窄容器里用）===== */
+  .mini-head { font-size: 13.5px; font-weight: 800; color: #0B1F3A !important; margin: 2px 0 8px 0; }
+
+  /* ===== 统一分区标题（卡片内表头）=====
+     编号方块 + 深色短标题 + 灰色小字说明；无色块、只留一条分隔线。
      标题用 #0B1F3A（16.5:1）、说明用 #475569（8.1:1），
      不再出现"一片中蓝色字挤在一起"。 */
   .step-head {
@@ -525,22 +590,22 @@ CUSTOM_CSS = """
     align-items: baseline;
     flex-wrap: wrap;
     gap: 9px;
-    background: #FFFFFF;
-    border: 1px solid #E4EAF2;
-    border-left: 3px solid #1D4ED8;
-    border-radius: 8px;
-    padding: 8px 14px;
-    margin: 16px 0 10px 0;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid #EDF2F8;
+    border-radius: 0;
+    padding: 0 0 10px 0;
+    margin: 0 0 14px 0;
   }
   .step-head .sh-num {
     flex: 0 0 auto;
-    width: 19px; height: 19px; border-radius: 5px;
+    width: 20px; height: 20px; border-radius: 6px;
     background: #1D4ED8; color: #FFFFFF !important;
     font-size: 12px; font-weight: 800;
     display: inline-flex; align-items: center; justify-content: center;
     align-self: center;
   }
-  .step-head .sh-title { font-size: 14.5px; font-weight: 800; color: #0B1F3A !important; letter-spacing: .2px; }
+  .step-head .sh-title { font-size: 15px; font-weight: 800; color: #0B1F3A !important; letter-spacing: .2px; }
   .step-head .sh-tag {
     font-size: 11px; padding: 1px 8px; border-radius: 999px;
     background: #EEF3FE; color: #1D4ED8 !important; border: 1px solid #D8E3FA;
@@ -674,6 +739,18 @@ CUSTOM_CSS = """
     color: #FFFFFF !important;
     border-color: #1D4ED8 !important;
     box-shadow: none;
+  }
+  /* 页签内容区 = 一块卡片（与下面的白色页签连成一体）：
+     结果区原来直接摊在浅灰底上，和输入区的卡片语言不统一。
+     用 CSS 给面板补上底色/描边/圆角，**不用**再包一层 st.container
+     —— 少一层容器 = 少一处缩进改动，也就少一处隐性 bug。 */
+  .stTabs [data-baseweb="tab-panel"] {
+    background: #FFFFFF;
+    border: 1px solid #E4EAF2;
+    border-top: none;
+    border-radius: 0 0 12px 12px;
+    padding: 16px 18px 10px 18px;
+    box-shadow: 0 2px 10px rgba(15, 35, 70, 0.045);
   }
 
   /* ===== 侧边栏：近白 + 浅边（与主区同一套底色，只是略深一档） ===== */
@@ -1068,7 +1145,7 @@ def check_login():
           <div class="lb-badge">第二届全国人工智能应用创新大赛 · 参赛作品</div>
           <div class="lb-title">📈 金融智能投研 <em>Agent</em></div>
           <p class="lb-sub">AI 驱动的财报深度分析 · 结构化评分 · 多公司对比 · 同业对标基准</p>
-          <p class="lb-note">数据来自巨潮资讯网 / 东方财富公开接口 · 结论仅供参考</p>
+          <p class="lb-note">交易所公开披露数据 · 上市公司年报 · 财务指标库</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1082,16 +1159,16 @@ def check_login():
         with st.form("login_form", clear_on_submit=False):
             st.markdown(
                 '<div style="text-align:center;margin:0 0 18px 0;">'
-                '<div style="font-size:17px;font-weight:800;color:#0B1F3A !important;">访问登录</div>'
+                '<div style="font-size:17px;font-weight:800;color:#0B1F3A !important;">账号登录</div>'
                 '<div style="font-size:12px;color:#475569 !important;margin-top:4px;">'
-                '输入访问账号与密码进入投研工作台</div>'
+                '输入账号与密码进入投研工作台</div>'
                 "</div>",
                 unsafe_allow_html=True,
             )
             # 标签外置（账号 / 密码），框内只放小号英文占位符
             user = st.text_input("账号", placeholder="Account")
             pw = st.text_input("密码", type="password", placeholder="Password")
-            submitted = st.form_submit_button("进入系统", use_container_width=True, type="primary")
+            submitted = st.form_submit_button("安全登录", use_container_width=True, type="primary")
             if submitted:
                 if user == APP_USER and pw == APP_PASSWORD:
                     st.session_state["authenticated"] = True
@@ -1110,7 +1187,7 @@ def check_login():
                 unsafe_allow_html=True,
             )
         st.markdown(
-            '<p class="login-foot">🔒 本系统仅供大赛评审访问 · 分析结果仅供参考，不构成投资建议</p>',
+            '<p class="login-foot">🔒 本作品仅供大赛评审访问 · 分析结果仅供参考，不构成投资建议</p>',
             unsafe_allow_html=True,
         )
     return False
@@ -1308,13 +1385,62 @@ def render_score_card(label, value):
 # 现在统一成：编号方块 + 短标题（深色加粗） + 小号灰色说明（不抢视线），
 # 每个区块长得一样，从上到下就是一条清晰的步骤线。
 def step_head(num: str, title: str, note: str = "", tag: str = "") -> None:
+    # num 允许为空：使用说明页的卡片是"分类"而不是"步骤"，不该硬编号
+    _num = f'<span class="sh-num">{num}</span>' if num else ""
     _tag = f'<span class="sh-tag">{tag}</span>' if tag else ""
     _note = f'<span class="sh-note">{note}</span>' if note else ""
     st.markdown(
-        f'<div class="step-head"><span class="sh-num">{num}</span>'
+        f'<div class="step-head">{_num}'
         f'<span class="sh-title">{title}</span>{_tag}{_note}</div>',
         unsafe_allow_html=True,
     )
+
+
+# ============ 页面大标题 / 小节标题 / 卡片容器（v5 结构层） ============
+# 这三个组件解决的是同一个问题：**读者不知道"我在哪、这堆东西是什么"**。
+#   page_head → 我在哪个视图（"单公司深度分析"）
+#   sec_head  → 我在这个视图的第几段（"1. 对比公司管理"）
+#   card      → 这一段的内容从哪到哪（白卡边界）
+def page_head(title: str, note: str = "", tag: str = "") -> None:
+    """视图顶部的大标题（25px 深墨色）+ 副说明 + 品牌蓝短横。"""
+    _tag = f' <span class="sh-tag">{tag}</span>' if tag else ""
+    _note = f'<span class="ph-note">{note}</span>' if note else ""
+    st.markdown(
+        f'<div class="page-head"><div class="ph-title">{title}{_tag}</div>'
+        f'<span class="ph-rule"></span>{_note}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+def sec_head(num: str, title: str, note: str = "", tag: str = "") -> None:
+    """页面级小节标题（19px + 左侧蓝色竖条），用于"第 1 段 / 第 2 段"这种大分段。"""
+    _tag = f'<span class="sec-tag">{tag}</span>' if tag else ""
+    _note = f'<span class="sec-note">{note}</span>' if note else ""
+    _num = f'<span class="sec-num">{num}.</span>' if num else ""
+    st.markdown(
+        f'<div class="sec-head">{_num}<span class="sec-title">{title}</span>{_tag}{_note}</div>',
+        unsafe_allow_html=True,
+    )
+
+
+@contextmanager
+def card(key: str, num: str = "", title: str = "", note: str = "", tag: str = ""):
+    """一步一张白卡（样式挂在 CSS 的 `[class*="st-key-kcard-"]` 上）。
+
+    用法：
+        with card("src", "2", "数据来源", "在线取数已包含行情与财务指标", "二选一"):
+            st.radio(...)
+
+    ⚠️ key 必须以 `kcard-` 开头（实际类名是 `st-key-kcard-<key>`），
+       且**不能再有别的控件用同样前缀**，否则会被子串匹配连带刷成卡片。
+    ⚠️ 追问区的 st.chat_input **绝不能**放进卡片里 —— 父容器一变，
+       它就从"钉在视口底部"变成"内联渲染"，用户要的钉底效果会丢
+       （详见 eval_chat_order.py 的两形态断言）。
+    """
+    with st.container(key=f"kcard-{key}"):
+        if title:
+            step_head(num, title, note, tag)
+        yield
 
 
 # ============ 图表与解读（雷达 / 圆环 / 横向对比 / 自动解读） ============
@@ -2485,10 +2611,10 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
         取数逻辑、防"猜代码"逻辑与完整模式**完全一致**。
     """
     if compact:
-        st.markdown('<div class="sec-head">🌐 在线取数</div>', unsafe_allow_html=True)
+        st.markdown('<div class="mini-head">🌐 在线取数</div>', unsafe_allow_html=True)
     else:
         step_head("3", "在线取数",
-                  "从巨潮资讯网 / 东方财富公开接口自动获取",
+                  "从交易所公开披露数据自动获取（行情 · 多期财务指标 · 年报原文）",
                   tag="推荐")
     if compact:
         c1, c3 = st.columns([3, 1])
@@ -2985,81 +3111,78 @@ _cur_view = st.session_state.get("main_view", "🏢")
 _single_name = st.session_state.get("single_online_name", "")
 _single_code = st.session_state.get("single_online_code", "")
 if _cur_view == "🏢":
-    if _single_name and _single_code:
-        step_head("1", "行业财务基准库",
-                  f"{_single_name}（{_single_code}）→ 已按该行业基准计算",
-                  tag="同业对标")
-    else:
-        step_head("1", "行业财务基准库",
-                  "四维评分、四象限定位与散点基准线都按所选行业计算",
-                  tag="同业对标")
-
-
-    def _on_industry_change():
-        """用户手动点击才记录为「手动选择」；自动跟随写入的值不算手动。"""
-        _v = st.session_state.get("industry_widget", "")
-        if _v != st.session_state.get("single_auto_industry"):
-            st.session_state["industry_manual"] = _v
-
-
-    industry = st.radio(
-        "行业",
-        list(INDUSTRY_KB.keys()),
-        index=list(INDUSTRY_KB.keys()).index(_default_industry),
-        horizontal=True,
-        label_visibility="collapsed",
-        key="industry_widget",
-        on_change=_on_industry_change,
+    # 第 1 步：行业财务基准库（整块现在住在一张白卡里 —— 卡片表头就是原来的步骤条）
+    _kb_note = (
+        f"{_single_name}（{_single_code}）→ 已按该行业基准计算"
+        if (_single_name and _single_code)
+        else "四维评分、四象限定位与散点基准线都按所选行业计算"
     )
-    # 如果是自动匹配过来的，提示一下
-    if _auto_matched and industry == _auto_matched:
-        st.caption(f"🤖 已根据在线取数结果自动匹配行业：**{industry}**（如需切换，点击上方按钮即可）")
-    else:
-        # 行业细分范围由下方「同业对标基准条」呈现，这里只报当前行业，避免文案重复
-        st.caption(f"当前行业：**{industry}**")
-        if _auto_matched and industry != _auto_matched:
-            st.warning(
-                f"⚠️ 系统识别到的行业是 **{_auto_matched}**，当前却是 **{industry}**，"
-                f"评分基准与散点图基准会按「{industry}」计算，请确认是否选错。"
-            )
+    with card("kb", "1", "行业财务基准库", _kb_note, tag="同业对标"):
 
-    # ---- 金融子行业口径（优化清单 P1-04：拆分银行 / 保险 / 证券的适用指标）----
-    # 把「金融」当一个桶是有代价的：银行看净息差 + 不良率 + 资本充足率；
-    # 险企看新业务价值率 + 偿付能力充足率；而券商的高杠杆是**业务模式**
-    # （大头是客户保证金），拿通用"资产负债率 >70% 需警惕"去打分是错的。
-    if industry == "金融":
-        _fk = st.radio(
-            "金融子行业口径",
-            ["🤖 自动识别（按取到的指标判定）", "🏦 银行", "🛡️ 保险", "📈 证券"],
+        def _on_industry_change():
+            """用户手动点击才记录为「手动选择」；自动跟随写入的值不算手动。"""
+            _v = st.session_state.get("industry_widget", "")
+            if _v != st.session_state.get("single_auto_industry"):
+                st.session_state["industry_manual"] = _v
+
+        industry = st.radio(
+            "行业",
+            list(INDUSTRY_KB.keys()),
+            index=list(INDUSTRY_KB.keys()).index(_default_industry),
             horizontal=True,
-            key="single_finance_kind_widget",
-            help="银行：净息差 · 不良率 · 拨备覆盖率 · 核心一级资本充足率；"
-                 "保险：新业务价值率 · 偿付能力充足率；"
-                 "证券：ROE · 净利率 + 金融杠杆表（80% 负债率属常态）。",
+            label_visibility="collapsed",
+            key="industry_widget",
+            on_change=_on_industry_change,
         )
-        _fk_val = {"🏦 银行": "银行", "🛡️ 保险": "保险", "📈 证券": "证券"}.get(_fk, "")
-        st.session_state["single_finance_kind"] = _fk_val
-        st.caption(
-            f"当前金融口径：**{_fk_val or '自动识别'}** —— "
-            "四维指标构成与判读标准会随该选择切换（这就是「行业变化影响实际指标与评价依据」）。"
-        )
-    else:
-        st.session_state["single_finance_kind"] = ""
+        # 如果是自动匹配过来的，提示一下
+        if _auto_matched and industry == _auto_matched:
+            st.caption(f"🤖 已根据在线取数结果自动匹配行业：**{industry}**（如需切换，点击上方按钮即可）")
+        else:
+            # 行业细分范围由下方「同业对标基准条」呈现，这里只报当前行业，避免文案重复
+            st.caption(f"当前行业：**{industry}**")
+            if _auto_matched and industry != _auto_matched:
+                st.warning(
+                    f"⚠️ 自动识别到的行业是 **{_auto_matched}**，当前却是 **{industry}**，"
+                    f"评分基准与散点图基准会按「{industry}」计算，请确认是否选错。"
+                )
 
-    # ---- 同业对标基准条：把「对标」这个动作直接摆到用户面前 ----
-    # 同一组财务数据只有在对标了行业基准后才具备可比性（银行 ROE 11% 已属优秀，
-    # 白酒 ROE 11% 则严重落后）——「同业对标」是金融分析的规定动作，必须显式标注。
-    _base_roe, _base_grow = _industry_base(industry)
-    st.markdown(
-        f'<div class="base-bar">'
-        f'📐 <b>同业对标基准（{industry}）</b>'
-        f' · ROE 优秀线 <span class="bb-num">{_base_roe:g}%</span>'
-        f' · 营收增速稳健线 <span class="bb-num">{_base_grow:g}%</span>'
-        f'<br><span class="bb-note">四维评分、四象限定位与散点基准线均按该行业口径计算；'
-        f'切换上方行业按钮，全部基准随之调整。</span>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
+        # ---- 金融子行业口径（优化清单 P1-04：拆分银行 / 保险 / 证券的适用指标）----
+        # 把「金融」当一个桶是有代价的：银行看净息差 + 不良率 + 资本充足率；
+        # 险企看新业务价值率 + 偿付能力充足率；而券商的高杠杆是**业务模式**
+        # （大头是客户保证金），拿通用"资产负债率 >70% 需警惕"去打分是错的。
+        if industry == "金融":
+            _fk = st.radio(
+                "金融子行业口径",
+                ["🤖 自动识别（按取到的指标判定）", "🏦 银行", "🛡️ 保险", "📈 证券"],
+                horizontal=True,
+                key="single_finance_kind_widget",
+                help="银行：净息差 · 不良率 · 拨备覆盖率 · 核心一级资本充足率；"
+                     "保险：新业务价值率 · 偿付能力充足率；"
+                     "证券：ROE · 净利率 + 金融杠杆表（80% 负债率属常态）。",
+            )
+            _fk_val = {"🏦 银行": "银行", "🛡️ 保险": "保险", "📈 证券": "证券"}.get(_fk, "")
+            st.session_state["single_finance_kind"] = _fk_val
+            st.caption(
+                f"当前金融口径：**{_fk_val or '自动识别'}** —— "
+                "四维指标构成与判读标准会随该选择切换（这就是「行业变化影响实际指标与评价依据」）。"
+            )
+        else:
+            st.session_state["single_finance_kind"] = ""
+
+        # ---- 同业对标基准条：把「对标」这个动作直接摆到用户面前 ----
+        # 同一组财务数据只有在对标了行业基准后才具备可比性（银行 ROE 11% 已属优秀，
+        # 白酒 ROE 11% 则严重落后）——「同业对标」是金融分析的规定动作，必须显式标注。
+        _base_roe, _base_grow = _industry_base(industry)
+        st.markdown(
+            f'<div class="base-bar">'
+            f'📐 <b>同业对标基准（{industry}）</b>'
+            f' · ROE 优秀线 <span class="bb-num">{_base_roe:g}%</span>'
+            f' · 营收增速稳健线 <span class="bb-num">{_base_grow:g}%</span>'
+            f'<br><span class="bb-note">四维评分、四象限定位与散点基准线均按该行业口径计算；'
+            f'切换上方行业按钮，全部基准随之调整。</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 else:
     # 非单公司视图：不渲染行业选择器与基准条（它们只对单公司分析有意义），
     # 沿用上次选择的行业作为「多公司对比」的默认口径。
@@ -3082,80 +3205,92 @@ def system_prompt_with_kb(industry_override: str = ""):
 #    函数体缩进本来就是 4，所以这里只改了一行声明，内部逻辑零改动。
 # ---------------------------------------------------------------
 def _view_single():
-    # ---- 数据来源选择 ----
-    step_head("2", "数据来源",
-              "在线取数已包含实时行情、多期财务指标与年报检索片段",
-              tag="二选一")
-    src_mode = st.radio(
-        "数据来源",
-        ["🌐 在线自动取数（推荐）", "✍️ 手动粘贴 / 上传"],
-        horizontal=True,
-        label_visibility="collapsed",
-        key="single_src",
+    page_head(
+        "单公司深度分析",
+        "输入一家上市公司 → 在线取数（行情 / 多期财务指标 / 年报原文）→ 规则引擎四维评分 → "
+        "年报按页引用 → 一键生成研报。下面每一步都是一张卡片，按 1 → 5 从上往下走一遍即可。",
     )
+
+    # ---- 数据来源选择 ----
+    with card("src", "2", "数据来源",
+              "在线取数已包含实时行情、多期财务指标与年报检索片段",
+              tag="二选一"):
+        src_mode = st.radio(
+            "数据来源",
+            ["🌐 在线自动取数（推荐）", "✍️ 手动粘贴 / 上传"],
+            horizontal=True,
+            label_visibility="collapsed",
+            key="single_src",
+        )
 
     online_text, online_name, online_pdftext = "", "", ""
     uploaded_text = ""
     data_text = ""
 
     if src_mode.startswith("🌐"):
-        online_text, online_name, online_pdftext = online_fetch_panel("single")
+        # 第 3 步的卡片表头由 panel 内部的 step_head("3", ...) 渲染，
+        # 这里只开卡片、不再传 title —— 否则一张卡上会出现两条表头。
+        with card("fetch"):
+            online_text, online_name, online_pdftext = online_fetch_panel("single")
         # 【补充材料 · 三选一】原来这里直接摊开一块大输入框，看起来像"必须手填"。
         # 在线取数其实已经把行情、多期财务指标、年报检索全部接进来了，手填多数时候是多余的；
         # 但"系统拿不到的材料"（业绩说明会纪要、券商研报结论、自有 Excel）又确实需要入口。
         # 于是改成可选：默认不追加；需要时一键用在线数据生成摘要（完全不用打字）；
         # 只有真要粘第三方材料时，才落到手写框。
-        step_head("4", "补充材料",
+        with card("extra", "4", "补充材料",
                   "在线取数已够用，仅在需要第三方材料时追加",
-                  tag="可选")
-        _extra_mode = st.radio(
-            "补充材料方式",
-            ["🟢 不追加（推荐）", "⚡ 一键用在线数据生成摘要", "✍️ 手动粘贴自定义内容"],
-            horizontal=True,
-            label_visibility="collapsed",
-            key="single_extra_mode",
-            help="在线取数已自动包含：实时行情、多期财务指标、年报检索片段。"
-                 "只有当你还想补充系统拿不到的材料时，才需要在这里追加。",
-        )
-        if _extra_mode.startswith("🟢"):
-            data_text = ""
-            st.caption("✅ 已选择不追加 —— 本次分析完全使用在线取数结果，无需任何手动输入。")
-        elif _extra_mode.startswith("⚡"):
-            _ac1, _ac2 = st.columns([1, 3])
-            with _ac1:
-                if st.button("⬇️ 生成并填入摘要", key="single_autofill", use_container_width=True):
-                    _digest = _build_online_digest()
-                    if _digest:
-                        st.session_state["single_text"] = _digest
-                    else:
-                        st.warning("还没有在线取数结果，请先点「🔍 获取数据」，或改用「手动粘贴自定义内容」。")
-            with _ac2:
-                st.caption("点左侧按钮即可用**当前在线数据**自动生成财务摘要填入下方，无需手打；填好后仍可自由编辑。")
-            data_text = st.text_area(
-                "财务摘要（自动生成，可编辑）",
-                height=140,
-                key="single_text",
-                placeholder="点上方「⬇️ 生成并填入摘要」即可自动填充，无需手打。",
+                  tag="可选"):
+            _extra_mode = st.radio(
+                "补充材料方式",
+                ["🟢 不追加（推荐）", "⚡ 一键用在线数据生成摘要", "✍️ 手动粘贴自定义内容"],
+                horizontal=True,
+                label_visibility="collapsed",
+                key="single_extra_mode",
+                help="在线取数已自动包含：实时行情、多期财务指标、年报检索片段。"
+                     "只有当你还想补充自动取数拿不到的材料时，才需要在这里追加。",
             )
-        else:
-            data_text = st.text_area(
-                "粘贴补充的财报摘要（业绩说明会纪要 / 研报结论 / 自有数据）",
-                height=140,
-                key="single_text",
-            )
+            if _extra_mode.startswith("🟢"):
+                data_text = ""
+                st.caption("✅ 已选择不追加 —— 本次分析完全使用在线取数结果，无需任何手动输入。")
+            elif _extra_mode.startswith("⚡"):
+                _ac1, _ac2 = st.columns([1, 3])
+                with _ac1:
+                    if st.button("⬇️ 生成并填入摘要", key="single_autofill", use_container_width=True):
+                        _digest = _build_online_digest()
+                        if _digest:
+                            st.session_state["single_text"] = _digest
+                        else:
+                            st.warning("还没有在线取数结果，请先点「🔍 获取数据」，或改用「手动粘贴自定义内容」。")
+                with _ac2:
+                    st.caption("点左侧按钮即可用**当前在线数据**自动生成财务摘要填入下方，无需手打；填好后仍可自由编辑。")
+                data_text = st.text_area(
+                    "财务摘要（自动生成，可编辑）",
+                    height=140,
+                    key="single_text",
+                    placeholder="点上方「⬇️ 生成并填入摘要」即可自动填充，无需手打。",
+                )
+            else:
+                data_text = st.text_area(
+                    "粘贴补充的财报摘要（业绩说明会纪要 / 研报结论 / 自有数据）",
+                    height=140,
+                    key="single_text",
+                )
     else:
-        col1, col2 = st.columns(2)
-        with col1:
-            data_text = st.text_area(
-                "① 粘贴财报摘要（营收、净利润、毛利率、负债等）",
-                height=200,
-                key="single_text",
-            )
-        with col2:
-            up = st.file_uploader("② 或上传财报文件（支持 PDF / txt / md）", type=["pdf", "txt", "md"], key="single_upload")
-            uploaded_text, upload_err = read_upload(up)
-            if upload_err:
-                st.warning(upload_err)
+        with card("manual", "3", "手动输入 / 上传",
+                  "可粘贴财报摘要，或上传 PDF / txt / md（上传的年报会按页进入检索库）",
+                  tag="二选一"):
+            col1, col2 = st.columns(2)
+            with col1:
+                data_text = st.text_area(
+                    "① 粘贴财报摘要（营收、净利润、毛利率、负债等）",
+                    height=200,
+                    key="single_text",
+                )
+            with col2:
+                up = st.file_uploader("② 或上传财报文件（支持 PDF / txt / md）", type=["pdf", "txt", "md"], key="single_upload")
+                uploaded_text, upload_err = read_upload(up)
+                if upload_err:
+                    st.warning(upload_err)
 
     # 合并所有数据源
     # 年报全文不再只截开头送模型：开头 3000 字供"公司概况"，
@@ -3195,19 +3330,21 @@ def _view_single():
     elif _PIPELINE_SOURCE == "file":
         st.caption("ℹ️ 统一流程模块已就绪（常规 import 失败，已按绝对路径加载）。")
 
-    step_head("5", "运行分析",
+    with card("run", "5", "运行分析",
               "规则引擎固定评分 + 千问润色 + 年报按页引用",
-              tag="出结果")
-    c1, c2 = st.columns(2)
-    with c1:
-        run_btn = st.button("🚀 开始结构化分析", disabled=not raw_data, use_container_width=True, type="primary")
-    with c2:
-        report_btn = st.button("📝 生成完整研报", disabled=not raw_data, use_container_width=True)
+              tag="出结果"):
+        c1, c2 = st.columns(2)
+        with c1:
+            run_btn = st.button("🚀 开始结构化分析", disabled=not raw_data, use_container_width=True, type="primary")
+            st.caption("先看分数：四维评分、图表、风险与亮点（结果按四个页签展开）。")
+        with c2:
+            report_btn = st.button("📝 生成完整研报", disabled=not raw_data, use_container_width=True)
+            st.caption("直接出稿：把上面的结果整理成一份可下载的 Markdown 研报。")
 
-    if not raw_data:
-        st.info("请先通过「在线自动取数」获取数据，或手动粘贴 / 上传财报，再开始分析。")
-    elif not DEEPSEEK_API_KEY and (run_btn or report_btn):
-        st.error("系统未配置 DEEPSEEK_API_KEY，请联系管理员。")
+        if not raw_data:
+            st.info("请先通过「在线自动取数」获取数据，或手动粘贴 / 上传财报，再开始分析。")
+        elif not DEEPSEEK_API_KEY and (run_btn or report_btn):
+            st.error("未配置 DEEPSEEK_API_KEY，请联系管理员。")
 
     # ---- 结构化分析（评分 + 图表 + 风险） ----
     def _content_hash(text: str) -> str:
@@ -3292,7 +3429,7 @@ def _view_single():
                     "禁止把一季报/半年报等中期累计数据当作年度数据放入 trend；\n"
                     "注意：数据中可能包含一季报/半年报/三季报等中期报告，其金额为年初至今累计值，"
                     "解读时必须标注报告期口径，不得与年报全年数据直接比较；\n"
-                    "不要输出任何评分（scores 由系统规则引擎计算）；数据不足的字段填 null。\n\n"
+                    "不要输出任何评分（scores 由规则引擎计算）；数据不足的字段填 null。\n\n"
                     f"行业：{industry}\n\n财务数据：\n"
                 )
                 _ctx = json_instruction + raw_data[:MAX_CHARS]
@@ -4046,7 +4183,7 @@ def _view_single():
         if not raw_data:
             st.session_state["_chat_notice"] = ("warn", "请先获取或粘贴财务数据，再提问。")
         elif not DEEPSEEK_API_KEY:
-            st.session_state["_chat_notice"] = ("error", "系统未配置 DEEPSEEK_API_KEY，请联系管理员。")
+            st.session_state["_chat_notice"] = ("error", "未配置 DEEPSEEK_API_KEY，请联系管理员。")
         else:
             # 用户消息先入队，然后立刻重跑：下一轮它由「历史消息」渲染 → 出现在输入框上方
             st.session_state["messages"].append({"role": "user", "content": _new_q})
@@ -4057,12 +4194,15 @@ def _view_single():
 # 视图 2：多公司对比（2~5 家）
 # ---------------------------------------------------------------
 def _view_compare():
-    step_head("1", "选择对比公司",
-              "2~5 家 · 在线取数或手动输入 · 每家按各自所属行业基准评分",
-              tag="横向对比")
-    st.caption(
-        "程序生成对照表、差额与对比图（同一份数据永远同一分数），可导出 CSV 与对比报告。"
+    page_head(
+        "多公司对比",
+        "2~5 家公司各自在线取数（或手动输入财报），按**各自所属行业**的基准分别评分，"
+        "由程序生成对照表、差额与对比图（同一份数据永远同一分数），可导出 CSV 与对比报告。",
     )
+
+    # ===== 第 1 段：对比公司管理（增删公司 + 每家一张卡片）=====
+    sec_head("1", "对比公司管理",
+             "在线取数或手动输入 · 每家按各自所属行业基准评分", tag="横向对比")
 
     # ---- 公司数量：动态增删（优化清单 P1-02）----
     _MAX_CMP = 5
@@ -4119,34 +4259,37 @@ def _view_compare():
 
     for _i in range(_n_cmp):
         with _cmp_cols[_i]:
-            st.markdown(f"##### {_cmp_tags[_i]} 公司 {chr(65 + _i)}")
-            # ⚠️ 这个复选框的 key 绝不能叫 f"cmp{_i}_online"：
-            #    online_fetch_panel 内部用 `<prefix>_online` 存放"取到的摘要文本"，
-            #    同名会让布尔值把文本覆盖掉 → len(bool) 直接抛 TypeError。
-            _use_online = st.checkbox("🌐 在线自动取数", key=f"cmp{_i}_use_online", value=True)
-            _text_i = ""
-            if _use_online:
-                _ot, _on, _op = online_fetch_panel(f"cmp{_i}", compact=True)
-                _nm = _on or st.text_input("公司名称（可选）", value=f"公司{chr(65 + _i)}",
-                                           key=f"cmp{_i}_name")
-                _data = (_ot or "").strip()
-            else:
-                _nm = st.text_input("公司名称", value=f"公司{chr(65 + _i)}", key=f"cmp{_i}_name")
-                _text_i = st.text_area("粘贴财报数据", height=120, key=f"cmp{_i}_text")
-                _up = st.file_uploader("或上传文件（PDF / txt / md）",
-                                       type=["pdf", "txt", "md"], key=f"cmp{_i}_up")
-                _file, _err = read_upload(_up)
-                if _err:
-                    st.warning(_err)
-                _data = (_text_i + "\n" + _file).strip()
-            _ind_default = ds.guess_industry(_nm) or industry
-            _ind_i = _cmp_industry_select(f"cmp{_i}_ind", _ind_default)
-            _cmp_side.append({
-                "i": _i, "name": _nm,
-                "code": st.session_state.get(f"cmp{_i}_online_code", ""),
-                "online": _use_online, "data": _data,
-                "industry": _ind_i, "text": _text_i,
-            })
+            # 每家一张白卡：三家公司并列时，卡片边界就是"这家 / 那家"的边界
+            with card(f"cmp{_i}"):
+                st.markdown(f'<div class="mini-head">{_cmp_tags[_i]} 公司 {chr(65 + _i)}</div>',
+                            unsafe_allow_html=True)
+                # ⚠️ 这个复选框的 key 绝不能叫 f"cmp{_i}_online"：
+                #    online_fetch_panel 内部用 `<prefix>_online` 存放"取到的摘要文本"，
+                #    同名会让布尔值把文本覆盖掉 → len(bool) 直接抛 TypeError。
+                _use_online = st.checkbox("🌐 在线自动取数", key=f"cmp{_i}_use_online", value=True)
+                _text_i = ""
+                if _use_online:
+                    _ot, _on, _op = online_fetch_panel(f"cmp{_i}", compact=True)
+                    _nm = _on or st.text_input("公司名称（可选）", value=f"公司{chr(65 + _i)}",
+                                               key=f"cmp{_i}_name")
+                    _data = (_ot or "").strip()
+                else:
+                    _nm = st.text_input("公司名称", value=f"公司{chr(65 + _i)}", key=f"cmp{_i}_name")
+                    _text_i = st.text_area("粘贴财报数据", height=120, key=f"cmp{_i}_text")
+                    _up = st.file_uploader("或上传文件（PDF / txt / md）",
+                                           type=["pdf", "txt", "md"], key=f"cmp{_i}_up")
+                    _file, _err = read_upload(_up)
+                    if _err:
+                        st.warning(_err)
+                    _data = (_text_i + "\n" + _file).strip()
+                _ind_default = ds.guess_industry(_nm) or industry
+                _ind_i = _cmp_industry_select(f"cmp{_i}_ind", _ind_default)
+                _cmp_side.append({
+                    "i": _i, "name": _nm,
+                    "code": st.session_state.get(f"cmp{_i}_online_code", ""),
+                    "online": _use_online, "data": _data,
+                    "industry": _ind_i, "text": _text_i,
+                })
 
     # 【统一清空】对比对象变化时清空旧对比报告与旧评分对照。
     # 指纹必须包含**数据内容**：只比公司名/代码的话，把 A 的营收从 100 亿改成 900 亿，
@@ -4256,31 +4399,40 @@ def _view_compare():
     _empty = [_s["name"] for _s in _cmp_side if not (_s["data"] or "").strip()]
     _invalid = [_s["name"] for _s in _cmp_side if _s["online"] and not _s["code"]]
 
-    _block = False
-    if _dup_codes or _dup_names:
-        st.error(
-            "❌ 存在**重复公司**（" + "、".join(_dup_names or _dup_codes) + "）——"
-            "对比需要互不相同的公司，请至少更换其中一家（同一家公司的两份数据怎么比都是"
-            "「两者相当」，纯属浪费一次分析）。"
-        )
-        _block = True
-    if _invalid:
-        st.warning(
-            "⚠️ 以下公司选了「在线取数」但**尚未成功取到数据**（代码无效或还没点「🔍 获取数据」）："
-            + "、".join(_invalid) + "。"
-        )
-        _block = True
-    if _empty:
-        st.warning("⚠️ 以下公司的**输入未完成**（没有可分析的数据）：" + "、".join(_empty) + "。")
-        _block = True
-    if _all_online and not _common_years:
-        _block = True
+    # ===== 第 2 段：开始对比分析（校验信息 + 主按钮住同一张卡）=====
+    sec_head("2", "开始对比分析",
+             "所有公司取数完成后点击 —— 生成对照表 / 差额 / 对比图 / CSV")
+    with card("cmp-run"):
+        _block = False
+        if _dup_codes or _dup_names:
+            st.error(
+                "❌ 存在**重复公司**（" + "、".join(_dup_names or _dup_codes) + "）——"
+                "对比需要互不相同的公司，请至少更换其中一家（同一家公司的两份数据怎么比都是"
+                "「两者相当」，纯属浪费一次分析）。"
+            )
+            _block = True
+        if _invalid:
+            st.warning(
+                "⚠️ 以下公司选了「在线取数」但**尚未成功取到数据**（代码无效或还没点「🔍 获取数据」）："
+                + "、".join(_invalid) + "。"
+            )
+            _block = True
+        if _empty:
+            st.warning("⚠️ 以下公司的**输入未完成**（没有可分析的数据）：" + "、".join(_empty) + "。")
+            _block = True
+        if _all_online and not _common_years:
+            _block = True
+        if not _block:
+            st.caption(
+                f"✅ 已就绪：{_n_cmp} 家公司"
+                + (f" · 对比基准年份 **{_base_year}**（年报口径，不同年度不混比）" if _base_year else "")
+            )
 
-    cmp_btn = st.button(
-        "⚖️ 开始对比分析",
-        disabled=_block,
-        use_container_width=True, type="primary",
-    )
+        cmp_btn = st.button(
+            "⚖️ 开始对比分析",
+            disabled=_block,
+            use_container_width=True, type="primary",
+        )
 
     if cmp_btn and not _block:
         # 【程序算分】对比不该只让模型"读几段文本自由发挥"：
@@ -4310,7 +4462,7 @@ def _view_compare():
                     st.session_state.pop("cmp_scores", None)
                     st.warning(f"规则评分对照计算失败（不影响下方文字对比）：{_e}")
         if not DEEPSEEK_API_KEY:
-            st.error("系统未配置 DEEPSEEK_API_KEY，请联系管理员。")
+            st.error("未配置 DEEPSEEK_API_KEY，请联系管理员。")
         else:
             box = st.empty()
             with st.spinner("正在对比分析……（约 20-40 秒）"):
@@ -4482,32 +4634,43 @@ def _view_compare():
 # 视图 3：使用说明
 # ---------------------------------------------------------------
 def _view_help():
-    st.markdown(
-        """
-### 📖 使用说明
+    page_head(
+        "使用说明",
+        "这套工作台一共三个入口：单公司深度分析 / 多公司对比 / 使用说明（都在左侧边栏）。"
+        "第一次使用，照着下面第 1 张卡片的 4 步走一遍即可。",
+    )
 
-**快速上手（4 步）：**
-
-1. 左侧边栏选「🏢 单公司深度分析」，先选好**行业财务基准**（同业对标）
-2. 输入股票代码（如 `600519`），点「🔍 获取数据」自动取数
-3. 点「🚀 开始结构化分析」，结果分四个页签：📊 分析概览 / 🗓️ 年度时间轴 / 🧮 评分与依据 / 📝 研报
+    # 使用说明页的卡片是"分类"而不是"步骤"，所以不编号，只用卡片表头 + 一条分隔线。
+    with card("help-quick", "", "🚀 快速上手（4 步）", "从零到一份可下载的研报"):
+        st.markdown(
+            """
+1. 左侧边栏选「🏢 单公司深度分析」，先在**第 1 步**选好行业财务基准（同业对标）
+2. **第 2~3 步**输入股票代码（如 `600519`）或从热门股票里选，点「🔍 获取数据」自动取数
+3. **第 5 步**点「🚀 开始结构化分析」，结果分四个页签：📊 分析概览 / 🗓️ 年度时间轴 / 🧮 评分与依据 / 📝 研报
 4. 页面底部可直接**继续追问**；需要成稿就点「📝 生成完整研报」
+"""
+        )
 
-**主要能力：**
-
+    with card("help-cap", "", "🧩 主要能力", "每个能力的入口与作用"):
+        st.markdown(
+            """
 | 功能 | 入口 | 说明 |
 |---|---|---|
-| 🌐 在线自动取数 | 「🏢 单公司深度分析」顶部 | 输入股票代码/名称，自动从巨潮资讯网与东方财富获取行情、多期财务指标、年报 PDF，无需自己找财报 |
+| 🌐 在线自动取数 | 「🏢 单公司深度分析」第 3 步 | 输入股票代码/名称，自动获取行情、多期财务指标、年报 PDF，无需自己找财报 |
 | 📄 年报 PDF 云端解析 + RAG | 取数面板内 | 一键下载年报 → 按页切片构建向量索引；分析与追问自动检索相关章节，结论标注「见年报第X页」 |
 | 📐 规则引擎评分 | 「🚀 开始结构化分析」 | 四维评分由固定阈值规则计算（同一数据必然同一分数），页面可展开查看每个分数的完整依据链 |
-| 🏢 单公司深度分析 | 左侧边栏「🏢 单公司深度分析」 | 一键得到四维评分、指标图表、年报口径趋势、风险与亮点 |
+| 🏢 单公司深度分析 | 左侧边栏 | 一键得到四维评分、指标图表、年报口径趋势、风险与亮点 |
 | 💬 多轮追问 | 「🏢 单公司深度分析」页底 | 基于数据与已有结论连续追问（问在上、答在中、**输入框在最下面**）；年报问题实时检索原文片段（带页码） |
-| ⚖️ 多公司对比 | 左侧边栏「⚖️ 多公司对比」 | 2~5 家公司在线取数或手动输入，逐年对齐后生成对照表、差额、对比图与 CSV / 报告导出 |
-| 🕘 分析记录 | 左侧边栏「🕘 分析记录」 | 本次会话做过的分析各留一条，点一下即可回看当时的评分、图表与证据（仅本次会话有效，刷新页面即清空） |
+| ⚖️ 多公司对比 | 左侧边栏 | 2~5 家公司在线取数或手动输入，逐年对齐后生成对照表、差额、对比图与 CSV / 报告导出 |
+| 🕘 分析记录 | 左侧边栏 | 本次会话做过的分析各留一条，点一下即可回看当时的评分、图表与证据（仅本次会话有效，刷新页面即清空） |
 | 📝 研报导出 | 各页的下载按钮 | 分析结果可保存为 Markdown 报告（双模型润色） |
+"""
+        )
 
-**行业财务基准库（同业对标）：**
-本引擎是**面向全行业上市公司的通用财务投研引擎**。页面顶部横向按钮可选择行业
+    with card("help-kb", "", "📐 行业财务基准库（同业对标）", "同一个分数，只有在行业里比才有意义"):
+        st.markdown(
+            """
+本引擎是**面向全行业上市公司的通用财务投研引擎**。第 1 步的横向按钮可选择行业
 （通用、消费、金融、新能源、医药、互联网），每个行业对应一套**财务口径**的同业对标基准
 （ROE 优秀线 / 营收增速稳健线），四维评分、四象限定位与散点基准线全部按当前行业口径计算。
 
@@ -4517,24 +4680,37 @@ def _view_help():
 
 页面会实时显示当前基准（如「金融 = ROE 11% / 增速 6%」）。银行/保险等特殊行业另内置专用指标
 （不良贷款率、拨备覆盖率、核心一级资本充足率等），自动切换为金融专用评分口径。
+"""
+        )
 
-**数据来源：**
-- 财务数据与行情：东方财富公开接口
-- 公告与年报 PDF：巨潮资讯网（官方指定信息披露平台）
-- 大模型：DeepSeek（推理与生成）
+    with card("help-src", "", "🔗 数据来源与使用边界", "对外统一口径 + 具体实现，一一对应"):
+        st.markdown(
+            """
+**对外统一口径：** 交易所公开披露数据 · 上市公司年报 · 财务指标库
 
-**数据建议：**
+| 数据源类型 | 具体实现 |
+|---|---|
+| 公告与年报原文（交易所指定披露平台） | 巨潮资讯网 |
+| 行情与财务指标（公开财经数据接口） | 东方财富 |
+| 大模型 | DeepSeek（推理与生成）· 千问（润色 / 向量化） |
+
+**使用边界：**
 - 在线取数会自动带入多个报告期，可进一步上传年报 PDF 补充细节；
 - 扫描版 PDF 无法提取文字，请改用在线取数或手动粘贴；
 - 分析结果仅供参考，不构成投资建议。
+"""
+        )
 
-**技术说明：**
+    with card("help-tech", "", "🛠️ 技术说明", "可复现、可核查的实现细节"):
+        st.markdown(
+            """
 - 应用框架：Streamlit · 部署：Streamlit Community Cloud
 - PDF 解析：pypdf（按页解析，保留页码）· 向量检索：ChromaDB + DashScope Embedding
-- 评分：scoring.py 固定规则引擎（可复现、附依据链）· 输出校验：字段/类型/范围自动校验
+- 评分：`scoring.py` 固定规则引擎（可复现、附依据链）· 输出校验：字段/类型/范围自动校验
+- 统一流程：`pipeline.py`（页面与离线评测共用**同一条**链路，避免"评测分数好看但页面不是这套"）
 - 对照实验：仓库内 `eval_cases.py` + `docs/对照实验报告.md`（Agent vs 直接大模型）
-        """
-    )
+"""
+        )
 
 # ---------------------------------------------------------------
 # 工作台调度：侧边栏导航决定渲染哪个视图
