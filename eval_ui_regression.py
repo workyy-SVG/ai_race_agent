@@ -36,10 +36,17 @@ def _check(name, cond, extra=""):
         FAILS.append(name)
 
 
-def _boot():
+def _boot(view: str = "🏢"):
+    """启动 AppTest。
+
+    view：三栏工作台的导航选中项（"🏢" 单公司 / "⚖️" 多公司对比 / "📖" 使用说明）。
+    改成三栏之后一次只渲染一个视图，测试哪一栏就必须先切过去 ——
+    否则断言的是"没渲染出来的控件"，会误报成功能坏了。
+    """
     at = AppTest.from_file(APP, default_timeout=240)
     at.run()
     at.session_state["authenticated"] = True
+    at.session_state["main_view"] = view
     at.run()
     return at
 
@@ -144,7 +151,7 @@ if "timeline_metric" in _rd:
 
 # ---------------------------------------------------------------------------
 print("=== P1-02 多公司对比：2 → 3 → 5 家动态增删 ===")
-at2 = _boot()
+at2 = _boot(view="⚖️")
 _check("页面初始无异常", not [str(e.value)[:200] for e in at2.exception],
        str([str(e.value)[:200] for e in at2.exception]))
 _check("默认对比 2 家", _ss(at2, "cmp_n") == 2,
@@ -181,7 +188,9 @@ at2.session_state["cmp1_online"] = "x"
 at2.run()
 _err = "\n".join(e.value for e in at2.error)
 _check("重复公司给出明确报错", "重复公司" in _err, _err[:100])
-_b = next((x for x in at2.get("button") if str(x.label or "").startswith("⚖️")), None)
+# ⚠️ 不能按 "⚖️" 前缀找按钮了：三栏改版后左侧图标菜单里也有一个 "⚖️" 导航按钮，
+#    按前缀会先命中它（而它永远可点）。这里按完整文案精确匹配。
+_b = next((x for x in at2.get("button") if "开始对比分析" in str(x.label or "")), None)
 _check("重复公司时「开始对比分析」禁用", bool(_b) and bool(_b.disabled))
 at2.session_state["cmp1_online_code"] = ""
 at2.run()
@@ -268,6 +277,54 @@ _check("pipeline 端到端：证据核对通过", _res["evidence_issues"] == [],
 _check("pipeline 端到端：证据卡定位到第 42 页",
        _res["evidence_items"] and _res["evidence_items"][0].get("page") == 42)
 _check("pipeline 端到端：引用正确率 100%", _res["citation"]["rate"] == 1.0)
+
+# ---------------------------------------------------------------------------
+print("=== P2-01 三栏工作台：图标菜单 / 分析记录 / 页签化 ===")
+
+# 1) 左列图标菜单
+at4 = _boot()
+_navs = {b.key: b for b in at4.get("button") if (b.key or "").startswith("nav_btn_")}
+_check("左列图标菜单三个入口都在（单公司/对比/说明）", len(_navs) == 3, str(sorted(_navs)))
+_check("默认停在单公司视图", _ss(at4, "main_view", "🏢") == "🏢")
+_check("单公司视图渲染了行业基准选择器",
+       any((r.key or "") == "industry_widget" for r in at4.radio))
+
+# 2) 切到对比视图（一次只渲染一个视图，切过去才该有对比控件）
+at4.session_state["main_view"] = "⚖️"
+at4.run()
+_check("切到「多公司对比」后出现对比控件",
+       any((c.key or "") == "cmp0_use_online" for c in at4.checkbox),
+       str([c.key for c in at4.checkbox][:6]))
+
+# 3) 切到使用说明
+at4.session_state["main_view"] = "📖"
+at4.run()
+_check("切到「使用说明」后渲染说明正文", "使用说明" in _md(at4))
+
+# 4) 中列分析记录：空态 + 有记录
+at5 = _boot()
+_check("无记录时中列给出占位说明", "还没有分析记录" in _cap(at5))
+_check("中列明确声明不持久化（刷新即清空）",
+       ("刷新页面即清空" in _cap(at5)) or ("刷新即清空" in _cap(at5)))
+at5.session_state["analysis_history"] = [
+    {"id": "t1", "code": "600519", "name": "贵州茅台", "industry": "消费",
+     "total": 8.5, "ts": "12:00:00", "analysis": {}},
+]
+at5.run()
+_check("有记录后中列出现可点击条目",
+       any((b.key or "").startswith("hist_btn_") for b in at5.get("button")),
+       str([b.key for b in at5.get("button") if "hist" in (b.key or "")]))
+
+# 5) 页签化：源码层面确认结果区拆成四个子页签
+_check("结果区已页签化（概览/时间轴/评分与依据/研报）",
+       all(t in SRC for t in ("📊 分析概览", "🗓️ 年度时间轴", "🧮 评分与依据", "📝 研报")))
+_check("页签内容由独立 _tab*_ 函数承载（避免为改布局批量改缩进）",
+       SRC.count("def _tab1_") >= 1 and "def _tab4():" in SRC)
+
+# 6) 大横幅已下线：hero 只剩登录页一处，主页面改用紧凑顶栏
+_check("主页面不再渲染三行大横幅（hero 仅登录页保留）",
+       SRC.count('<div class="hero"') == 1, str(SRC.count('<div class="hero"')))
+_check("主页面改用紧凑顶栏（topbar）", 'class="topbar"' in SRC)
 
 print()
 if FAILS:

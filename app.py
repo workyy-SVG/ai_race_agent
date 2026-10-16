@@ -24,6 +24,7 @@ import io
 import base64
 import math
 import tempfile
+import datetime
 from pathlib import Path
 import streamlit as st
 import pandas as pd
@@ -500,6 +501,60 @@ CUSTOM_CSS = """
   .hero h1 a,
   .hero a.anchor-link,
   .hero [data-testid="stHeaderActionElements"] { display: none !important; }
+
+  /* ===== 紧凑顶栏（替代原来的大横幅）=====
+     大横幅占了近 100px 高、信息密度却很低（品牌名 + 一句口号）。
+     改成单行：品牌 + 当前分析对象 + 状态徽章，把纵向空间还给工作台。 */
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: #FFFFFF;
+    border: 1px solid #D6E0EC;
+    border-left: 4px solid #1E40AF;
+    border-radius: 10px;
+    padding: 9px 16px;
+    margin-bottom: 10px;
+    box-shadow: 0 2px 10px rgba(30, 64, 175, 0.08);
+  }
+  .tb-brand { font-size: 16px; font-weight: 800; color: #1E3A8A !important; letter-spacing: .5px; }
+  .tb-brand b { color: #B45309 !important; }
+  .tb-gap { flex: 1 1 auto; }
+  .tb-obj { font-size: 12.5px; color: #334155 !important; }
+  .tb-obj b { color: #1E3A8A !important; }
+  .tb-chip {
+    font-size: 11.5px; padding: 2px 10px; border-radius: 999px;
+    background: #DBEAFE; color: #1E40AF !important;
+    border: 1px solid #BFDBFE; white-space: nowrap;
+  }
+  .tb-chip.warn { background: #FEF3C7; color: #92400E !important; border-color: #FDE68A; }
+
+  /* ===== 三栏工作台 ===== */
+  /* 左列：图标菜单（约 76px）；中列：分析记录（约 290px）；右列：工作台 */
+  .rail-cap {
+    font-size: 11px; color: #64748B !important; text-align: center;
+    margin: 6px 0 2px 0; line-height: 1.3;
+  }
+  .hist-wrap {
+    background: #FFFFFF;
+    border: 1px solid #D6E0EC;
+    border-radius: 10px;
+    padding: 10px 12px;
+    /* 独立滚动：记录多了不把整页撑长 */
+    max-height: calc(100vh - 220px);
+    overflow-y: auto;
+  }
+  .hist-head {
+    font-size: 13px; font-weight: 700; color: #1E3A8A !important;
+    padding-bottom: 6px; margin-bottom: 8px; border-bottom: 1px solid #E2E8F0;
+  }
+  .hist-item {
+    border: 1px solid #E2E8F0; border-radius: 8px;
+    padding: 7px 9px; margin-bottom: 7px; background: #F8FAFC;
+  }
+  .hist-item.on { border-color: #1E40AF; background: #EFF6FF; }
+  .hist-name { font-size: 12.5px; font-weight: 700; color: #0B1F3A !important; }
+  .hist-meta { font-size: 11px; color: #64748B !important; margin-top: 2px; }
   .hero h1 {
     font-size: 30px;
     font-weight: 800;
@@ -2580,15 +2635,27 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
     pdftext = st.session_state.get(f"{key_prefix}_pdftext", "")
     return text, name, pdftext
 
-# ============ 顶部横幅 + 侧边栏 ============
+# ============ 紧凑顶栏 + 侧边栏 ============
+# 原来的深蓝大横幅（三行、近 100px 高）换成单行顶栏：
+# 品牌 + 当前分析对象 + 状态徽章。信息一样，纵向空间还给工作台。
+_tb_name = st.session_state.get("single_online_name", "")
+_tb_code = st.session_state.get("single_online_code", "")
+_tb_obj = (
+    f"当前对象：<b>{_tb_name}（{_tb_code}）</b>"
+    if _tb_name and _tb_code else "当前对象：<b>尚未选择</b>"
+)
+_tb_ragst = st.session_state.get("single_rag_status") or {}
+_tb_rag_ok = bool(isinstance(_tb_ragst, dict) and _tb_ragst.get("ok"))
+_tb_rag_txt = "📚 年报索引已就绪" if _tb_rag_ok else "📚 未建年报索引"
+_tb_who = "🎤 演示模式" if st.session_state.get("demo_mode") else "🔒 已登录"
 st.markdown(
-    """
-    <div class="hero">
-        <h1 style="color:#F8FAFC !important;font-size:30px;font-weight:800;margin:0 0 4px 0;letter-spacing:1px;">📈 金融智能投研 <span class="gold" style="color:#F5C563 !important;">Agent</span></h1>
-        <p style="color:#DBEAFE !important;font-size:14px;margin:0;">输入股票代码即可自动取数，一键完成结构化分析、四维评分、趋势图表与研报生成</p>
-        <p class="tagline" style="color:#A9C6E8 !important;font-size:12px;margin-top:6px;">在线取数（巨潮+东财）· 年报 PDF 解析 · 年度时间轴 · 2~5 家公司对比 · 六大行业财务基准库</p>
-    </div>
-    """,
+    '<div class="topbar">'
+    '<span class="tb-brand">📈 金融智能投研 <b>Agent</b></span>'
+    '<span class="tb-gap"></span>'
+    f'<span class="tb-obj">{_tb_obj}</span>'
+    f'<span class="tb-chip">{_tb_who}</span>'
+    f'<span class="tb-chip{" warn" if not _tb_rag_ok else ""}">{_tb_rag_txt}</span>'
+    "</div>",
     unsafe_allow_html=True,
 )
 
@@ -2798,12 +2865,12 @@ def system_prompt_with_kb(industry_override: str = ""):
     _kb = INDUSTRY_KB.get(_ind) or INDUSTRY_KB.get("通用") or ""
     return BASE_SYSTEM_PROMPT + "\n\n" + _kb
 
-tab1, tab2, tab3 = st.tabs(["🏢 单公司深度分析", "⚖️ 多公司对比", "📖 使用说明"])
-
 # ---------------------------------------------------------------
-# Tab 1：单公司深度分析
+# 视图 1：单公司深度分析
+# ⚠️ 原来是 `with tab1:`，改成函数：由三栏工作台按左侧图标菜单的选中项调用。
+#    函数体缩进本来就是 4，所以这里只改了一行声明，内部逻辑零改动。
 # ---------------------------------------------------------------
-with tab1:
+def _view_single():
     # ---- 数据来源选择 ----
     src_mode = st.radio(
         "数据来源",
@@ -3154,6 +3221,29 @@ with tab1:
                 # 每次重新分析时清空旧的追问记录与旧的研报，避免上下文/报告串台
                 st.session_state["messages"] = []
                 st.session_state.pop("report", None)
+
+                # ---- 往「分析记录」列写一条（仅 session_state，不持久化）----
+                # 存的是 analysis 的**引用**：回看时直接把它放回 session_state，
+                # 中列那条记录就能把当时的评分、图表、证据一起还原出来。
+                # ⚠️ 明确不做持久化：Streamlit Cloud 文件系统是临时的，刷新即丢；
+                #    真要跨会话恢复，必须外接存储，那是二期工程。
+                _hist = st.session_state.get("analysis_history") or []
+                _hid = f"{st.session_state.get('single_online_code') or 'x'}-" \
+                       f"{len(_hist)}-{id(analysis)}"
+                _hist.append(
+                    {
+                        "id": _hid,
+                        "code": st.session_state.get("single_online_code", ""),
+                        "name": (analysis.get("company")
+                                 or st.session_state.get("single_online_name", "")),
+                        "industry": industry,
+                        "total": analysis.get("total_score"),
+                        "ts": datetime.datetime.now().strftime("%H:%M:%S"),
+                        "analysis": analysis,
+                    }
+                )
+                st.session_state["analysis_history"] = _hist[-20:]
+                st.session_state["hist_active"] = _hid
             except Exception as e:
                 # 报错必须**自带病因**。旧版只写 f"{e}"，于是模块没加载时用户看到的
                 # 是一句 `'NoneType' object has no attribute 'analyze_core'` —— 无法行动。
@@ -3178,6 +3268,22 @@ with tab1:
 
     analysis = st.session_state.get("analysis")
     if analysis:
+        # 兜底默认值：这三个变量原本在 `if analysis.get("score_engine")` 分支里才赋值，
+        # 页签化之后读取它们的代码脱离了那个分支（变成独立函数），
+        # 历史数据缺 score_engine 字段时会直接 NameError —— 这里先给安全默认值，
+        # 后面真正算出来会覆盖。
+        _reasons = analysis.get("score_reasons") or {}
+        _missing = analysis.get("score_missing") or []
+        _suspicious = []
+        # 年报趋势：公共头算一次，多个页签共用（概览页补 ROE/增速、依据页画趋势图）。
+        # 原来「算趋势」写在雷达图旁边的分支里，页签化后其它页签也要用，提到公共头。
+        _oc = st.session_state.get("single_online_code", "")
+        _trend_annual = []
+        if _oc:
+            try:
+                _trend_annual = ds.build_annual_trend(_oc, years=5) or []
+            except Exception:
+                _trend_annual = []
         st.divider()
         st.subheader(f"📊 结构化分析结果：{analysis.get('company', '目标公司')}")
         if analysis.get("summary"):
@@ -3243,25 +3349,42 @@ with tab1:
                 _suspicious = ds.sanity_check_metrics(_mraw_show)
             except Exception:
                 _suspicious = []
-            if _suspicious:
-                with st.expander(f"⚠️ 数据合理性提醒（{len(_suspicious)} 项）", expanded=True):
-                    for _sus in _suspicious:
-                        st.warning(_sus)
-                    st.caption("以上为数值区间异常提示：若确认上游接口口径未变，可忽略；"
-                               "否则请勿直接采信本次评分。")
-            if _reasons or _missing:
-                with st.expander("📌 查看评分依据（每个分数怎么算出来的）"):
-                    for _dim, _rs in _reasons.items():
-                        _sc = scores.get(_dim)
-                        st.markdown(
-                            f"**{_dim}：{_sc if _sc is not None else '数据不足'} 分**"
-                            + (f"（{len(_rs)} 项指标加权）" if _rs else "")
-                        )
-                        for _r in _rs:
-                            st.markdown(f"&nbsp;&nbsp;- {_r}")
-                    if _missing:
-                        st.caption("未参与计分的缺失指标：" + "、".join(_missing))
+        # ---- 工作台四个子页签：把一次分析的结果按「阅读动线」拆开 ----
+        # 原来是一条长页面从上往下堆（图表 → 时间轴 → 评分依据 → 研报），
+        # 想看年度时间轴要滚很久。现在按使用顺序分四页：
+        #   概览看数字 → 时间轴看多年 → 评分与依据看证据 → 研报看结论。
+        _w1, _w2, _w3, _w4 = st.tabs(
+            ["📊 分析概览", "🗓️ 年度时间轴", "🧮 评分与依据", "📝 研报"]
+        )
 
+    # ⚠️ 下面每个 _tab*_ 函数体**一行渲染逻辑都没改**，只是外面套了一层 def。
+    #    之所以不把它们塞进 `if analysis:` 里（那需要整体再缩进一级），
+    #    是因为批量改缩进最容易引入隐性 bug；套 def 是零改动的等价做法。
+    def _tab1_a():
+        """分析概览 · 数据合理性提醒。"""
+        if _suspicious:
+            with st.expander(f"⚠️ 数据合理性提醒（{len(_suspicious)} 项）", expanded=True):
+                for _sus in _suspicious:
+                    st.warning(_sus)
+                st.caption("以上为数值区间异常提示：若确认上游接口口径未变，可忽略；"
+                           "否则请勿直接采信本次评分。")
+    def _tab3_a():
+        """评分与依据 · 每个分数怎么算出来的（规则引擎依据链）。"""
+        if _reasons or _missing:
+            with st.expander("📌 查看评分依据（每个分数怎么算出来的）"):
+                for _dim, _rs in _reasons.items():
+                    _sc = scores.get(_dim)
+                    st.markdown(
+                        f"**{_dim}：{_sc if _sc is not None else '数据不足'} 分**"
+                        + (f"（{len(_rs)} 项指标加权）" if _rs else "")
+                    )
+                    for _r in _rs:
+                        st.markdown(f"&nbsp;&nbsp;- {_r}")
+                if _missing:
+                    st.caption("未参与计分的缺失指标：" + "、".join(_missing))
+
+    def _tab1_b():
+        """分析概览 · 关键财务指标图 + 构成圆环 + 指标明细。"""
         left, right = st.columns(2)
         with left:
             # 剔除与整体项重复计量的分项（如「主营业务收入」vs「营业收入」），
@@ -3310,6 +3433,8 @@ with tab1:
                 )
                 st.dataframe(mdf, use_container_width=True, hide_index=True)
 
+    def _tab3_g():
+        """评分与依据 · 四维评分雷达 + 年报趋势（评分区间与多年走势是打分的直接依据）。"""
         # ---- 雷达图（4 维评分可视化） + 趋势图 ----
         if not _HAS_CJK:
             st.caption("ℹ️ 部署环境未找到中文字体，图表内文字可能显示为方框；数据本身不受影响。")
@@ -3323,13 +3448,8 @@ with tab1:
                 st.markdown(build_radar_insight(scores), unsafe_allow_html=True)
         with _radar_right:
             st.markdown("##### 📈 年报趋势（仅年报口径）")
-            _oc = st.session_state.get("single_online_code", "")
-            _trend_annual = []
-            if _oc:
-                try:
-                    _trend_annual = ds.build_annual_trend(_oc, years=5) or []
-                except Exception:
-                    _trend_annual = []
+            # _trend_annual 已在公共头算好（概览页补 ROE/营收增速也要用它），
+            # 这里直接复用，避免同一份数据发起两次取数请求。
             if len(_trend_annual) >= 2:
                 st.caption("数据直接来自财务指标接口的年报记录（REPORT_TYPE=年报）。")
                 _trend_png = render_trend_dual_axis(_trend_annual)
@@ -3347,6 +3467,8 @@ with tab1:
                 else:
                     st.info("趋势数据不足（需 ≥2 个年报期）。")
 
+    def _tab1_c():
+        """分析概览 · ROE × 营收增速 四象限定位。"""
         # ---- 【新增】ROE × 营收增速 四象限定位散点图 ----
         _mraw = analysis.get("metrics_raw") or {}
         _roe_v = _mraw.get("roe")
@@ -3425,6 +3547,8 @@ with tab1:
                 "（完整分析模式下会自动补齐）。"
             )
 
+    def _tab2_e():
+        """年度时间轴 · 近 N 年年报（独立于 LLM 的确定性区块，可复现）。"""
         # ---- 🗓️ 年度时间轴（优化清单 P1-01）----
         # 独立于 LLM 的确定性区块：数据直接来自财务指标接口的年报记录，
         # 所以年份切换、指标切换、导出都可复现，不受模型输出影响。
@@ -3440,6 +3564,8 @@ with tab1:
             st.caption("ℹ️ 年度时间轴需要在线取数（按股票代码抓取多年年报）；"
                        "手动粘贴模式无此区块。")
 
+    def _tab3_dh():
+        """评分与依据 · 风险提示 / 投资亮点 + RAG 检索证据（带页码的原文片段）。"""
         colr, colh = st.columns(2)
         with colr:
             risks = analysis.get("risks") or []
@@ -3529,9 +3655,15 @@ with tab1:
                 box.empty()
                 st.error(f"研报生成失败：{e}")
 
-    report = st.session_state.get("report")
-    if report:
-        st.divider()
+    def _tab4():
+        """研报 · 完整投研报告正文 + 下载入口。"""
+        report = st.session_state.get("report")
+        if not report:
+            st.caption(
+                "还没有研报。点击工作台上方「📝 生成完整研报」，"
+                "生成完成后会显示在这里（可下载 Markdown）。"
+            )
+            return
         st.subheader("📝 完整投研报告")
         if st.session_state.get("dual_model_refined"):
             st.markdown(
@@ -3546,8 +3678,6 @@ with tab1:
                 + " · 研报中的年报内容均来自全文检索并标注页码"
             )
         st.markdown(report)
-
-    if report:
         st.download_button(
             "⬇️ 下载研报（Markdown）",
             data=report,
@@ -3555,6 +3685,23 @@ with tab1:
             mime="text/markdown",
             use_container_width=True,
         )
+
+    # ---- 把四个子页签填上内容 ----
+    # 必须放在「研报生成逻辑」之后：点「📝 生成完整研报」时先把 result 落进
+    # session_state，再渲染页签，否则本轮看到的还是上一份旧稿。
+    if analysis:
+        with _w1:
+            _tab1_a()
+            _tab1_b()
+            _tab1_c()
+        with _w2:
+            _tab2_e()
+        with _w3:
+            _tab3_a()
+            _tab3_g()
+            _tab3_dh()
+        with _w4:
+            _tab4()
 
     # ---- 追问对话（多轮，上下文实时更新） ----
     # 【顺序很关键 · 为什么这么排】
@@ -3688,9 +3835,9 @@ with tab1:
         st.rerun()
 
 # ---------------------------------------------------------------
-# Tab 2：多公司对比（2~5 家）
+# 视图 2：多公司对比（2~5 家）
 # ---------------------------------------------------------------
-with tab2:
+def _view_compare():
     st.markdown(
         "支持 **2~5 家**公司横向对比：在线自动取数或手动输入，"
         "程序生成对照表、差额与对比图（同一份数据永远同一分数）。"
@@ -4111,9 +4258,9 @@ with tab2:
         )
 
 # ---------------------------------------------------------------
-# Tab 3：使用说明
+# 视图 3：使用说明
 # ---------------------------------------------------------------
-with tab3:
+def _view_help():
     st.markdown(
         """
 ### 📖 使用说明
@@ -4159,6 +4306,91 @@ with tab3:
 - 对照实验：仓库内 `eval_cases.py` + `docs/对照实验报告.md`（Agent vs 直接大模型）
         """
     )
+
+# ---------------------------------------------------------------
+# 三栏工作台：左（图标菜单）· 中（分析记录）· 右（工作台）
+#
+# 为什么这么改：原来三个视图是顶部 st.tabs 横排页签，切一次要横向找，
+# 而且主内容一屏塞不下；改成三栏后 —— 导航固定在最左、分析记录常驻中间、
+# 工作台占最大面积，符合"研究工作台"的使用习惯。
+#
+# ⚠️ 实现方式：把原来的 `with tabN:` 改成 `def _view_x():`，函数体缩进不变，
+#    所以三个视图内部上千行逻辑一行没动，只是换了调用入口。
+# ---------------------------------------------------------------
+_NAV_ITEMS = [
+    ("🏢", "单公司深度分析"),
+    ("⚖️", "多公司对比（2~5 家）"),
+    ("📖", "使用说明"),
+]
+
+
+def _render_icon_menu() -> None:
+    """最左列：图标菜单（约 76px 宽）。点击切换右侧工作台视图。"""
+    _cur = st.session_state.get("main_view", "🏢")
+    for _icon, _label in _NAV_ITEMS:
+        if st.button(
+            _icon,
+            key=f"nav_btn_{_icon}",
+            help=_label,
+            use_container_width=True,
+            type="primary" if _icon == _cur else "secondary",
+        ):
+            st.session_state["main_view"] = _icon
+            st.rerun()
+    st.markdown('<div class="rail-cap">点击切换<br/>右侧工作台</div>', unsafe_allow_html=True)
+
+
+def _render_history_column() -> None:
+    """中列：本次会话的分析记录。
+
+    ⚠️ 明确边界：**只存 session_state，不做持久化**。
+    Streamlit Cloud 的文件系统是临时的，刷新页面即丢；
+    真要做"历史可恢复"必须外接存储（Supabase / Sheets / Redis），
+    那属于二期工程，这里先把位置与交互留出来。
+    """
+    st.markdown('<div class="hist-head">🕘 分析记录</div>', unsafe_allow_html=True)
+    _hist = st.session_state.get("analysis_history") or []
+    if not _hist:
+        st.caption("还没有分析记录。完成一次「🚀 开始结构化分析」后，这里会留下一条，可点回查看。")
+        st.caption("⚠️ 记录仅存于当前会话内存，刷新页面即清空（暂不做持久化）。")
+        return
+    st.caption(f"共 {len(_hist)} 条 · 仅本次会话有效")
+    for _i in range(len(_hist) - 1, -1, -1):
+        _h = _hist[_i]
+        _on = st.session_state.get("hist_active") == _h.get("id")
+        _mark = "🔵 " if _on else ""
+        if st.button(
+            f"{_mark}{_h.get('name') or '—'} · {_h.get('code') or '—'}",
+            key=f"hist_btn_{_i}",
+            help="回看这条分析结果",
+            use_container_width=True,
+        ):
+            st.session_state["analysis"] = _h.get("analysis")
+            st.session_state["hist_active"] = _h.get("id")
+            st.rerun()
+        st.caption(
+            f"{_h.get('ts', '')} · {_h.get('industry', '')} · 综合 {_h.get('total', '—')}"
+        )
+
+
+_nav_col, _hist_col, _work_col = st.columns([0.62, 2.0, 9.2], gap="small")
+
+with _nav_col:
+    _render_icon_menu()
+
+with _hist_col:
+    # 定高容器 → 记录多了中列自己滚动，不把整页撑长
+    with st.container(height=460):
+        _render_history_column()
+
+with _work_col:
+    _v = st.session_state.get("main_view", "🏢")
+    if _v == "⚖️":
+        _view_compare()
+    elif _v == "📖":
+        _view_help()
+    else:
+        _view_single()
 
 st.divider()
 st.markdown(
