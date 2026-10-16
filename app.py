@@ -482,25 +482,9 @@ CUSTOM_CSS = """
   header[data-testid="stHeader"] { background: transparent; }
   .block-container { padding-top: 1.4rem; color: #334155; }
 
-  /* ===== 顶栏横幅：深蓝渐变 + 金色高光（科技投研感） ===== */
-  .hero {
-    background: linear-gradient(120deg, #0B1F3A 0%, #1E3A8A 38%, #1E40AF 100%);
-    border: 1px solid rgba(219, 234, 254, 0.6);
-    border-radius: 14px;
-    padding: 22px 28px 18px 28px;
-    margin-bottom: 14px;
-    color: #F8FAFC;
-    /* 横幅内所有文字居中对齐（标题/说明/标签行三段整体居中） */
-    text-align: center;
-    box-shadow: 0 10px 32px rgba(30, 64, 175, 0.30),
-                0 0 0 1px rgba(217, 164, 65, 0.25) inset;
-  }
-  /* 关掉 Streamlit 自动给标题附加的「跳转到本节」锚点图标：
-     该图标由 Streamlit 渲染在标题内部（data-testid="stHeaderActionElements"），
-     在深蓝横幅底色上是一个几乎不可见的深色色块，且会破坏居中视觉。 */
-  .hero h1 a,
-  .hero a.anchor-link,
-  .hero [data-testid="stHeaderActionElements"] { display: none !important; }
+  /* ===== 深色大横幅（.hero）已整体下线 =====
+     主页面改用紧凑顶栏 .topbar；登录页改用「全屏沉浸式」深蓝渐变 + 居中白卡
+     （相关样式在 LOGIN_CSS，只在未登录分支注入）。 */
 
   /* ===== 紧凑顶栏（替代原来的大横幅）=====
      大横幅占了近 100px 高、信息密度却很低（品牌名 + 一句口号）。
@@ -529,49 +513,14 @@ CUSTOM_CSS = """
   }
   .tb-chip.warn { background: #FEF3C7; color: #92400E !important; border-color: #FDE68A; }
 
-  /* ===== 三栏工作台 ===== */
-  /* 左列：图标菜单（约 76px）；中列：分析记录（约 290px）；右列：工作台 */
-  .rail-cap {
-    font-size: 11px; color: #64748B !important; text-align: center;
-    margin: 6px 0 2px 0; line-height: 1.3;
-  }
-  .hist-wrap {
-    background: #FFFFFF;
-    border: 1px solid #D6E0EC;
-    border-radius: 10px;
-    padding: 10px 12px;
-    /* 独立滚动：记录多了不把整页撑长 */
-    max-height: calc(100vh - 220px);
-    overflow-y: auto;
-  }
+  /* ===== 侧边栏：导航 + 分析记录 =====
+     导航菜单与分析记录都住在侧边栏里（主区原本的「图标列 + 记录列」已取消）。 */
   .hist-head {
     font-size: 13px; font-weight: 700; color: #1E3A8A !important;
-    padding-bottom: 6px; margin-bottom: 8px; border-bottom: 1px solid #E2E8F0;
+    margin-top: 6px; padding-top: 9px;
+    /* 顶部加一条细线，与上方导航按钮拉开层次 */
+    border-top: 1px solid #E2E8F0;
   }
-  .hist-item {
-    border: 1px solid #E2E8F0; border-radius: 8px;
-    padding: 7px 9px; margin-bottom: 7px; background: #F8FAFC;
-  }
-  .hist-item.on { border-color: #1E40AF; background: #EFF6FF; }
-  .hist-name { font-size: 12.5px; font-weight: 700; color: #0B1F3A !important; }
-  .hist-meta { font-size: 11px; color: #64748B !important; margin-top: 2px; }
-  .hero h1 {
-    font-size: 30px;
-    font-weight: 800;
-    margin: 0 0 4px 0;
-    letter-spacing: 1px;
-    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
-  }
-  /* ⚠️ 深色横幅上的文字必须显式指定颜色并带 !important：
-     全站有 `p, li, span, div { color:#334155 }` 这类元素级规则，
-     一旦某个祖先/包装元素命中它，横幅文字就会变成 #334155 深灰，
-     压在深蓝底上实测对比度仅 1.5:1（几乎看不见）。
-     这里连子元素一起上色，避免任何包装元素把颜色带走。 */
-  .hero h1, .hero h1 *, .hero p, .hero p * { color: #F8FAFC !important; }
-  .hero p, .hero p * { color: #DBEAFE !important; font-size: 14px; margin: 0; }
-  .hero .tagline, .hero .tagline * { color: #A9C6E8 !important; font-size: 12px; margin-top: 6px; }
-  .hero h1 .gold { color: #F5C563 !important; font-weight: 800; }
-  .hero h1 .purple { color: #C9D9FF !important; font-weight: 800; }
 
   /* ===== 通用卡片：白底 + 蓝边 ===== */
   div[data-testid="stMetric"] {
@@ -922,8 +871,82 @@ CUSTOM_CSS = """
 """
 
 # ============ 页面与登录 ============
-st.set_page_config(page_title="金融智能投研 Agent", layout="wide")
+# ⚠️ initial_sidebar_state 必须是 expanded：导航菜单与分析记录都住在侧边栏里，
+#    默认折叠会让用户进来看到一片空白的主区（找不到切视图的入口）。
+st.set_page_config(
+    page_title="金融智能投研 Agent",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+
+# ---------------------------------------------------------------
+# 全屏沉浸式登录页（方案 3）
+#
+# 只在「未登录」分支注入：登录成功后不再输出这段 <style>，深色背景/白卡样式
+# 随之消失 —— 天然不会污染工作台，不需要靠 session 标记去"恢复"。
+#
+# ⚠️ 深底文字必须显式上色（并带 !important）：
+#    全站有 `p, li, span, div { color:#334155 }` 这类元素级规则，一旦某个包装元素
+#    命中它，压在深蓝底上就是 1.0:1（几乎看不见）。已算过的对比度（压 #1E3A8A）：
+#    白 #F8FAFC 9.9:1 / #DBEAFE 8.49:1 / #A9C6E8 5.88:1 / 金 #F5C563 6.44:1 —— 全部 ≥4.5:1。
+#    ⚠️ 金色只用在这个深底上：金 #D9A441 压白卡只有 2.25:1，白底要金色文字得用 #B45309（5.02:1）。
+# ---------------------------------------------------------------
+LOGIN_CSS = """
+<style>
+  /* 全屏深蓝渐变背景（160deg，铺满视口） */
+  [data-testid="stAppViewContainer"] {
+    background: linear-gradient(160deg, #0B1F3A 0%, #1E3A8A 58%, #16337D 100%) !important;
+  }
+  [data-testid="stMain"] { background: transparent !important; }
+  header[data-testid="stHeader"] { background: transparent !important; }
+  /* 登录前不显示侧边栏：导航 / 额度 / 退出登录都不该出现 */
+  section[data-testid="stSidebar"] { display: none !important; }
+
+  /* 白卡就用登录表单本体（比 st.container(border=True) 可控：
+     后者在 1.57 里没有稳定的 testid 可挂钩） */
+  [data-testid="stForm"] {
+    background: #FFFFFF !important;
+    border: 1px solid rgba(217, 164, 65, 0.55) !important;
+    border-radius: 16px !important;
+    padding: 26px 28px 20px 28px !important;
+    box-shadow: 0 24px 64px rgba(4, 18, 44, 0.45) !important;
+  }
+  /* 登录按钮：加大 + 金色描边 */
+  [data-testid="stFormSubmitButton"] button {
+    background: #1E40AF !important;
+    color: #FFFFFF !important;
+    border: 2px solid #D9A441 !important;
+    border-radius: 10px !important;
+    padding: 12px 18px !important;
+    font-size: 15px !important;
+    font-weight: 700 !important;
+  }
+  [data-testid="stFormSubmitButton"] button:hover {
+    background: #1D4ED8 !important;
+    border-color: #F5C563 !important;
+  }
+  /* 白卡里的输入框：浅底浅边，视觉更干净 */
+  [data-testid="stForm"] input {
+    background: #F8FAFC !important;
+    border: 1px solid #D6E0EC !important;
+    border-radius: 8px !important;
+    color: #0B1F3A !important;
+  }
+  /* 白卡内正文统一色，避免被全局规则带偏 */
+  [data-testid="stForm"] p,
+  [data-testid="stForm"] li,
+  [data-testid="stForm"] label,
+  [data-testid="stForm"] small { color: #334155 !important; }
+
+  /* 关掉 Streamlit 自动塞进标题内部的「跳转到本节」锚点图标：
+     在深色底上它是一块几乎看不见的深色脏点，还会破坏居中。 */
+  .login-brand h1 a,
+  .login-brand a.anchor-link,
+  .login-brand [data-testid="stHeaderActionElements"] { display: none !important; }
+</style>
+"""
+
 
 def check_login():
     if st.session_state.get("authenticated", False):
@@ -936,62 +959,75 @@ def check_login():
         st.session_state["demo_mode"] = True
         st.rerun()
 
+    # ---- 全屏沉浸式登录页（方案 3）：深蓝渐变铺满 + 居中悬浮白卡 ----
+    # 侧边栏与主工作台在此分支根本不渲染（check_login 返回 False → st.stop()），
+    # LOGIN_CSS 再把侧边栏兜底隐藏，确保"登录前只有这一屏"。
+    st.markdown(LOGIN_CSS, unsafe_allow_html=True)
+
+    # 品牌区（压在深蓝渐变上 → 金字 + 浅蓝副题，均 ≥4.5:1）
     st.markdown(
         """
-        <div class="hero" style="text-align:center; max-width:720px; margin:28px auto 14px auto;">
-            <h1 style="color:#F8FAFC !important;font-size:30px;font-weight:800;margin:0 0 4px 0;letter-spacing:1px;">📈 金融智能投研 <span class="gold" style="color:#F5C563 !important;">Agent</span></h1>
-            <p style="color:#DBEAFE !important;font-size:14px;margin:0;">AI 驱动的财报深度分析 · 结构化评分 · 多公司对比 · 同业对标基准</p>
-            <p class="tagline" style="color:#A9C6E8 !important;font-size:12px;margin-top:6px;">数据来自巨潮资讯网 / 东方财富公开接口 · 结论仅供参考</p>
+        <div class="login-brand" style="text-align:center;max-width:660px;
+                    margin:6vh auto 20px auto;">
+          <div style="display:inline-block;font-size:12px;letter-spacing:1.5px;
+                      color:#F5C563 !important;border:1px solid rgba(245,197,99,.6);
+                      border-radius:999px;padding:3px 14px;margin-bottom:14px;">
+            第二届全国人工智能应用创新大赛 · 参赛作品
+          </div>
+          <h1 style="color:#F8FAFC !important;font-size:32px;font-weight:800;
+                     margin:0 0 8px 0;letter-spacing:1px;text-shadow:0 2px 14px rgba(0,0,0,.35);">
+            📈 金融智能投研 <span style="color:#F5C563 !important;">Agent</span>
+          </h1>
+          <p style="color:#DBEAFE !important;font-size:14px;margin:0;">
+            AI 驱动的财报深度分析 · 结构化评分 · 多公司对比 · 同业对标基准
+          </p>
+          <p style="color:#A9C6E8 !important;font-size:12px;margin-top:6px;">
+            数据来自巨潮资讯网 / 东方财富公开接口 · 结论仅供参考
+          </p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    # 左侧：功能展示区；右侧：登录卡片。
-    # Streamlit 的 columns 在窄屏（手机）会自动纵向堆叠，因此无需额外媒体查询。
-    _lc, _rc = st.columns([1.3, 1], gap="large")
-
-    with _lc:
+    # 登录白卡：只占中间一条（宽屏不拉满，窄屏自动 100%）。
+    # 卡片本体就是 st.form —— 表单的默认边框/内边距由 LOGIN_CSS 接管，
+    # 这样"卡"和"表单"是同一个元素，不会出现两张套在一起的框。
+    _, _mid, _ = st.columns([1, 1.5, 1])
+    with _mid:
+        with st.form("login_form", clear_on_submit=False):
+            st.markdown(
+                '<div style="text-align:center;margin:0 0 16px 0;">'
+                '<div style="font-size:18px;font-weight:800;color:#1E3A8A !important;">🔐 访问登录</div>'
+                '<div style="font-size:12px;color:#64748B !important;margin-top:4px;">'
+                '输入访问账号与密码进入投研工作台</div>'
+                "</div>",
+                unsafe_allow_html=True,
+            )
+            user = st.text_input("账号", placeholder="请输入访问账号")
+            pw = st.text_input("密码", type="password", placeholder="请输入访问密码")
+            submitted = st.form_submit_button("进入系统", use_container_width=True, type="primary")
+            if submitted:
+                if user == APP_USER and pw == APP_PASSWORD:
+                    st.session_state["authenticated"] = True
+                    st.rerun()
+                else:
+                    st.error("❌ 账号或密码错误，请检查后重试（区分大小写）。")
+            st.markdown(
+                '<div style="margin-top:16px;padding-top:13px;border-top:1px dashed #D6E0EC;'
+                'font-size:12px;color:#64748B !important;line-height:1.95;">'
+                '<b style="color:#1E3A8A !important;">① 单公司深度分析</b>　联网取数 → 规则引擎四维评分 → 图表与风险提示<br>'
+                '<b style="color:#1E3A8A !important;">② 多公司横向对比</b>　2~5 家各按本行业基准评分，对照表 / 差额 / CSV 导出<br>'
+                '<b style="color:#1E3A8A !important;">③ 年报原文引用</b>　解析年报 PDF 后按页建库，结论标注「见年报第 X 页」<br>'
+                '<b style="color:#1E3A8A !important;">④ 同业对标基准</b>　消费 / 金融 / 新能源 / 医药 / 互联网 财务基准差异化<br>'
+                '<span style="color:#94A3B8 !important;">演示路径：取数 → 结构化分析 → 年度时间轴 → 生成研报 → 多公司对比</span>'
+                "</div>",
+                unsafe_allow_html=True,
+            )
         st.markdown(
-            """
-            <div style="background:#FFFFFF;border:1px solid #D6E0EC;border-radius:14px;
-                        padding:18px 20px;box-shadow:0 2px 10px rgba(30,64,175,.06);">
-              <div style="font-size:15px;font-weight:800;color:#1E3A8A;margin:0 0 10px 0;">
-                这套系统能做四件事
-              </div>
-              <div style="font-size:13px;line-height:2.0;color:#334155;">
-                <div><b style="color:#1E3A8A;">① 单公司深度分析</b> —— 联网取数 → 规则引擎四维评分 → 图表与风险提示，<span style="color:#64748B;">分数可复现，大模型只做解读</span></div>
-                <div><b style="color:#1E3A8A;">② 多公司横向对比</b> —— 2~5 家公司各自按本行业基准评分，程序生成对照表、差额与对比图，<span style="color:#64748B;">支持 CSV / 报告导出</span></div>
-                <div><b style="color:#1E3A8A;">③ 年报原文引用</b> —— 一键解析年报 PDF，按页建向量库，结论标注「见年报第 X 页」，<span style="color:#64748B;">并可回溯核对</span></div>
-                <div><b style="color:#1E3A8A;">④ 同业对标基准</b> —— 内置消费 / 金融 / 新能源 / 医药 / 互联网行业财务基准，<span style="color:#64748B;">同一 ROE 在不同行业得分不同</span></div>
-              </div>
-              <div style="margin-top:14px;padding-top:12px;border-top:1px dashed #D6E0EC;
-                          font-size:12px;color:#64748B;line-height:1.9;">
-                🟢 演示路径：取数 → 结构化分析 → 年度时间轴 → 生成研报 → 多公司对比<br>
-                🟡 页码引用需先在取数面板解析一份年报（约 40–80 秒）
-              </div>
-            </div>
-            """,
+            '<p style="text-align:center;font-size:12px;color:#A9C6E8 !important;'
+            'margin:16px 0 0 0;">🔒 本系统仅供大赛评审访问 · 分析结果仅供参考，不构成投资建议</p>',
             unsafe_allow_html=True,
         )
-
-    with _rc:
-        st.markdown(
-            '<div style="font-size:15px;font-weight:800;color:#1E3A8A;margin:2px 0 8px 0;">🔐 访问登录</div>',
-            unsafe_allow_html=True,
-        )
-        with st.container(border=True):
-            with st.form("login_form", clear_on_submit=False):
-                user = st.text_input("账号", placeholder="请输入访问账号")
-                pw = st.text_input("密码", type="password", placeholder="请输入访问密码")
-                submitted = st.form_submit_button("进入系统", use_container_width=True, type="primary")
-                if submitted:
-                    if user == APP_USER and pw == APP_PASSWORD:
-                        st.session_state["authenticated"] = True
-                        st.rerun()
-                    else:
-                        st.error("❌ 账号或密码错误，请检查后重试（区分大小写）。")
-            st.caption("🔒 本系统仅供大赛评审访问 · 分析结果仅供参考，不构成投资建议")
     return False
 
 if not check_login():
@@ -2659,6 +2695,79 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ---------------------------------------------------------------
+# 侧边栏导航（图标 + 文字）· 分析记录
+#
+# 为什么搬到侧边栏：导航与「分析记录」是**每一轮都要用的工具**，
+# 常驻在最左侧的侧边栏里比在主区占两列更省地方 —— 主区的横向与纵向
+# 都还给工作台，且侧边栏本来就有「常驻工具区」的语义。
+# 同时把纯图标换成「图标 + 文字」：只看 🏢 / ⚖️ / 📖 三个图形，
+# 没人知道哪个是「多公司对比」。
+#
+# ⚠️ 这两个函数必须定义在 `with st.sidebar:` **之前**：
+#    Streamlit 是按代码**执行顺序**往容器里追加元素的，
+#    把定义留在文件末尾、在模块级直接调用 → 先执行调用再定义 → NameError。
+# ---------------------------------------------------------------
+_NAV_ITEMS = [
+    ("🏢", "单公司深度分析"),
+    ("⚖️", "多公司对比"),
+    ("📖", "使用说明"),
+]
+
+
+def _render_icon_menu() -> None:
+    """侧边栏导航菜单（图标 + 文字）。点击切换右侧工作台视图。
+
+    用 `type="primary"` 表达「当前选中」——侧边栏宽度有限，
+    靠底色高亮比加文字标记更省地方。
+    """
+    _cur = st.session_state.get("main_view", "🏢")
+    for _icon, _label in _NAV_ITEMS:
+        if st.button(
+            f"{_icon} {_label}",
+            key=f"nav_btn_{_icon}",
+            use_container_width=True,
+            type="primary" if _icon == _cur else "secondary",
+        ):
+            st.session_state["main_view"] = _icon
+            st.rerun()
+
+
+def _render_history_list() -> None:
+    """侧边栏：本次会话的分析记录。
+
+    ⚠️ 明确边界：**只存 session_state，不做持久化**。
+    Streamlit Cloud 的文件系统是临时的，刷新页面即丢；
+    真要做"历史可恢复"必须外接存储（Supabase / Sheets / Redis），
+    那属于二期工程，这里先把位置与交互留出来。
+    """
+    st.markdown('<div class="hist-head">🕘 分析记录</div>', unsafe_allow_html=True)
+    _hist = st.session_state.get("analysis_history") or []
+    if not _hist:
+        st.caption("还没有分析记录。完成一次「🚀 开始结构化分析」后，这里会留下一条，可点回查看。")
+        st.caption("⚠️ 记录仅存于当前会话内存，刷新页面即清空（暂不做持久化）。")
+        return
+    st.caption(f"共 {len(_hist)} 条 · 仅本次会话有效")
+    # 定高容器 → 记录多了这一段自己滚动，不把侧边栏撑得老长
+    with st.container(height=210):
+        for _i in range(len(_hist) - 1, -1, -1):
+            _h = _hist[_i]
+            _on = st.session_state.get("hist_active") == _h.get("id")
+            _mark = "🔵 " if _on else ""
+            if st.button(
+                f"{_mark}{_h.get('name') or '—'} · {_h.get('code') or '—'}",
+                key=f"hist_btn_{_i}",
+                help="回看这条分析结果",
+                use_container_width=True,
+            ):
+                st.session_state["analysis"] = _h.get("analysis")
+                st.session_state["hist_active"] = _h.get("id")
+                st.rerun()
+            st.caption(
+                f"{_h.get('ts', '')} · {_h.get('industry', '')} · 综合 {_h.get('total', '—')}"
+            )
+
+
 with st.sidebar:
     # 品牌头（金色描边卡片，替代裸标题）
     st.markdown(
@@ -2667,32 +2776,14 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    # 快速上手（卡片）
+    # ---- 工作台导航 + 分析记录（原来在主区占两列，见文件末尾的说明）----
     st.markdown(
-        '<div class="sb-card"><div class="sb-title">🧭 快速上手</div>'
-        "<ol>"
-        "<li>选择行业财务基准（同业对标）</li>"
-        "<li>输入股票代码（如 600519）</li>"
-        "<li>点「🔍 获取数据」自动取数</li>"
-        "<li>点「🚀 开始结构化分析」</li>"
-        "</ol></div>",
+        '<div class="sb-title" style="margin:10px 0 2px 2px;">🧭 工作台导航</div>',
         unsafe_allow_html=True,
     )
-
-    # 当前版本能力（徽章墙，比 8 行列表紧凑）
-    st.markdown(
-        '<div class="sb-card"><div class="sb-title">⚙️ 当前版本能力</div>'
-        '<span class="sb-chip">🌐 在线取数</span>'
-        '<span class="sb-chip">📄 年报解析</span>'
-        '<span class="sb-chip">📚 RAG 检索</span>'
-        '<span class="sb-chip">四维评分</span>'
-        '<span class="sb-chip">📈 趋势图表</span>'
-        '<span class="sb-chip">📝 研报导出</span>'
-        '<span class="sb-chip">多公司对比</span>'
-        '<span class="sb-chip">多轮追问</span>'
-        "</div>",
-        unsafe_allow_html=True,
-    )
+    _render_icon_menu()
+    _render_history_list()
+    st.markdown("---")
 
     # 双模型开关 (Plan B)
     st.markdown('<div class="sb-title" style="margin:12px 0 2px 2px;">🤖 双模型协同</div>', unsafe_allow_html=True)
@@ -4265,16 +4356,24 @@ def _view_help():
         """
 ### 📖 使用说明
 
-**本智能体提供六大能力：**
+**快速上手（4 步）：**
+
+1. 左侧边栏选「🏢 单公司深度分析」，先选好**行业财务基准**（同业对标）
+2. 输入股票代码（如 `600519`），点「🔍 获取数据」自动取数
+3. 点「🚀 开始结构化分析」，结果分四个页签：📊 分析概览 / 🗓️ 年度时间轴 / 🧮 评分与依据 / 📝 研报
+4. 页面底部可直接**继续追问**；需要成稿就点「📝 生成完整研报」
+
+**主要能力：**
 
 | 功能 | 入口 | 说明 |
 |---|---|---|
-| 🌐 在线自动取数 | 「单公司深度分析」页顶部 | 输入股票代码/名称，自动从巨潮资讯网与东方财富获取行情、多期财务指标、年报 PDF，无需自己找财报 |
+| 🌐 在线自动取数 | 「🏢 单公司深度分析」顶部 | 输入股票代码/名称，自动从巨潮资讯网与东方财富获取行情、多期财务指标、年报 PDF，无需自己找财报 |
 | 📄 年报 PDF 云端解析 + RAG | 取数面板内 | 一键下载年报 → 按页切片构建向量索引；分析与追问自动检索相关章节，结论标注「见年报第X页」 |
-| 📐 规则引擎评分 | 「开始结构化分析」 | 四维评分由固定阈值规则计算（同一数据必然同一分数），页面可展开查看每个分数的完整依据链 |
-| 单公司深度分析 | 「单公司深度分析」页 | 一键得到四维评分、指标图表、年报口径趋势、风险与亮点 |
-| 💬 多轮追问 | 「单公司深度分析」页底部 | 基于数据与已有结论连续追问（问在上、答在中、**输入框在最下面**）；年报问题实时检索原文片段（带页码） |
-| ⚖️ 多公司对比 | 「多公司对比」页 | 2~5 家公司在线取数或手动输入，逐年对齐后生成对照表、差额、对比图与 CSV / 报告导出 |
+| 📐 规则引擎评分 | 「🚀 开始结构化分析」 | 四维评分由固定阈值规则计算（同一数据必然同一分数），页面可展开查看每个分数的完整依据链 |
+| 🏢 单公司深度分析 | 左侧边栏「🏢 单公司深度分析」 | 一键得到四维评分、指标图表、年报口径趋势、风险与亮点 |
+| 💬 多轮追问 | 「🏢 单公司深度分析」页底 | 基于数据与已有结论连续追问（问在上、答在中、**输入框在最下面**）；年报问题实时检索原文片段（带页码） |
+| ⚖️ 多公司对比 | 左侧边栏「⚖️ 多公司对比」 | 2~5 家公司在线取数或手动输入，逐年对齐后生成对照表、差额、对比图与 CSV / 报告导出 |
+| 🕘 分析记录 | 左侧边栏「🕘 分析记录」 | 本次会话做过的分析各留一条，点一下即可回看当时的评分、图表与证据（仅本次会话有效，刷新页面即清空） |
 | 📝 研报导出 | 各页的下载按钮 | 分析结果可保存为 Markdown 报告（双模型润色） |
 
 **行业财务基准库（同业对标）：**
@@ -4308,89 +4407,21 @@ def _view_help():
     )
 
 # ---------------------------------------------------------------
-# 三栏工作台：左（图标菜单）· 中（分析记录）· 右（工作台）
+# 工作台调度：侧边栏导航决定渲染哪个视图
 #
-# 为什么这么改：原来三个视图是顶部 st.tabs 横排页签，切一次要横向找，
-# 而且主内容一屏塞不下；改成三栏后 —— 导航固定在最左、分析记录常驻中间、
-# 工作台占最大面积，符合"研究工作台"的使用习惯。
+# 导航菜单与分析记录已经搬进侧边栏（定义在 `with st.sidebar:` 之前），
+# 所以这里只剩「按选中项调视图函数」一件事 —— 主区因此拿到完整宽度。
 #
-# ⚠️ 实现方式：把原来的 `with tabN:` 改成 `def _view_x():`，函数体缩进不变，
-#    所以三个视图内部上千行逻辑一行没动，只是换了调用入口。
+# ⚠️ 实现方式：三个视图是把原来的 `with tabN:` 改成 `def _view_x():`，
+#    函数体缩进不变，上千行内部逻辑一行没动，只是换了调用入口。
 # ---------------------------------------------------------------
-_NAV_ITEMS = [
-    ("🏢", "单公司深度分析"),
-    ("⚖️", "多公司对比（2~5 家）"),
-    ("📖", "使用说明"),
-]
-
-
-def _render_icon_menu() -> None:
-    """最左列：图标菜单（约 76px 宽）。点击切换右侧工作台视图。"""
-    _cur = st.session_state.get("main_view", "🏢")
-    for _icon, _label in _NAV_ITEMS:
-        if st.button(
-            _icon,
-            key=f"nav_btn_{_icon}",
-            help=_label,
-            use_container_width=True,
-            type="primary" if _icon == _cur else "secondary",
-        ):
-            st.session_state["main_view"] = _icon
-            st.rerun()
-    st.markdown('<div class="rail-cap">点击切换<br/>右侧工作台</div>', unsafe_allow_html=True)
-
-
-def _render_history_column() -> None:
-    """中列：本次会话的分析记录。
-
-    ⚠️ 明确边界：**只存 session_state，不做持久化**。
-    Streamlit Cloud 的文件系统是临时的，刷新页面即丢；
-    真要做"历史可恢复"必须外接存储（Supabase / Sheets / Redis），
-    那属于二期工程，这里先把位置与交互留出来。
-    """
-    st.markdown('<div class="hist-head">🕘 分析记录</div>', unsafe_allow_html=True)
-    _hist = st.session_state.get("analysis_history") or []
-    if not _hist:
-        st.caption("还没有分析记录。完成一次「🚀 开始结构化分析」后，这里会留下一条，可点回查看。")
-        st.caption("⚠️ 记录仅存于当前会话内存，刷新页面即清空（暂不做持久化）。")
-        return
-    st.caption(f"共 {len(_hist)} 条 · 仅本次会话有效")
-    for _i in range(len(_hist) - 1, -1, -1):
-        _h = _hist[_i]
-        _on = st.session_state.get("hist_active") == _h.get("id")
-        _mark = "🔵 " if _on else ""
-        if st.button(
-            f"{_mark}{_h.get('name') or '—'} · {_h.get('code') or '—'}",
-            key=f"hist_btn_{_i}",
-            help="回看这条分析结果",
-            use_container_width=True,
-        ):
-            st.session_state["analysis"] = _h.get("analysis")
-            st.session_state["hist_active"] = _h.get("id")
-            st.rerun()
-        st.caption(
-            f"{_h.get('ts', '')} · {_h.get('industry', '')} · 综合 {_h.get('total', '—')}"
-        )
-
-
-_nav_col, _hist_col, _work_col = st.columns([0.62, 2.0, 9.2], gap="small")
-
-with _nav_col:
-    _render_icon_menu()
-
-with _hist_col:
-    # 定高容器 → 记录多了中列自己滚动，不把整页撑长
-    with st.container(height=460):
-        _render_history_column()
-
-with _work_col:
-    _v = st.session_state.get("main_view", "🏢")
-    if _v == "⚖️":
-        _view_compare()
-    elif _v == "📖":
-        _view_help()
-    else:
-        _view_single()
+_v = st.session_state.get("main_view", "🏢")
+if _v == "⚖️":
+    _view_compare()
+elif _v == "📖":
+    _view_help()
+else:
+    _view_single()
 
 st.divider()
 st.markdown(

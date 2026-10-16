@@ -48,20 +48,45 @@ def ss(at, k, default=None):
         return default
 
 
-def order_of(at):
-    """按 delta_path 的整数索引做深度优先遍历，返回元素的真实屏幕顺序（类名列表）。"""
+def _seq_of(node):
+    """对某个容器做深度优先遍历（按 delta_path 的整数索引），返回类名顺序。"""
     seq = []
 
-    def walk(node):
+    def walk(n):
         # 容器节点（chat_message 本身就是 Block）也要记名字，否则找不到它
-        seq.append(type(node).__name__)
-        ch = getattr(node, "children", None)
+        seq.append(type(n).__name__)
+        ch = getattr(n, "children", None)
         if isinstance(ch, dict):
             for k in sorted(ch):
                 walk(ch[k])
 
-    walk(at.main)
+    walk(node)
     return seq
+
+
+def order_of(at):
+    """页面上的元素先后顺序（类名列表）。
+
+    ⚠️ 必须遍历**整棵树**（at._tree），不能只遍历 at.main：
+
+    ``st.chat_input`` 的定位由「父容器」决定（streamlit/elements/widgets/chat.py）——
+    直接挂在**页面主体最外层**时是 ``position="bottom"``（钉在页面底部），
+    套进任何容器（tab / column / container）里都退化成 ``position="inline"``。
+
+    bottom 形态下 chat_input **不是 at.main 的子节点**，Streamlit 会把它放进
+    根节点下另一个独立的 Block（实测 index=3，index 0=main、1=sidebar）。
+    只 walk main 会直接 ``ValueError: 'ChatInput' is not in list`` ——
+    看起来像"输入框没了"，其实只是换了容器。
+
+    遍历顺序按根节点子索引升序：main → sidebar → 底部块，
+    正好等价于「主区内容在上、钉底输入框在下」，可以直接拿来比较先后。
+    """
+    return _seq_of(at._tree)
+
+
+def order_of_main(at):
+    """只取主区（at.main）的顺序，用来判断输入框是内联还是钉底。"""
+    return _seq_of(at.main)
 
 
 def boot():
@@ -138,8 +163,15 @@ check("关键：生成回答的那一轮，输入框**仍然渲染**（修掉 `a
       len(at.chat_input) >= 1)
 _seq = order_of(at)
 _last_msg = len(_seq) - 1 - _seq[::-1].index("ChatMessage")
-check("本轮新增的问答也落在输入框上方", _seq.index("ChatInput") > _last_msg,
-      str(_seq[-8:]))
+# 输入框有两种合法形态，都满足「问在上、答在中、输入框在最下面」：
+#   · 在 at.main 里 → 内联在追问区（外面套了 tab/column/container）
+#   · 不在 at.main 里 → Streamlit 把它 position="bottom" 钉在页面底部
+# 改版后单公司视图直接在页面主体根层调用，于是变成后者（钉底）。
+# 这里只报告形态、不做硬断言 —— 硬断言会把它钉死成某一种，反而变脆。
+_where = ("内联在追问区（position=inline）" if "ChatInput" in order_of_main(at)
+          else "钉在页面底部（position=bottom）")
+check(f"本轮新增的问答也落在输入框上方（输入框形态：{_where}）",
+      _seq.index("ChatInput") > _last_msg, str(_seq[-8:]))
 
 print("=== 源码层面的顺序约束（防止以后被改回去） ===")
 _i_in = SRC.index("st.chat_input(")

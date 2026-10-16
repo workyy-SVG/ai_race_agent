@@ -279,15 +279,27 @@ _check("pipeline 端到端：证据卡定位到第 42 页",
 _check("pipeline 端到端：引用正确率 100%", _res["citation"]["rate"] == 1.0)
 
 # ---------------------------------------------------------------------------
-print("=== P2-01 三栏工作台：图标菜单 / 分析记录 / 页签化 ===")
+print("=== P2-01 侧边栏导航（图标+文字）/ 分析记录 / 结果页签化 ===")
 
-# 1) 左列图标菜单
+# 1) 侧边栏导航菜单：图标 + 文字
 at4 = _boot()
 _navs = {b.key: b for b in at4.get("button") if (b.key or "").startswith("nav_btn_")}
-_check("左列图标菜单三个入口都在（单公司/对比/说明）", len(_navs) == 3, str(sorted(_navs)))
+_check("导航三个入口都在（单公司/对比/说明）", len(_navs) == 3, str(sorted(_navs)))
+_check("导航按钮全部落在侧边栏（主区不再占一列）",
+       len([b for b in at4.sidebar.get("button")
+            if (b.key or "").startswith("nav_btn_")]) == 3,
+       str([b.key for b in at4.sidebar.get("button")]))
+_check("导航按钮是「图标 + 文字」而不是纯图标",
+       all(len(str(b.label or "").strip()) > 3 for b in _navs.values()),
+       str([str(b.label) for b in _navs.values()]))
 _check("默认停在单公司视图", _ss(at4, "main_view", "🏢") == "🏢")
+_check("当前选中项高亮（type=primary，侧边栏窄放不下文字标记）",
+       sum(1 for b in _navs.values() if b.proto.type == "primary") == 1,
+       str([(str(b.label), b.proto.type) for b in _navs.values()]))
 _check("单公司视图渲染了行业基准选择器",
        any((r.key or "") == "industry_widget" for r in at4.radio))
+_check("侧边栏不再摆「快速上手 / 当前版本能力」静态卡片（让位给高频导航）",
+       ("快速上手" not in _md(at4)) and ("当前版本能力" not in _md(at4)))
 
 # 2) 切到对比视图（一次只渲染一个视图，切过去才该有对比控件）
 at4.session_state["main_view"] = "⚖️"
@@ -296,24 +308,31 @@ _check("切到「多公司对比」后出现对比控件",
        any((c.key or "") == "cmp0_use_online" for c in at4.checkbox),
        str([c.key for c in at4.checkbox][:6]))
 
-# 3) 切到使用说明
+# 3) 切到使用说明：原侧边栏「快速上手」4 步并入这里，内容不丢
 at4.session_state["main_view"] = "📖"
 at4.run()
 _check("切到「使用说明」后渲染说明正文", "使用说明" in _md(at4))
+_check("「使用说明」承接了快速上手 4 步（内容没丢，只是换了地方）",
+       "快速上手" in _md(at4))
+_check("「使用说明」记录了侧边栏导航入口", "左侧边栏" in _md(at4))
 
-# 4) 中列分析记录：空态 + 有记录
+# 4) 侧边栏分析记录：空态 + 有记录
 at5 = _boot()
-_check("无记录时中列给出占位说明", "还没有分析记录" in _cap(at5))
-_check("中列明确声明不持久化（刷新即清空）",
+_check("无记录时给出占位说明", "还没有分析记录" in _cap(at5))
+_check("明确声明不持久化（刷新即清空）",
        ("刷新页面即清空" in _cap(at5)) or ("刷新即清空" in _cap(at5)))
 at5.session_state["analysis_history"] = [
     {"id": "t1", "code": "600519", "name": "贵州茅台", "industry": "消费",
      "total": 8.5, "ts": "12:00:00", "analysis": {}},
 ]
 at5.run()
-_check("有记录后中列出现可点击条目",
-       any((b.key or "").startswith("hist_btn_") for b in at5.get("button")),
-       str([b.key for b in at5.get("button") if "hist" in (b.key or "")]))
+_hbs = [b for b in at5.sidebar.get("button") if (b.key or "").startswith("hist_btn_")]
+_check("有记录后侧边栏出现可点击条目（不再占主区一列）", len(_hbs) == 1,
+       str([b.key for b in at5.sidebar.get("button") if "hist" in (b.key or "")]))
+_check("记录条目显示「公司名 · 代码」",
+       bool(_hbs) and "贵州茅台" in str(_hbs[0].label) and "600519" in str(_hbs[0].label),
+       str(_hbs[0].label) if _hbs else "—")
+
 
 # 5) 页签化：源码层面确认结果区拆成四个子页签
 _check("结果区已页签化（概览/时间轴/评分与依据/研报）",
@@ -321,10 +340,72 @@ _check("结果区已页签化（概览/时间轴/评分与依据/研报）",
 _check("页签内容由独立 _tab*_ 函数承载（避免为改布局批量改缩进）",
        SRC.count("def _tab1_") >= 1 and "def _tab4():" in SRC)
 
-# 6) 大横幅已下线：hero 只剩登录页一处，主页面改用紧凑顶栏
-_check("主页面不再渲染三行大横幅（hero 仅登录页保留）",
-       SRC.count('<div class="hero"') == 1, str(SRC.count('<div class="hero"')))
+# 6) 大横幅已下线（P3-01 后连登录页也不再使用 hero）
+_check("全站不再使用 100px 大横幅（hero 已下线）",
+       SRC.count('class="hero"') == 0, str(SRC.count('class="hero"')))
 _check("主页面改用紧凑顶栏（topbar）", 'class="topbar"' in SRC)
+
+# 7) 布局搬迁的结构性守卫（这两条是最容易踩的坑）
+_check("导航/记录函数定义在其调用点之前（模块级调用先于定义会 NameError）",
+       SRC.index("def _render_icon_menu") < SRC.index("\n    _render_icon_menu()")
+       and SRC.index("def _render_history_list") < SRC.index("\n    _render_history_list()"))
+_check("侧边栏默认展开（导航在里面，默认折叠会让主区看起来像空白）",
+       'initial_sidebar_state="expanded"' in SRC)
+_check("主区不再用 st.columns 模拟「图标列 + 记录列」",
+       "_nav_col, _hist_col, _work_col" not in SRC)
+_check("旧的中列函数名已清理（避免留下两套实现）",
+       "_render_history_column" not in SRC)
+
+# ---------------------------------------------------------------------------
+print("=== P3-01 全屏沉浸式登录页（方案 3）===")
+
+# 1) 源码层：样式只在未登录分支注入
+_check("登录页样式常量存在（LOGIN_CSS）", "LOGIN_CSS = " in SRC)
+_check("LOGIN_CSS 只在未登录分支注入（登录后不得残留深色背景）",
+       SRC.count("st.markdown(LOGIN_CSS") == 1
+       and SRC.index("def check_login") < SRC.index("st.markdown(LOGIN_CSS"))
+_check("全屏深蓝渐变背景", "linear-gradient(160deg, #0B1F3A" in SRC)
+_check("登录前隐藏侧边栏（导航/额度/退出登录都不该出现）",
+       'section[data-testid="stSidebar"] { display: none !important; }' in SRC)
+_check("白卡 = 登录表单本体（radius 16 + 金色描边 + 大投影）",
+       '[data-testid="stForm"]' in SRC and "border-radius: 16px" in SRC)
+_check("登录按钮加大 + 金色描边",
+       '[data-testid="stFormSubmitButton"] button' in SRC)
+_check("深色底文字白名单齐备（否则全局 p/div 规则会把字压成 #334155 看不见）",
+       all(c in SRC for c in ("#F8FAFC", "#DBEAFE", "#A9C6E8", "#F5C563")))
+
+# 2) 运行时：未登录 → 深色样式在、侧边栏为空、表单可交互
+at6 = AppTest.from_file(APP, default_timeout=240)
+at6.run()
+_check("未登录时无异常", not [str(e.value)[:200] for e in at6.exception],
+       str([str(e.value)[:200] for e in at6.exception]))
+_check("未登录时注入了全屏渐变样式", "linear-gradient(160deg" in _md(at6))
+_check("未登录时侧边栏里没有任何元素（导航/记录都不该渲染）",
+       len(at6.sidebar.get("button")) == 0,
+       str([b.key for b in at6.sidebar.get("button")]))
+_check("未登录时登录表单齐备（账号/密码/提交按钮）",
+       len(at6.get("text_input")) >= 2
+       and any("进入系统" in str(b.label) for b in at6.get("button")),
+       str([str(b.label) for b in at6.get("button")]))
+
+# 3) 错误凭据：给出提示且不放行
+at6.get("text_input")[0].set_value("wrong_user")
+at6.get("text_input")[1].set_value("wrong_pw")
+next(b for b in at6.get("button") if "进入系统" in str(b.label)).click().run()
+_check("密码错误时明确提示且不放行",
+       bool(at6.error) and not _ss(at6, "authenticated", False),
+       str([str(e.value)[:60] for e in at6.error]))
+
+# 4) 演示链接（?key=）可进入，且进入后深色背景不残留
+at7 = AppTest.from_file(APP, default_timeout=240)
+at7.query_params["key"] = "ai2026demo"
+at7.run()
+_check("演示令牌（?key=）可免登录进入", bool(_ss(at7, "authenticated", False)))
+_check("进入工作台后不再注入全屏渐变（深色背景不会带进来）",
+       "linear-gradient(160deg" not in _md(at7))
+_check("进入工作台后侧边栏导航出现（3 个入口）",
+       len([b for b in at7.sidebar.get("button")
+            if (b.key or "").startswith("nav_btn_")]) == 3)
 
 print()
 if FAILS:
