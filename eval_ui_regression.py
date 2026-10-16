@@ -443,9 +443,13 @@ _check("自定义类的 px 字号同步上调（px 不随根字号变，必须�
        "font-size: 30px; font-weight: 800; color: #0B1F3A !important;" in SRC   # .ph-title
        and ".step-head .sh-title { font-size: 17px;" in SRC
        and "width: 23px; height: 23px; border-radius: 7px;" in SRC)              # .sh-num
-_check("登录页字号同步放大（标题 36px / 按钮 17px）",
-       ".login-brand .lb-title {" in SRC and "font-size: 36px" in SRC
-       and "font-size: 17px !important;" in SRC)
+_check("登录页字号同步放大（标题 40px / 按钮 18px）",
+       ".login-brand .lb-title {" in SRC and "font-size: 40px" in SRC
+       and "font-size: 18px !important;" in SRC)
+_check("品牌区（AI 六边形 + 大赛徽章 + 主标题）整体再加大并居中",
+       "width: 100px; height: 113px; margin: 0 auto 20px auto;" in SRC
+       and "font-size: 14.5px; letter-spacing: 2px;" in SRC
+       and "margin:3.5vh auto 22px auto;" in SRC)
 
 # ② 有些字看不清 → 辅色从 #64748B（浅蓝灰底上仅 3.77:1）换成 #475569 / #3B4A5F
 _check("主区辅色不再用 #64748B 当文字色（画布上只有 3.77:1，不合格）",
@@ -564,10 +568,10 @@ _check("卡内报错提示在深色卡上可见（否则红字压深底看不见
 _check("账号/密码标签**外置**，框内放小号英文占位符",
        'st.text_input("账号", placeholder="Account")' in SRC
        and 'st.text_input("密码", type="password", placeholder="Password")' in SRC)
-_check("占位符字号小于外置标签（13px < 15.5px，框内更轻）",
+_check("占位符字号小于外置标签（13.5px < 16.5px，框内更轻）",
        "input::placeholder" in SRC
-       and "font-size: 13px !important" in SRC
-       and "font-size: 15.5px !important" in SRC)
+       and "font-size: 13.5px !important" in SRC
+       and "font-size: 16.5px !important" in SRC)
 _check("品牌区用 div 而非 h1（避开 Streamlit 锚点图标 + 全站标题样式覆盖）",
        'class="lb-title"' in SRC and 'class="login-brand"' in SRC)
 _check("品牌区有发光六边形 AI 徽标（CSS 画的，不需要图片资源）",
@@ -579,20 +583,94 @@ _check("登录页加了装饰层容器（fixed + pointer-events:none，不挡点
        and "pointer-events: none" in SRC)
 _check("主内容抬到装饰层之上（fixed 元素默认会盖住静态内容 → 必须显式抬层）",
        '[data-testid="stMainBlockContainer"] { position: relative; z-index: 3; }' in SRC)
+
+# 先把两段注入 HTML 抽出来（LOGIN_DECO / LOGIN_BRAND 都是"多行源码、单行字符串"）
+# —— 后面的断言要用它们，尤其是"面板必须正好 6 块"：
+#     直接数 SRC 会被 CSS 注释里的同名字面量污染，必须只数真正的 HTML 值。
+_deco_blk = SRC.split("LOGIN_DECO = (", 1)[1].split("\n)\n", 1)[0]
+_brand_blk = SRC.split("LOGIN_BRAND = (", 1)[1].split("\n)\n", 1)[0]
+_deco_val = "".join(_deco_blk.split("'")[1::2])
+_brand_val = "".join(_brand_blk.split("'")[1::2])
 _check("两侧 6 块悬浮数据面板（走势曲线 / 财务指标 / 关系网络 / 指标摘要 / 财务评分 / 风险评分）",
-       SRC.count('class="lb-panel"') == 6
-       and all(k in SRC for k in ("■ 走势曲线", "■ 财务指标", "■ 公司关系网络",
-                                  "■ 指标摘要", "■ 财务评分", "■ 风险评分")))
+       _deco_val.count('class="lb-panel"') == 6
+       and all(k in _deco_val for k in ("■ 走势曲线", "■ 财务指标", "■ 公司关系网络",
+                                        "■ 指标摘要", "■ 财务评分", "■ 风险评分")),
+       f"panels={_deco_val.count('lb-panel')}")
 _check("品牌区背后有旋转光环 + 锥形扫描光（@keyframes 动画）",
        'class="lb-ring"' in SRC and 'class="lb-scan"' in SRC
        and "@keyframes lb-spin" in SRC and "animation: lb-spin 18s linear infinite" in SRC)
 _check("底部透视网格（渐隐遮罩，做「地面」）+ 窄屏自动隐藏装饰",
        'class="lb-grid"' in SRC and "mask-image: linear-gradient(to top" in SRC
-       and "@media (max-width: 1280px) { .lb-side { display: none; } }" in SRC)
+       and "@media (max-width: 1150px) { .lb-side { display: none; } }" in SRC)
+
+# v8：三条修复 —— ① 代码块泄漏（真事故）② 横向变宽 ③ 面板放大提亮
+# 事故复盘：v7 把装饰 HTML 写成"带缩进 + 中间夹空行"的多行字符串 →
+# markdown-it 的 HTML 块遇空行就结束，剩下的行退回 markdown 解析；
+# Streamlit 又先去公共缩进，剩 4 空格正好触发**缩进代码块**
+# → 登录页直接打印出面板源码（6 块只渲染出 2 块）。
+_check("注入的 HTML 一律单行（含缩进/空行就会掉进 markdown 缩进代码块，页面直接打印源码）",
+       "\n" not in _deco_val and "\n" not in _brand_val
+       and _deco_val.startswith('<div class="lb-deco"')
+       and _brand_val.startswith('<div class="login-brand"'),
+       f"deco_len={len(_deco_val)} brand_len={len(_brand_val)}")
+_check("源码里不再出现「多行缩进的面板 HTML」（那正是事故的形态）",
+       '\n        <div class="lb-panel">' not in SRC)
+_check("登录页横向变宽：容器上限 1320→1560 + 中列 1.5→2.2（治折行，不是拔高字号）",
+       ".block-container { max-width: 1560px !important; }" in SRC
+       and "st.columns([1, 2.2, 1])" in SRC)
+_check("品牌区宽度 680→980px（说明文字一行铺开，不再折成两行）",
+       "max-width:980px;" in SRC)
+_check("装饰面板放大（宽 clamp(270px,16vw,350px) + 内边距 13/16 + 圆角 14）",
+       "width: clamp(270px, 16vw, 350px);" in SRC
+       and "padding: 13px 16px 14px 16px;" in SRC)
+_check("面板文字放大提亮（标题 16px 青 / 行文字 14.5px #DCEBFF / 数值 15px 白）",
+       "font-size: 16px; font-weight: 700; letter-spacing: 1.2px;" in SRC
+       and "font-size: 14.5px; color: #DCEBFF !important;" in SRC
+       and ".lb-panel .lp-row b { color: #FFFFFF !important; font-size: 15px; }" in SRC)
+_check("面板标签列显式上色（全站 p/li/span/div{color:#334155} 是直接规则，会盖掉继承来的浅色）",
+       ".lb-panel .lp-row span { color: #DCEBFF !important; }" in SRC)
+_check("面板插画按比例放大（保留 viewBox，只改 width/height 等比缩放 + 铺满面板宽度）",
+       'width="272"' in SRC and "width: 100%; height: auto;" in SRC)
+
+# ⭐ 最强的一条：用 markdown-it（与 Streamlit 前端同源的 CommonMark 规则）真解析一遍。
+# 只要输出里出现 <pre>，就说明这段 HTML 又被判成了"缩进代码块"→ 页面会直接打印源码。
+# 这条断言能 100% 复现并守住 v7 那次事故（当时 6 块面板只有 2 块渲染、4 块变代码）。
+try:
+    from markdown_it import MarkdownIt
+    _md_parser = MarkdownIt("commonmark", {"html": True})
+    _deco_html = _md_parser.render(_deco_val)
+    _check("装饰 HTML 经 markdown-it 解析：0 个代码块 + 6 块面板原样通过",
+           "<pre>" not in _deco_html and _deco_html.count('class="lb-panel"') == 6,
+           f"pre={_deco_html.count('<pre>')} panels={_deco_html.count('lb-panel')}")
+    _check("品牌区 HTML 经 markdown-it 解析：0 个代码块",
+           "<pre>" not in _md_parser.render(_brand_val))
+    # 反向验证：把 v7 的错误写法（多行 + 缩进 + 空行）喂进去，必须能复现出代码块
+    _bad = _deco_val.replace("</div><div", "</div>\n\n          <div", 1).replace(
+        '<div class="lb-deco"', "\n        <div class=\"lb-deco\"", 1)
+    _bad_html = MarkdownIt("commonmark", {"html": True}).render(_bad)
+    _check("反向验证：多行/缩进/空行的写法确实会被判成代码块（说明这条断言有效）",
+           "<pre>" in _bad_html)
+except ImportError:
+    print("  SKIP  未安装 markdown-it（不影响其它断言）")
+
+# 通用守卫：不只登录页，全文件扫一遍所有多行 markdown 注入体，
+# 禁止"空行之后跟 4 空格以上缩进的 HTML 行"这种写法（那正是变代码块的形态）。
+import re as _re
+_bad_inject = []
+for _m in _re.finditer(r'st\.markdown\(\s*"""(.*?)"""', SRC, _re.S):
+    _lines = _m.group(1).split("\n")
+    for _i, _ln in enumerate(_lines):
+        if _re.match(r"^\s{4,}<", _ln) and any(
+                not _lines[_j].strip() for _j in range(max(0, _i - 3), _i)):
+            _bad_inject.append((_i, _ln.strip()[:40]))
+_check("全文件多行注入里没有「空行 + 4 空格缩进 HTML」写法（会掉进缩进代码块）",
+       not _bad_inject, str(_bad_inject[:3]))
 
 # v5 登录页文案：数据源统一口径 + 去掉"系统"字样
 # （品牌是 Agent，不是传统后台系统；"登录系统/进入系统"这类措辞与定位冲突）
-_LOGIN_ZONE = SRC.split("def check_login", 1)[-1].split("if not check_login()", 1)[0]
+# ⚠️ v8：品牌文案已抽成 LOGIN_BRAND 常量（放在 check_login 之前），
+#    所以"登录页片区"要从常量定义处开始切，否则文案断言会扑空。
+_LOGIN_ZONE = SRC[SRC.index("LOGIN_DECO = ("):SRC.index("if not check_login()")]
 _check("登录页来源文案改成「数据源类型式」（用户三选一里的第二档）",
        "交易所公开披露数据 · 上市公司年报 · 财务指标库" in _LOGIN_ZONE)
 _check("登录页不再点名具体数据源接口（巨潮 / 东方财富）",

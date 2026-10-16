@@ -1262,6 +1262,13 @@ LOGIN_CSS = """
      挡点击，但网格线/光环仍会压到文字上。所以这里给主内容一个更高的层叠级别，
      让"装饰永远在文字下面"，一劳永逸。 */
   [data-testid="stMainBlockContainer"] { position: relative; z-index: 3; }
+  /* v8：登录页要"**横向**变大，不要竖着变大"（用户原话）。
+     病根不在字号 —— 是全站 `.block-container` 上限 1320px 对登录页太窄，
+     说明文字反复折行（"…CSV 导 / 出"、"…不构成投资建 / 议"），
+     卡片就长成又高又瘦的一条。登录页单独放宽到 1560px + 中列加宽，
+     文案改成横向铺开 → 视觉变宽，行数变少，而不是整体拔高。
+     ⚠️ 这段 CSS 只在未登录分支注入，工作台宽度不受影响。 */
+  .block-container { max-width: 1560px !important; }
   header[data-testid="stHeader"] { background: transparent !important; }
   /* 顶栏工具栏（Share / 星标 / GitHub）在深底上是深色图标 → 显式改浅 */
   [data-testid="stAppToolbar"] svg, [data-testid="stAppHeader"] svg {
@@ -1278,7 +1285,7 @@ LOGIN_CSS = """
     border: 1px solid rgba(103, 232, 249, 0.30) !important;
     border-top: 3px solid #22D3EE !important;
     border-radius: 16px !important;
-    padding: 24px 26px 20px 26px !important;
+    padding: 26px 30px 22px 30px !important;
     box-shadow: 0 18px 44px rgba(2, 10, 26, 0.55),
                 inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
   }
@@ -1288,9 +1295,9 @@ LOGIN_CSS = """
   [data-testid="stForm"] [data-testid="stWidgetLabel"] label,
   [data-testid="stForm"] label[data-testid="stWidgetLabel"] p {
     color: #EAF2FF !important;
-    font-size: 15.5px !important;
+    font-size: 16.5px !important;
     font-weight: 700 !important;
-    letter-spacing: .2px;
+    letter-spacing: .4px;
   }
 
   /* 输入框：半透明白底 + 青色描边；框内是「小号英文」提示 */
@@ -1299,8 +1306,8 @@ LOGIN_CSS = """
     border: 1px solid rgba(150, 190, 240, 0.34) !important;
     border-radius: 9px !important;
     color: #EAF2FF !important;
-    font-size: 15.5px !important;
-    padding: 10px 13px !important;
+    font-size: 16.5px !important;
+    padding: 11px 14px !important;
   }
   [data-testid="stForm"] input:focus {
     border-color: #22D3EE !important;
@@ -1308,7 +1315,7 @@ LOGIN_CSS = """
   }
   [data-testid="stForm"] input::placeholder {
     color: #A9C0E6 !important;
-    font-size: 13px !important;
+    font-size: 13.5px !important;
     letter-spacing: .3px;
   }
   /* 密码框的「显示/隐藏」眼睛图标 */
@@ -1322,10 +1329,10 @@ LOGIN_CSS = """
     color: #052438 !important;
     border: none !important;
     border-radius: 10px !important;
-    padding: 12px 18px !important;
-    font-size: 17px !important;
+    padding: 13px 18px !important;
+    font-size: 18px !important;
     font-weight: 800 !important;
-    letter-spacing: 1px;
+    letter-spacing: 1.6px;
     box-shadow: 0 8px 22px rgba(34, 211, 238, 0.30) !important;
   }
   [data-testid="stFormSubmitButton"] button:hover {
@@ -1350,32 +1357,32 @@ LOGIN_CSS = """
      v7：外面再套两圈旋转光环（.lb-ring），把"中间一个孤零零的六边形"变成
      "一颗悬浮在环形轨道上的核心"，是整页最省力也最见效的科技感来源。 */
   .login-brand .lb-orb {
-    width: 88px; height: 99px; margin: 0 auto 20px auto;
+    width: 100px; height: 113px; margin: 0 auto 20px auto;
     clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
     background: linear-gradient(160deg, #22D3EE 0%, #3B82F6 100%);
-    box-shadow: 0 0 34px rgba(34, 211, 238, 0.55);
+    box-shadow: 0 0 38px rgba(34, 211, 238, 0.55);
     display: flex; align-items: center; justify-content: center;
-    font-size: 30px; font-weight: 900; letter-spacing: 1px;
+    font-size: 34px; font-weight: 900; letter-spacing: 1px;
     color: #052438 !important;
   }
   .login-brand .lb-badge {
-    display: inline-block; font-size: 13px; letter-spacing: 1.2px;
+    display: inline-block; font-size: 14.5px; letter-spacing: 2px;
     color: #7FE9FF !important; background: rgba(34, 211, 238, 0.10);
     border: 1px solid rgba(103, 232, 249, 0.42); border-radius: 999px;
-    padding: 5px 16px; margin-bottom: 15px;
+    padding: 6px 22px; margin-bottom: 16px;
   }
   /* ⚠️ 这里刻意用 <div> 而不是 <h1>：Streamlit 会给 markdown 标题自动塞一个
      深色的「跳转到本节」锚点图标，压在任何底上都是一块脏点；
      用 div 就完全不会生成锚点，也顺带躲开了全站 h3/h4/h5 的样式覆盖。 */
   .login-brand .lb-title {
-    color: #FFFFFF !important; font-size: 36px; font-weight: 800;
-    margin: 0 0 9px 0; letter-spacing: 1px;
+    color: #FFFFFF !important; font-size: 40px; font-weight: 800;
+    margin: 0 0 10px 0; letter-spacing: 2px;
     text-shadow: 0 2px 18px rgba(34, 211, 238, 0.28);
   }
   .login-brand .lb-title em { color: #7FE9FF !important; font-style: normal; }
-  .login-brand .lb-sub { color: #CBDCF6 !important; font-size: 15.5px; margin: 0; }
-  .login-brand .lb-note { color: #A9C0E6 !important; font-size: 13.5px; margin-top: 8px; }
-  .login-foot { text-align: center; font-size: 13.5px; color: #A9C0E6 !important; margin: 18px 0 0 0; }
+  .login-brand .lb-sub { color: #CBDCF6 !important; font-size: 17.5px; margin: 0; letter-spacing: .4px; }
+  .login-brand .lb-note { color: #A9C0E6 !important; font-size: 15.5px; margin-top: 9px; letter-spacing: .3px; }
+  .login-foot { text-align: center; font-size: 15px; color: #A9C0E6 !important; margin: 18px 0 0 0; letter-spacing: .2px; }
 
   /* ==========================================================
      v7 新增：登录页科技装饰层（用户："不要只给我一个登录的账号，
@@ -1387,7 +1394,18 @@ LOGIN_CSS = """
        ④ .lb-grid  —— 底部透视网格（渐隐遮罩，像"地面"）
        ⑤ .lb-side  —— 左右两侧的悬浮数据面板（迷你折线/圆环/节点网络）
      ⚠️ 这些元素都压在主内容**下面**（主内容 z-index:3，见文件上方），
-        所以即使窄屏重叠也不会糊住文字；≤1200px 时两侧面板直接隐藏。 */
+        所以即使窄屏重叠也不会糊住文字；< 1150px 时两侧面板直接隐藏。
+
+     v8 修复（用户："给我放这两个上去是什么意思？代码有点让人感觉不舒服"）：
+        v7 把这段装饰 HTML 写成了**带缩进、中间夹空行的多行字符串**，
+        markdown-it 遇到空行就结束 HTML 块，剩下的行按 markdown 解析；
+        而 Streamlit 会对整段做"去公共缩进"，剩下的行正好还剩 4 空格缩进
+        → 触发 markdown 的**缩进代码块**，登录页上直接打印出一大坨
+        `div.lb-panel` / `rect` / `circle` 源码（6 块面板只有 2 块渲染成功，
+        另外 4 块变成了代码块）。
+      → 结论：**注入 HTML 一律写成"一整行、无缩进、无空行"的字符串**
+        （见文件下方的 LOGIN_DECO / LOGIN_BRAND 常量），
+        这样整段就是一个 HTML 块，永远不会掉进代码块分支。 */
   .lb-deco { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
   .lb-ring {
     position: absolute; left: 50%; top: 5vh; transform: translateX(-50%);
@@ -1414,36 +1432,158 @@ LOGIN_CSS = """
     -webkit-mask-image: linear-gradient(to top, rgba(0,0,0,.9), transparent);
     mask-image: linear-gradient(to top, rgba(0,0,0,.9), transparent);
   }
-  .lb-side { position: absolute; top: 50%; transform: translateY(-50%); width: 236px; }
-  .lb-side.l { left: 2.2vw; }
-  .lb-side.r { right: 2.2vw; }
+  .lb-side { position: absolute; top: 50%; transform: translateY(-50%);
+             width: clamp(270px, 16vw, 350px); }
+  .lb-side.l { left: 1.6vw; }
+  .lb-side.r { right: 1.6vw; }
   .lb-panel {
-    background: rgba(9, 26, 56, 0.60);
-    border: 1px solid rgba(103, 232, 249, 0.24);
-    border-top: 2px solid rgba(103, 232, 249, 0.55);
-    border-radius: 12px;
-    padding: 9px 12px 10px 12px;
-    margin-bottom: 16px;
-    box-shadow: 0 12px 30px rgba(2, 10, 26, 0.42);
+    background: rgba(11, 31, 64, 0.86);
+    border: 1px solid rgba(103, 232, 249, 0.34);
+    border-top: 3px solid rgba(103, 232, 249, 0.62);
+    border-radius: 14px;
+    padding: 13px 16px 14px 16px;
+    margin-bottom: 18px;
+    box-shadow: 0 14px 34px rgba(2, 10, 26, 0.46);
   }
   .lb-panel .lp-head {
-    font-size: 12.5px; font-weight: 700; letter-spacing: 1px;
-    color: #7FE9FF !important; margin-bottom: 7px;
+    font-size: 16px; font-weight: 700; letter-spacing: 1.2px;
+    color: #7FE9FF !important; margin-bottom: 10px;
   }
   .lb-panel .lp-row {
-    display: flex; justify-content: space-between; gap: 8px;
-    font-size: 12px; color: #CBDCF6 !important; line-height: 1.9;
+    display: flex; justify-content: space-between; gap: 10px;
+    font-size: 14.5px; color: #DCEBFF !important; line-height: 1.95;
   }
-  .lb-panel .lp-row b { color: #FFFFFF !important; }
+  /* ⚠️ 必须**显式**给 span 上色：全站有一条 `p, li, span, div { color: #334155 }`，
+     它是直接规则，会盖掉从 .lp-row 继承下来的浅色 → 深灰字压深蓝底，
+     用户看到的就是"指标名那一列看不清"（v8 实际事故：面板里标签列几乎隐形）。 */
+  .lb-panel .lp-row span { color: #DCEBFF !important; }
+  .lb-panel .lp-row b { color: #FFFFFF !important; font-size: 15px; }
   .lb-panel .lp-bar {
-    height: 6px; border-radius: 999px; margin-top: 8px;
+    height: 9px; border-radius: 999px; margin-top: 10px;
     background: linear-gradient(90deg, #22D3EE, #3B82F6);
   }
-  .lb-panel svg { display: block; }
-  @media (max-width: 1280px) { .lb-side { display: none; } }
+  /* SVG 铺满面板宽度 + 等比缩放（viewBox 提供长宽比）→ 面板变宽，图也跟着变大 */
+  .lb-panel svg { display: block; width: 100%; height: auto; }
+  /* 面板用 clamp(270px…) 定位在视口左右两侧，卡片左边缘在 ~360px 之外；
+     < 1150px 时让位给表单（宁可不显示装饰，也不许压住输入框） */
+  @media (max-width: 1150px) { .lb-side { display: none; } }
   @media (max-width: 900px) { .lb-ring, .lb-scan { display: none; } }
 </style>
 """
+
+
+# ============================================================================
+# 登录页的两段注入 HTML（v8：一律单行、无缩进、无空行）
+#
+# 为什么要写成这种"丑"的一长串？——因为 markdown-it 的 HTML 块**遇到空行就结束**，
+# 之后的行会退回 markdown 解析；Streamlit 又会先对整段做去公共缩进，
+# 剩下的行若仍有 ≥4 空格缩进，就会被判定为**缩进代码块**，
+# 于是页面上直接打印出 `div.lb-panel`、`rect`、`circle` 这些源码
+# （v7 实际事故：登录页 6 块装饰面板只有 2 块渲染，另外 4 块变成代码块）。
+# 单行 = 一个 HTML 块，任何情况下都不会掉进代码块分支。
+# ⚠️ 改这两段时**不要**为了好看而换行/缩进/加空行。
+# ============================================================================
+LOGIN_DECO = (
+    '<div class="lb-deco" aria-hidden="true">'
+    '<div class="lb-ring"></div><div class="lb-scan"></div><div class="lb-grid"></div>'
+    '<div class="lb-side l">'
+    '<div class="lb-panel">'
+    '<div class="lp-head">■ 走势曲线 · K 线结构</div>'
+    '<svg width="272" height="74" viewBox="0 0 212 58" fill="none" '
+    'xmlns="http://www.w3.org/2000/svg">'
+    '<line x1="0" y1="46" x2="212" y2="46" stroke="rgba(103,232,249,.16)"/>'
+    '<line x1="0" y1="26" x2="212" y2="26" stroke="rgba(103,232,249,.16)"/>'
+    '<polyline points="2,44 28,30 54,37 80,18 106,27 132,12 158,23 184,7 210,17" '
+    'stroke="#22D3EE" stroke-width="2" fill="none" '
+    'stroke-linejoin="round" stroke-linecap="round"/>'
+    '<polyline points="2,50 28,42 54,46 80,34 106,40 132,30 158,36 184,24 210,31" '
+    'stroke="rgba(56,189,248,.55)" stroke-width="1.6" fill="none" '
+    'stroke-linejoin="round" stroke-linecap="round"/>'
+    '<circle cx="184" cy="7" r="3" fill="#7FE9FF"/>'
+    '</svg>'
+    '<div class="lp-row"><span>区间振幅</span><b>+18.6%</b></div>'
+    '</div>'
+    '<div class="lb-panel">'
+    '<div class="lp-head">■ 财务指标</div>'
+    '<div class="lp-row"><span>营业收入</span><b>1,742.6 亿</b></div>'
+    '<div class="lp-row"><span>净利润</span><b>862.3 亿</b></div>'
+    '<div class="lp-row"><span>ROE</span><b>34.2%</b></div>'
+    '<div class="lp-bar" style="width:78%;"></div>'
+    '</div>'
+    '<div class="lb-panel">'
+    '<div class="lp-head">■ 公司关系网络</div>'
+    '<svg width="272" height="98" viewBox="0 0 212 76" fill="none" '
+    'xmlns="http://www.w3.org/2000/svg">'
+    '<line x1="34" y1="22" x2="106" y2="42" stroke="rgba(103,232,249,.35)"/>'
+    '<line x1="34" y1="58" x2="106" y2="42" stroke="rgba(103,232,249,.35)"/>'
+    '<line x1="106" y1="42" x2="178" y2="20" stroke="rgba(103,232,249,.35)"/>'
+    '<line x1="106" y1="42" x2="178" y2="60" stroke="rgba(103,232,249,.35)"/>'
+    '<line x1="34" y1="22" x2="178" y2="20" stroke="rgba(56,189,248,.20)"/>'
+    '<circle cx="34" cy="22" r="5" fill="#22D3EE"/>'
+    '<circle cx="34" cy="58" r="5" fill="#3B82F6"/>'
+    '<circle cx="106" cy="42" r="7" fill="#7FE9FF"/>'
+    '<circle cx="178" cy="20" r="5" fill="#3B82F6"/>'
+    '<circle cx="178" cy="60" r="5" fill="#22D3EE"/>'
+    '</svg>'
+    '</div>'
+    '</div>'
+    '<div class="lb-side r">'
+    '<div class="lb-panel">'
+    '<div class="lp-head">■ 指标摘要</div>'
+    '<div class="lp-row"><span>市盈率 TTM</span><b>21.4</b></div>'
+    '<div class="lp-row"><span>市净率</span><b>5.86</b></div>'
+    '<div class="lp-row"><span>毛利率</span><b>91.3%</b></div>'
+    '<div class="lp-row"><span>资产负债率</span><b>16.8%</b></div>'
+    '</div>'
+    '<div class="lb-panel">'
+    '<div class="lp-head">■ 财务评分 · 四维</div>'
+    '<svg width="272" height="80" viewBox="0 0 212 62" fill="none" '
+    'xmlns="http://www.w3.org/2000/svg">'
+    '<rect x="6"   y="22" width="18" height="34" rx="3" fill="#22D3EE"/>'
+    '<rect x="32"  y="12" width="18" height="44" rx="3" fill="#38BDF8"/>'
+    '<rect x="58"  y="30" width="18" height="26" rx="3" fill="#3B82F6"/>'
+    '<rect x="84"  y="18" width="18" height="38" rx="3" fill="#22D3EE"/>'
+    '<rect x="110" y="34" width="18" height="22" rx="3" fill="#3B82F6"/>'
+    '<rect x="136" y="8"  width="18" height="48" rx="3" fill="#7FE9FF"/>'
+    '<rect x="162" y="26" width="18" height="30" rx="3" fill="#38BDF8"/>'
+    '<line x1="0" y1="58" x2="212" y2="58" stroke="rgba(103,232,249,.30)"/>'
+    '</svg>'
+    '</div>'
+    '<div class="lb-panel">'
+    '<div class="lp-head">■ 风险评分</div>'
+    '<svg width="272" height="90" viewBox="0 0 212 70" fill="none" '
+    'xmlns="http://www.w3.org/2000/svg">'
+    '<circle cx="35" cy="35" r="24" stroke="rgba(103,232,249,.22)" '
+    'stroke-width="7" fill="none"/>'
+    '<circle cx="35" cy="35" r="24" stroke="#22D3EE" stroke-width="7" '
+    'fill="none" stroke-dasharray="106 151" stroke-linecap="round" '
+    'transform="rotate(-90 35 35)"/>'
+    '<text x="35" y="41" text-anchor="middle" fill="#EAF2FF" '
+    'font-size="18" font-weight="700">4.2</text>'
+    '<circle cx="130" cy="35" r="24" stroke="rgba(103,232,249,.22)" '
+    'stroke-width="7" fill="none"/>'
+    '<circle cx="130" cy="35" r="24" stroke="#7FE9FF" stroke-width="7" '
+    'fill="none" stroke-dasharray="132 151" stroke-linecap="round" '
+    'transform="rotate(-90 130 35)"/>'
+    '<text x="130" y="41" text-anchor="middle" fill="#EAF2FF" '
+    'font-size="18" font-weight="700">7.8</text>'
+    '</svg>'
+    '<div class="lp-row"><span>低风险 / 高稳健</span><b>同业对标</b></div>'
+    '</div>'
+    '</div>'
+    '</div>'
+)
+
+LOGIN_BRAND = (
+    '<div class="login-brand" style="text-align:center;max-width:980px;'
+    'margin:3.5vh auto 22px auto;">'
+    '<div class="lb-orb">AI</div>'
+    '<div class="lb-badge">第二届全国人工智能应用创新大赛 · 参赛作品</div>'
+    '<div class="lb-title">📈 金融智能投研 <em>Agent</em></div>'
+    '<p class="lb-sub">AI 驱动的财报深度分析 · 结构化评分 · 多公司对比 · 同业对标基准</p>'
+    '<p class="lb-note">交易所公开披露数据 · 上市公司年报 · 财务指标库</p>'
+    '</div>'
+)
 
 
 def check_login():
@@ -1462,139 +1602,34 @@ def check_login():
     # LOGIN_CSS 再把侧边栏兜底隐藏，确保"登录前只有这一屏"。
     st.markdown(LOGIN_CSS, unsafe_allow_html=True)
 
-    # ---- v7：两侧科技装饰层（纯 CSS + 内联 SVG，无任何图片素材）----
+    # ---- v7/v8：两侧科技装饰层（纯 CSS + 内联 SVG，无任何图片素材）----
     # 用户反馈"不要只给我一个登录的账号，里面有很多图形，给我放一点在上面，
     # 要不然给人的感觉太空旷"。这里按参考图补上：
     #   左：走势曲线 / 财务指标 / 公司关系网络   右：指标摘要 / 财务评分 / 风险评分
     # 全部装在一个 fixed 定位、pointer-events:none 的 `.lb-deco` 里，
     # 且主内容 z-index:3（见 LOGIN_CSS），所以永远不会挡住表单与文字。
-    st.markdown(
-        """
-        <div class="lb-deco" aria-hidden="true">
-          <div class="lb-ring"></div>
-          <div class="lb-scan"></div>
-          <div class="lb-grid"></div>
-
-          <div class="lb-side l">
-            <div class="lb-panel">
-              <div class="lp-head">■ 走势曲线 · K 线结构</div>
-              <svg width="212" height="58" viewBox="0 0 212 58" fill="none"
-                   xmlns="http://www.w3.org/2000/svg">
-                <line x1="0" y1="46" x2="212" y2="46" stroke="rgba(103,232,249,.16)"/>
-                <line x1="0" y1="26" x2="212" y2="26" stroke="rgba(103,232,249,.16)"/>
-                <polyline points="2,44 28,30 54,37 80,18 106,27 132,12 158,23 184,7 210,17"
-                          stroke="#22D3EE" stroke-width="2" fill="none"
-                          stroke-linejoin="round" stroke-linecap="round"/>
-                <polyline points="2,50 28,42 54,46 80,34 106,40 132,30 158,36 184,24 210,31"
-                          stroke="rgba(56,189,248,.55)" stroke-width="1.6" fill="none"
-                          stroke-linejoin="round" stroke-linecap="round"/>
-                <circle cx="184" cy="7" r="3" fill="#7FE9FF"/>
-              </svg>
-              <div class="lp-row"><span>区间振幅</span><b>+18.6%</b></div>
-            </div>
-
-            <div class="lb-panel">
-              <div class="lp-head">■ 财务指标</div>
-              <div class="lp-row"><span>营业收入</span><b>1,742.6 亿</b></div>
-              <div class="lp-row"><span>净利润</span><b>862.3 亿</b></div>
-              <div class="lp-row"><span>ROE</span><b>34.2%</b></div>
-              <div class="lp-bar" style="width:78%;"></div>
-            </div>
-
-            <div class="lb-panel">
-              <div class="lp-head">■ 公司关系网络</div>
-              <svg width="212" height="76" viewBox="0 0 212 76" fill="none"
-                   xmlns="http://www.w3.org/2000/svg">
-                <line x1="34" y1="22" x2="106" y2="42" stroke="rgba(103,232,249,.35)"/>
-                <line x1="34" y1="58" x2="106" y2="42" stroke="rgba(103,232,249,.35)"/>
-                <line x1="106" y1="42" x2="178" y2="20" stroke="rgba(103,232,249,.35)"/>
-                <line x1="106" y1="42" x2="178" y2="60" stroke="rgba(103,232,249,.35)"/>
-                <line x1="34" y1="22" x2="178" y2="20" stroke="rgba(56,189,248,.20)"/>
-                <circle cx="34" cy="22" r="5" fill="#22D3EE"/>
-                <circle cx="34" cy="58" r="5" fill="#3B82F6"/>
-                <circle cx="106" cy="42" r="7" fill="#7FE9FF"/>
-                <circle cx="178" cy="20" r="5" fill="#3B82F6"/>
-                <circle cx="178" cy="60" r="5" fill="#22D3EE"/>
-              </svg>
-            </div>
-          </div>
-
-          <div class="lb-side r">
-            <div class="lb-panel">
-              <div class="lp-head">■ 指标摘要</div>
-              <div class="lp-row"><span>市盈率 TTM</span><b>21.4</b></div>
-              <div class="lp-row"><span>市净率</span><b>5.86</b></div>
-              <div class="lp-row"><span>毛利率</span><b>91.3%</b></div>
-              <div class="lp-row"><span>资产负债率</span><b>16.8%</b></div>
-            </div>
-
-            <div class="lb-panel">
-              <div class="lp-head">■ 财务评分 · 四维</div>
-              <svg width="212" height="62" viewBox="0 0 212 62" fill="none"
-                   xmlns="http://www.w3.org/2000/svg">
-                <rect x="6"   y="22" width="18" height="34" rx="3" fill="#22D3EE"/>
-                <rect x="32"  y="12" width="18" height="44" rx="3" fill="#38BDF8"/>
-                <rect x="58"  y="30" width="18" height="26" rx="3" fill="#3B82F6"/>
-                <rect x="84"  y="18" width="18" height="38" rx="3" fill="#22D3EE"/>
-                <rect x="110" y="34" width="18" height="22" rx="3" fill="#3B82F6"/>
-                <rect x="136" y="8"  width="18" height="48" rx="3" fill="#7FE9FF"/>
-                <rect x="162" y="26" width="18" height="30" rx="3" fill="#38BDF8"/>
-                <line x1="0" y1="58" x2="212" y2="58" stroke="rgba(103,232,249,.30)"/>
-              </svg>
-            </div>
-
-            <div class="lb-panel">
-              <div class="lp-head">■ 风险评分</div>
-              <svg width="212" height="70" viewBox="0 0 212 70" fill="none"
-                   xmlns="http://www.w3.org/2000/svg">
-                <circle cx="35" cy="35" r="24" stroke="rgba(103,232,249,.22)"
-                        stroke-width="7" fill="none"/>
-                <circle cx="35" cy="35" r="24" stroke="#22D3EE" stroke-width="7"
-                        fill="none" stroke-dasharray="106 151" stroke-linecap="round"
-                        transform="rotate(-90 35 35)"/>
-                <text x="35" y="40" text-anchor="middle" fill="#EAF2FF"
-                      font-size="14" font-weight="700">4.2</text>
-                <circle cx="130" cy="35" r="24" stroke="rgba(103,232,249,.22)"
-                        stroke-width="7" fill="none"/>
-                <circle cx="130" cy="35" r="24" stroke="#7FE9FF" stroke-width="7"
-                        fill="none" stroke-dasharray="132 151" stroke-linecap="round"
-                        transform="rotate(-90 130 35)"/>
-                <text x="130" y="40" text-anchor="middle" fill="#EAF2FF"
-                      font-size="14" font-weight="700">7.8</text>
-              </svg>
-              <div class="lp-row"><span>低风险 / 高稳健</span><b>同业对标</b></div>
-            </div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    # ⚠️ v8：HTML 常量见文件上方（必须单行，否则会被 markdown 当代码块打出来）。
+    st.markdown(LOGIN_DECO, unsafe_allow_html=True)
 
     # 品牌区（压在深蓝底上 → 全部显式浅色，见 LOGIN_CSS 的对比度清单）
-    st.markdown(
-        """
-        <div class="login-brand" style="text-align:center;max-width:680px;
-                    margin:5vh auto 22px auto;">
-          <div class="lb-orb">AI</div>
-          <div class="lb-badge">第二届全国人工智能应用创新大赛 · 参赛作品</div>
-          <div class="lb-title">📈 金融智能投研 <em>Agent</em></div>
-          <p class="lb-sub">AI 驱动的财报深度分析 · 结构化评分 · 多公司对比 · 同业对标基准</p>
-          <p class="lb-note">交易所公开披露数据 · 上市公司年报 · 财务指标库</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    # max-width 980px：让"AI 驱动的财报深度分析 · … · 同业对标基准"一行铺开，
+    # 而不是在窄条里折成两行（用户要求"横向变大，不要竖着变大"）。
+    st.markdown(LOGIN_BRAND, unsafe_allow_html=True)
 
     # 登录卡：只占中间一条（宽屏不拉满，窄屏自动 100%）。
     # 卡片本体就是 st.form —— 表单的默认边框/内边距由 LOGIN_CSS 接管，
     # 这样"卡"和"表单"是同一个元素，不会出现两张套在一起的框。
-    _, _mid, _ = st.columns([1, 1.5, 1])
+    # v8：中列 1.5 → 2.2（容器同时放宽到 1560px）→ 卡片明显变宽，
+    #     说明文案横向铺开、行数变少；左右留出的空档正好放两侧装饰面板。
+    _, _mid, _ = st.columns([1, 2.2, 1])
     with _mid:
         with st.form("login_form", clear_on_submit=False):
             st.markdown(
                 '<div style="text-align:center;margin:0 0 20px 0;">'
-                '<div style="font-size:19px;font-weight:800;color:#FFFFFF !important;">账号登录</div>'
-                '<div style="font-size:13.5px;color:#A9C0E6 !important;margin-top:5px;">'
+                '<div style="font-size:21px;font-weight:800;color:#FFFFFF !important;'
+                'letter-spacing:.6px;">账号登录</div>'
+                '<div style="font-size:15px;color:#A9C0E6 !important;margin-top:6px;'
+                'letter-spacing:.3px;">'
                 '输入账号与密码进入投研工作台</div>'
                 "</div>",
                 unsafe_allow_html=True,
@@ -1611,7 +1646,7 @@ def check_login():
                     st.error("账号或密码错误，请检查后重试（区分大小写）。")
             st.markdown(
                 '<div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.16);'
-                'font-size:13.5px;color:#CBDCF6 !important;line-height:2.0;">'
+                'font-size:15px;color:#CBDCF6 !important;line-height:2.05;letter-spacing:.2px;">'
                 '<b style="color:#FFFFFF !important;">① 单公司深度分析</b>　联网取数 → 规则引擎四维评分 → 图表与风险提示<br>'
                 '<b style="color:#FFFFFF !important;">② 多公司横向对比</b>　2~5 家各按本行业基准评分，对照表 / 差额 / CSV 导出<br>'
                 '<b style="color:#FFFFFF !important;">③ 年报原文引用</b>　解析年报 PDF 后按页建库，结论标注「见年报第 X 页」<br>'
