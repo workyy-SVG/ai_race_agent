@@ -27,6 +27,9 @@ import pipeline as _pl
 
 APP = os.path.join(_HERE, "app.py")
 SRC = io.open(APP, encoding="utf-8").read()
+# 主题配置也纳入源码断言：v7 的"整体字号偏小"是从根字号（baseFontSize）治的，
+# 这一条一旦被改回去，原生控件会整体缩回 16px 基准，页面看起来又"小一号"。
+_CFG = io.open(os.path.join(_HERE, ".streamlit", "config.toml"), encoding="utf-8").read()
 FAILS = []
 
 
@@ -282,12 +285,19 @@ _check("pipeline 端到端：引用正确率 100%", _res["citation"]["rate"] == 
 print("=== P2-01 侧边栏导航（图标+文字）/ 分析记录 / 结果页签化 ===")
 
 # 1) 侧边栏导航菜单：图标 + 文字
+# ⚠️ v7 起 key 变成 nav_on_<图标> / nav_off_<图标>：选中态靠**应用自己控制的 key
+#    类名**（CSS 钩 st-key-nav_on_*）而不是 Streamlit 的 kind 属性 ——
+#    styled-components v6 不保证把非标准属性写到 DOM 上。断言顺手守住这个命名约定。
 at4 = _boot()
-_navs = {b.key: b for b in at4.get("button") if (b.key or "").startswith("nav_btn_")}
+_navs = {b.key: b for b in at4.get("button")
+         if (b.key or "").startswith(("nav_on_", "nav_off_"))}
 _check("导航三个入口都在（单公司/对比/说明）", len(_navs) == 3, str(sorted(_navs)))
+_check("导航按钮 key 带 on/off 状态位（CSS 靠它钩选中态，不依赖 kind 属性）",
+       sum(1 for k in _navs if str(k).startswith("nav_on_")) == 1,
+       str(sorted(_navs)))
 _check("导航按钮全部落在侧边栏（主区不再占一列）",
        len([b for b in at4.sidebar.get("button")
-            if (b.key or "").startswith("nav_btn_")]) == 3,
+            if (b.key or "").startswith(("nav_on_", "nav_off_"))]) == 3,
        str([b.key for b in at4.sidebar.get("button")]))
 _check("导航按钮是「图标 + 文字」而不是纯图标",
        all(len(str(b.label or "").strip()) > 3 for b in _navs.values()),
@@ -404,38 +414,106 @@ _check("追问区也没有被塞进多栏网格（列也算容器，进列同样
 # st.columns 多栏网格、卡片进列、之后再调 chat_input"时 ancestor_block_types 仍为空，
 # 所以网格与钉底可以共存 —— 但这条前提一旦被改（比如把追问区包进 with col:）就会退化。
 
-# 6d) v6：深蓝侧边栏 + 多栏卡片网格（用户：背景还是白的、布局没变）
+# 6d) v6：深蓝侧边栏 + 多行卡片网格（用户：背景还是白的、布局没变）
 _check("侧边栏改深蓝渐变（模板里的深蓝导航条）",
        "linear-gradient(180deg, #0E2A5E 0%, #123A80 46%, #16489E 100%)" in SRC)
 _check("侧栏内层容器透明（否则 Streamlit 主题底色会把渐变盖住）",
        'section[data-testid="stSidebar"] [data-testid="stSidebarContent"]' in SRC
        and 'section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"]' in SRC)
 _check("深底文字全部显式上色且对比度写进注释（深底最怕漏一处 → 深字压深底）",
-       all(c in SRC for c in ("#E8F0FF", "#B7CAEA", "#67E8F9")) and "#E8F0FF 6.8:1" in SRC)
+       all(c in SRC for c in ("#EAF4FF", "#AFD2F5", "#7FE9FF")) and "#EAF4FF 7.69:1" in SRC)
 # ⚠️ 反向守卫：侧栏文字列表里**绝不能出现 span** —— 选中态导航按钮是"白底深蓝字"，
 #    一旦通配到 span 就会被刷成浅色，变成白底白字（v3 那次"字看不见"的同型 bug）。
 _check("侧栏文字选择器没有通配到 span（否则选中态白底白字）",
        'section[data-testid="stSidebar"] span' not in SRC)
-_check("侧栏选中态 = 白底深蓝字（白亮块压深蓝，如模板）",
-       'section[data-testid="stSidebar"] .stButton > button[kind="primary"]' in SRC
-       and "color: #14377A !important" in SRC)
-_check("侧栏未选中态 = 半透明白底 + 浅字（不是白底卡上白字）",
-       "background: rgba(255, 255, 255, 0.10)" in SRC and "#E8F0FF !important" in SRC)
 _check("分析记录滚动槽有 key（深底要单独刷凹槽，1.57 没有旧 wrapper testid 可挂）",
        'st.container(height=210, key="khist-scroll")' in SRC
        and '[class*="st-key-khist-scroll"]' in SRC)
 _check("card() 支持 col 参数（挂进某列 = 零缩进改动参与多栏）",
        "def card(" in SRC and "col=None" in SRC and "col.container(key=f\"kcard-{key}\")" in SRC)
-_check("单公司 1~5 步排成三栏网格（模板里的并排小卡，而不是竖排到底）",
-       "_single_grid = st.columns(3, gap=\"medium\")" in SRC
-       and all(k in SRC for k in ("col=_single_grid[0]", "col=_single_grid[1]", "col=_single_grid[2]")))
+# ---------------------------------------------------------------------------
+# 6e) v7：字号 / 可读性 / 图形 / 侧栏选中态（用户的四条新反馈）
+print("=== P2-04 v7：字体放大 / 可读性 / 图形装饰 / 侧栏选中态 ===")
+
+# ① 字体偏小 → 根字号 + 自定义类 px 双管齐下
+_check("config.toml 抬高了根字号 baseFontSize（原生组件整体放大）",
+       "baseFontSize = 17" in _CFG,
+       "（config.toml 里没找到 baseFontSize）")
+_check("自定义类的 px 字号同步上调（px 不随根字号变，必须手改）",
+       "font-size: 30px; font-weight: 800; color: #0B1F3A !important;" in SRC   # .ph-title
+       and ".step-head .sh-title { font-size: 17px;" in SRC
+       and "width: 23px; height: 23px; border-radius: 7px;" in SRC)              # .sh-num
+_check("登录页字号同步放大（标题 36px / 按钮 17px）",
+       ".login-brand .lb-title {" in SRC and "font-size: 36px" in SRC
+       and "font-size: 17px !important;" in SRC)
+
+# ② 有些字看不清 → 辅色从 #64748B（浅蓝灰底上仅 3.77:1）换成 #475569 / #3B4A5F
+_check("主区辅色不再用 #64748B 当文字色（画布上只有 3.77:1，不合格）",
+       "color: #64748B" not in SRC and "color:#64748B" not in SRC)
+_check("说明类文字统一提到 #3B4A5F（白卡 9.0:1 / 画布 7.14:1）",
+       "#3B4A5F" in SRC and "small, .stCaption, [data-testid=\"stCaptionContainer\"]" in SRC)
+_check("深蓝侧栏文字提亮到 #EAF4FF / #AFD2F5（7.69:1 / 5.44:1）",
+       "color: #EAF4FF !important;" in SRC and "color: #AFD2F5 !important;" in SRC)
+
+# ③ 侧栏选中态：改用应用自己控制的 key 类名（不依赖 styled-components 是否转发 kind）
+_check("导航 key 带 on/off 状态位（选中态的结构来源由应用自己掌握）",
+       'key=f"nav_{\'on\' if _on else \'off\'}_{_icon}"' in SRC)
+_check("选中态 CSS 钩 st-key-nav_on_*（1.57 里唯一稳定的容器/元素挂钩点）",
+       '[class*="st-key-nav_on_"] button' in SRC)
+_check("选中态「白底 + 深蓝字」写在同一条规则组里（不可能只生效一半 → 不会变全白）",
+       'section[data-testid="stSidebar"] [class*="st-key-nav_on_"] button,' in SRC
+       and 'section[data-testid="stSidebar"] [class*="st-key-nav_on_"] button *' in SRC
+       and "color: #14377A !important;" in SRC)
+_check("选中态含按钮内所有子元素（否则子元素会被侧栏浅色规则刷成浅色）",
+       'button * {' in SRC)
+_check("旧的 button[kind=primary] 仍保留为兼容兜底（同色，不冲突）",
+       'section[data-testid="stSidebar"] .stButton > button[kind="primary"],' in SRC
+       and '[data-testid="stBaseButton-primary"]' in SRC)
+
+# ④ 界面太空旷 → 主区补图形（页面徽记 / 顶栏六边形 / 侧栏底纹 / 空状态插图）
+_check("页面大标题右侧有科技徽记（同心环 + 六边形 + 迷你折线，纯内联 SVG）",
+       'class="ph-deco"' in SRC and 'class="page-head"' in SRC
+       and "M84 18 L106 31 L106 63 L84 76 L62 63 L62 31 Z" in SRC)
+_check("顶栏左侧用纯 CSS 六边形徽标替代 emoji（.tb-logo）",
+       'class="tb-logo"' in SRC and ".tb-logo {" in SRC
+       and "clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)" in SRC)
+_check("侧边栏底部加了同心圆 + 刻度环装饰（pointer-events:none，不挡点击）",
+       'class="sb-deco"' in SRC and ".sb-deco i:nth-child(2)" in SRC
+       and "pointer-events: none" in SRC)
+_check("未取数时展示空状态插图，而不是一行 info（卡片不再空着）",
+       'class="empty-art"' in SRC and 'class="ea-title"' in SRC and ".empty-art {" in SRC)
+_check("卡片编号方块改成青蓝渐变 + 外发光（不再是一块死蓝）",
+       "background: linear-gradient(145deg, #38BDF8 0%, #1D4ED8 100%);" in SRC
+       and "box-shadow: 0 2px 9px rgba(29, 78, 216, 0.32);" in SRC)
+
+# ⑤ 单公司工作栏排版：三栏 → 两行（用户：从左往右乱乱的）
+_check("第 1 行网格按 ① ② ③ 排列（① 行业基准 / ② 数据来源 / ③ 数据获取）",
+       '_single_grid = st.columns([1, 1, 1.15], gap="medium")' in SRC
+       and "col=_single_grid[0]" in SRC and "col=_single_grid[1]" in SRC
+       and "col=_single_grid[2]" in SRC)
+_check("第 2 行网格独立创建，且落在 ③ 之后、④ 之前（创建顺序 = 视觉先后）",
+       '_single_grid_r2 = st.columns([2, 1], gap="medium")' in SRC
+       and SRC.index('with card("fetch", col=_single_grid[2])')
+           < SRC.index("_single_grid_r2 = st.columns")
+           < SRC.index('tag="可选", col=_single_grid_r2[0]'))
+_check("④ 补充材料在第 2 行左栏（宽 2/3）",
+       'tag="可选", col=_single_grid_r2[0]' in SRC)
+_check("⑤ 运行分析按模式落栏（在线 → 右栏 / 手动 → 左栏，不留一大片空位）",
+       "_run_col = _single_grid_r2[1] if src_mode.startswith(\"🌐\") else _single_grid_r2[0]" in SRC
+       and 'tag="出结果", col=_run_col' in SRC)
+_check("② 数据来源占用第 1 行第 2 栏（不再和 ① 挤同一栏）",
+       'tag="二选一", col=_single_grid[1]' in SRC)
+_check("手动模式的 ③ 也进了第 1 行第 3 栏（与在线模式同位置）",
+       SRC.count("col=_single_grid[2]") == 2)
+
 # 标题被第一张卡压在下面 → 整页看上去还是"一堆卡片摊着"（用户：布局没变）。
 # 第 1 步「行业财务基准库」在模块级先渲染，所以标题必须也提到模块级、且在网格之前。
 _check("单公司页面大标题移到模块级（否则渲染顺序变成「卡 1 → 标题 → 卡 2…」）",
-       SRC.index('"单公司深度分析",') < SRC.index('_single_grid = st.columns(3')
+       SRC.index('"单公司深度分析",') < SRC.index('_single_grid = st.columns([1, 1, 1.15]')
        and SRC.count('"单公司深度分析",') == 1)
 _check("网格在标题之后创建（标题必须是最上面的元素）",
-       SRC.index('page_head(\n        "单公司深度分析"') < SRC.index("_single_grid = st.columns(3"))
+       SRC.index('page_head(\n        "单公司深度分析"')
+       < SRC.index('_single_grid = st.columns([1, 1, 1.15]'))
 _check("_view_single 内部不再重复渲染页面标题（避免出现两个大标题）",
        '"单公司深度分析",' not in SRC.split("def _view_single()", 1)[1].split("def _view_compare", 1)[0])
 
@@ -480,20 +558,37 @@ _check("登录按钮 = 青色渐变 + 深蓝字（模板「安全登录」的形
        and "color: #052438 !important" in SRC)
 _check("输入框在深底上不再是白底深字（改半透明底 + 浅字 + 浅占位符）",
        "background: rgba(255, 255, 255, 0.07) !important" in SRC
-       and "color: #8FA9D4 !important" in SRC)
+       and "color: #A9C0E6 !important" in SRC)
 _check("卡内报错提示在深色卡上可见（否则红字压深底看不见）",
        '[data-testid="stForm"] [data-testid="stAlert"]' in SRC)
 _check("账号/密码标签**外置**，框内放小号英文占位符",
        'st.text_input("账号", placeholder="Account")' in SRC
        and 'st.text_input("密码", type="password", placeholder="Password")' in SRC)
-_check("占位符字号小于外置标签（12px < 14px，框内更轻）",
+_check("占位符字号小于外置标签（13px < 15.5px，框内更轻）",
        "input::placeholder" in SRC
-       and "font-size: 12px !important" in SRC
-       and "font-size: 14px !important" in SRC)
+       and "font-size: 13px !important" in SRC
+       and "font-size: 15.5px !important" in SRC)
 _check("品牌区用 div 而非 h1（避开 Streamlit 锚点图标 + 全站标题样式覆盖）",
        'class="lb-title"' in SRC and 'class="login-brand"' in SRC)
 _check("品牌区有发光六边形 AI 徽标（CSS 画的，不需要图片资源）",
        'class="lb-orb"' in SRC and "clip-path: polygon(50% 0%" in SRC)
+
+# v7：登录页科技装饰层（用户："不要只给我一个登录的账号…要不然给人的感觉太空旷"）
+_check("登录页加了装饰层容器（fixed + pointer-events:none，不挡点击）",
+       'class="lb-deco"' in SRC and ".lb-deco { position: fixed; inset: 0;" in SRC
+       and "pointer-events: none" in SRC)
+_check("主内容抬到装饰层之上（fixed 元素默认会盖住静态内容 → 必须显式抬层）",
+       '[data-testid="stMainBlockContainer"] { position: relative; z-index: 3; }' in SRC)
+_check("两侧 6 块悬浮数据面板（走势曲线 / 财务指标 / 关系网络 / 指标摘要 / 财务评分 / 风险评分）",
+       SRC.count('class="lb-panel"') == 6
+       and all(k in SRC for k in ("■ 走势曲线", "■ 财务指标", "■ 公司关系网络",
+                                  "■ 指标摘要", "■ 财务评分", "■ 风险评分")))
+_check("品牌区背后有旋转光环 + 锥形扫描光（@keyframes 动画）",
+       'class="lb-ring"' in SRC and 'class="lb-scan"' in SRC
+       and "@keyframes lb-spin" in SRC and "animation: lb-spin 18s linear infinite" in SRC)
+_check("底部透视网格（渐隐遮罩，做「地面」）+ 窄屏自动隐藏装饰",
+       'class="lb-grid"' in SRC and "mask-image: linear-gradient(to top" in SRC
+       and "@media (max-width: 1280px) { .lb-side { display: none; } }" in SRC)
 
 # v5 登录页文案：数据源统一口径 + 去掉"系统"字样
 # （品牌是 Agent，不是传统后台系统；"登录系统/进入系统"这类措辞与定位冲突）
@@ -525,6 +620,14 @@ _check("未登录时登录表单齐备（账号/密码/提交按钮）",
 _check("账号/密码是**外置可见标签**（不再是张冠李戴的折叠标签）",
        [str(t.label) for t in at6.get("text_input")][:2] == ["账号", "密码"],
        str([str(t.label) for t in at6.get("text_input")]))
+# v7：装饰层必须真的渲染出来（写过样式但没注入 HTML = 用户看到的还是"空旷的一张卡"）
+_md6 = _md(at6)
+_PANEL = 'class="lb-panel"'
+_check("未登录时装饰层真的渲染了（6 块数据面板 + 光环 + 网格）",
+       _md6.count(_PANEL) == 6 and 'class="lb-deco"' in _md6
+       and 'class="lb-ring"' in _md6 and 'class="lb-grid"' in _md6,
+       f"panels={_md6.count(_PANEL)}")
+_check("未登录时六边形徽标在（品牌区视觉锚点）", 'class="lb-orb"' in _md6)
 
 # 3) 错误凭据：给出提示且不放行
 at6.get("text_input")[0].set_value("wrong_user")
@@ -543,7 +646,7 @@ _check("进入工作台后不再注入登录页样式（不会重复叠加）",
        "linear-gradient(180deg, #FFFFFF 0%, #F7F9FC" not in _md(at7))
 _check("进入工作台后侧边栏导航出现（3 个入口）",
        len([b for b in at7.sidebar.get("button")
-            if (b.key or "").startswith("nav_btn_")]) == 3)
+            if (b.key or "").startswith(("nav_on_", "nav_off_"))]) == 3)
 
 print()
 if FAILS:

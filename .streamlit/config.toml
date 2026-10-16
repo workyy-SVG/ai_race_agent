@@ -13,7 +13,7 @@ gatherUsageStats = false
 #   主背景 #EDF3FC→#DAE6F6 · 卡片 #FFFFFF · 品牌主色 #1E40AF(深蓝)
 #   侧边栏 #0E2A5E→#16489E（深蓝渐变，v6）
 #   资本金 #D9A441 · 涨 #DC2626 · 跌 #16A34A
-#   文字 #0B1F3A / #334155 / #475569（主区）· #E8F0FF / #B7CAEA（深蓝侧栏）
+#   文字 #0B1F3A / #334155 / #3B4A5F（主区）· #EAF4FF / #AFD2F5（深蓝侧栏）
 # 说明：theme 是 Streamlit 原生组件的底层变量（radio/input/
 #       dataframe/selectbox 等都会读它）。主区必须保持亮色，
 #       否则自定义 CSS 与原生组件会「半亮半深」互相打架。
@@ -25,6 +25,16 @@ backgroundColor = "#EDF3FC"           # 主背景：浅蓝灰（v6 再降一档�
 secondaryBackgroundColor = "#FFFFFF"  # 卡片背景：纯白
 textColor = "#0B1F3A"                 # 一级文字：深海军
 font = "sans serif"
+
+# v7「整体字体偏小」的根治办法：抬高**根字号**。
+#   Streamlit 内部（按钮/标签/caption/表格/tab…）全部按 rem 计算，
+#   把 root 从默认 16px 提到 17px，原生组件就整体放大一档，
+#   比逐条给组件写 font-size 更彻底、也不会漏。
+# ⚠️ 副作用：CUSTOM_CSS 里那些显式 px 的自定义类**不会**跟着变
+#   （px 是绝对值），所以同一轮必须把自定义类的 px 也一起上调，
+#   否则会出现「原生控件变大了、卡片表头还是小的」这种不成比例。
+#   实测：baseFontSize 是 1.57 支持的 theme 选项（positive integer，默认 16）。
+baseFontSize = 17
 
 # 侧边栏单独加深（深蓝）。
 # ⚠️ 这里必须与 CUSTOM_CSS 的 `section[data-testid="stSidebar"]` 保持同一色系：

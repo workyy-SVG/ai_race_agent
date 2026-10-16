@@ -211,10 +211,15 @@ _PROBE_SRC = """
 import json
 import streamlit as st
 
-g = st.columns(3, gap="medium")
+# 与 app.py 的单公司布局保持一致：**两行**网格，卡片全都住进列里
+g = st.columns([1, 1, 1.15], gap="medium")
 for _i in range(3):
     with g[_i].container(key="kcard-c" + str(_i)):
         st.write("card " + str(_i))
+g2 = st.columns([2, 1], gap="medium")
+for _j in range(2):
+    with g2[_j].container(key="kcard-d" + str(_j)):
+        st.write("card " + str(_j))
 
 _dg = st.chat_input.__self__._active_dg
 json.dump({"root": int(_dg._root_container),
@@ -234,15 +239,16 @@ if os.path.exists(_R):
 check("多栏网格建好后，根层仍是「MAIN + 无祖先 block」—— chat_input 仍会钉底",
       _probe.get("root") == 0 and _probe.get("ancestors") == [],
       f"probe={_probe} exceptions={[str(e.value)[:120] for e in _pat.exception]}")
-check("网格确实落在 app.py（单公司 1~5 步排成三栏，不再竖排到底）",
-      "_single_grid = st.columns(3" in SRC)
+check("网格确实落在 app.py（单公司 1~5 步排成两行，不再竖排到底）",
+      '_single_grid = st.columns([1, 1, 1.15], gap="medium")' in SRC
+      and '_single_grid_r2 = st.columns([2, 1], gap="medium")' in SRC)
 # 追问区必须留在页面根层：不进卡片、也不进列
 _CHAT_SRC = SRC.split("# ---- 追问对话（多轮，上下文实时更新） ----", 1)[-1]
 _CHAT_HEAD = _CHAT_SRC.split("_typed = st.chat_input", 1)[0]
 check("追问区没有被包进卡片容器（父容器一变就丢钉底）",
       "with card" not in _CHAT_HEAD)
 check("追问区没有被塞进多栏网格的列里（列同样是容器）",
-      "col=_single_grid" not in _CHAT_HEAD)
+      "col=_single_grid" not in _CHAT_HEAD and "col=_run_col" not in _CHAT_HEAD)
 
 print()
 if FAILS:

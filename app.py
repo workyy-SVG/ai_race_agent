@@ -465,19 +465,28 @@ BASE_SYSTEM_PROMPT = """你是一名专业、严谨的金融投研分析师。�
 CUSTOM_CSS = """
 <style>
   /* ==========================================================
-     金融智能投研 Agent · 深蓝侧栏 + 浅蓝灰工作台 (v6)
+     金融智能投研 Agent · 深蓝侧栏 + 浅蓝灰工作台 (v7)
      v3 → v4：颜色太多（到处蓝字、金蓝撞色）→ 收敛成单一结构色 + 深灰文字
      v4 → v5：结构"一坨" → 页面大标题 + 一步一张白卡
-     v5 → v6：v5 的结构对了，但**整体还是白的**——用户反馈"背景还是白色、
-              布局没变"。这一轮按用户给的模板补齐三件事：
-                ① 侧边栏改深蓝渐变（模板里的深蓝导航条）+ 白字 + 选中白色亮块
-                ② 主区底色再降一档到浅蓝灰（#EDF3FC→#DAE6F6），白卡才真正浮起来
-                ③ 单公司 1~5 步排成**多栏卡片网格**（模板里的并排小卡），
-                   而不是一条竖着排到底的长列表
-     正文三级： 主 #0B1F3A (16.5:1) / 次 #334155 (10.4:1) / 辅 #475569 (8.1:1)
-     深蓝侧栏（#0E2A5E→#16489E）实测对比度：
-        #E8F0FF 6.8:1 / #B7CAEA 5.05:1 / 强调青 #67E8F9 5.78:1（均 ≥4.5）
-        选中态 = 白底 #14377A 字（11.6:1）
+     v5 → v6：结构对了但"整体还是白的" → 深蓝侧栏 + 浅蓝灰底 + 多栏网格
+     v6 → v7：用户四条新反馈，逐条对应：
+       ① **字体偏小** → config.toml 抬高根字号 baseFontSize=17（原生组件整体放大）
+          + 自定义类的 px 字号一律上调 1~3px（px 不随根字号变，必须手改）
+       ② **有些字看不清** → 主区辅色 #64748B 在浅蓝灰底上只有 3.77:1（不合格），
+          统一换成 #475569（6.0:1），卡片说明再提到 #3B4A5F（7.14:1）；
+          深蓝侧栏文字整体提亮：#E8F0FF→#EAF4FF（7.69:1）、
+          #B7CAEA→#AFD2F5（5.44:1）、强调青 #67E8F9→#7FE9FF（6.11:1）
+       ③ **界面太空旷** → 补纯 CSS/SVG 图形：页面标题右侧科技徽记、
+          卡片编号发光方块、侧栏底部网格光环、未取数时的空状态插图；
+          登录页补左右两侧悬浮数据面板 + 旋转光环 + 扫描光 + 节点网络
+       ④ **侧栏选中项"点了会不会变全白"** → 不再依赖 `button[kind=primary]`
+          （styled-components v6 不再把未知属性写到 DOM，这条规则可能整条失效），
+          改用**应用自己控制的 key 类名** `st-key-nav_on_*`：
+          选中态的白底与深蓝字写在**同一条规则里**，不可能只生效一半。
+     正文三级： 主 #0B1F3A (16.5:1) / 次 #334155 (10.4:1) / 辅 #3B4A5F (9.0:1)
+     深蓝侧栏（#0E2A5E→#16489E）实测对比度（以最亮端 #16489E 为最坏情况）：
+        #EAF4FF 7.69:1 / #AFD2F5 5.44:1 / 强调青 #7FE9FF 6.11:1（均 ≥4.5）
+        选中态 = 白底 #14377A 字（11.31:1）
      ========================================================== */
 
   /* ===== 全局背景：浅蓝灰（v6 再降一档）=====
@@ -513,13 +522,25 @@ CUSTOM_CSS = """
     margin-bottom: 14px;
     box-shadow: 0 2px 10px rgba(15, 35, 70, 0.05);
   }
-  .tb-brand { font-size: 16px; font-weight: 800; color: #0B1F3A !important; letter-spacing: .5px; }
+  /* v7：顶栏左侧加一颗纯 CSS 六边形徽标（.tb-logo）——
+     原来顶栏只有一个 emoji 📊，在深色侧栏旁边显得"没有品牌感、整条空"。
+     六边形用 clip-path 画，不用任何图片素材（少一次 IO、少一份资源）。 */
+  .tb-logo {
+    flex: 0 0 auto;
+    width: 26px; height: 29px;
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    background: linear-gradient(160deg, #38BDF8 0%, #1D4ED8 100%);
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 900; color: #FFFFFF !important;
+    box-shadow: 0 2px 10px rgba(29, 78, 216, 0.35);
+  }
+  .tb-brand { font-size: 17.5px; font-weight: 800; color: #0B1F3A !important; letter-spacing: .5px; }
   .tb-brand b { color: #1D4ED8 !important; }
   .tb-gap { flex: 1 1 auto; }
-  .tb-obj { font-size: 12.5px; color: #475569 !important; }
+  .tb-obj { font-size: 13.5px; color: #3B4A5F !important; }
   .tb-obj b { color: #0B1F3A !important; }
   .tb-chip {
-    font-size: 11.5px; padding: 2px 10px; border-radius: 999px;
+    font-size: 12.5px; padding: 2px 11px; border-radius: 999px;
     background: #EEF3FE; color: #1D4ED8 !important;
     border: 1px solid #D8E3FA; white-space: nowrap;
   }
@@ -553,81 +574,101 @@ CUSTOM_CSS = """
 
   /* ===== 页面大标题（每个视图顶部一条）=====
      原来是"进来就是一堆编号方块"，没有一句"这是什么页面"。
-     现在每个视图先给一个大标题 + 一句说明 + 一条蓝色短横。 */
-  .page-head { margin: 4px 0 16px 0; }
+     现在每个视图先给一个大标题 + 一句说明 + 一条蓝色短横。
+     v7：右侧补一块**科技徽记**（同心环 + 六边形 + 迷你折线），
+         解决"页面顶部一大片空白、看着太空旷"。 */
+  .page-head {
+    display: flex; align-items: flex-start; gap: 18px;
+    margin: 4px 0 18px 0;
+    padding-bottom: 14px;
+    border-bottom: 1px solid #E1EAF6;
+  }
+  .page-head .ph-text { flex: 1 1 auto; min-width: 0; }
+  .page-head .ph-deco { flex: 0 0 auto; opacity: .9; margin-top: 2px; }
   .page-head .ph-title {
-    font-size: 25px; font-weight: 800; color: #0B1F3A !important;
-    letter-spacing: .6px; line-height: 1.3;
+    font-size: 30px; font-weight: 800; color: #0B1F3A !important;
+    letter-spacing: .6px; line-height: 1.28;
   }
   .page-head .ph-title em { color: #1D4ED8 !important; font-style: normal; }
   .page-head .ph-rule {
     display: block; width: 52px; height: 3px; border-radius: 2px;
-    background: #1D4ED8; margin: 10px 0 9px 0;
+    background: #1D4ED8; margin: 11px 0 10px 0;
   }
   .page-head .ph-note {
-    display: block; font-size: 12.5px; color: #475569 !important; line-height: 1.85;
+    display: block; font-size: 14px; color: #3B4A5F !important; line-height: 1.9;
   }
 
   /* ===== 小节标题（多公司对比：1. 对比公司管理 / 2. 开始对比分析）=====
-     与卡片内表头（.step-head，14.5px）刻意拉开一档：小节标题 19px，
+     与卡片内表头（.step-head）刻意拉开一档：小节标题 21px，
      用于"页面级分段"，卡片表头只用于"卡片内分区"。 */
   .sec-head {
     display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px;
-    margin: 20px 0 12px 0; padding-left: 12px;
+    margin: 22px 0 13px 0; padding-left: 12px;
     border-left: 4px solid #1D4ED8;
   }
-  .sec-head .sec-num { font-size: 19px; font-weight: 800; color: #1D4ED8 !important; }
-  .sec-head .sec-title { font-size: 19px; font-weight: 800; color: #0B1F3A !important; letter-spacing: .3px; }
-  .sec-head .sec-note { font-size: 12.5px; color: #475569 !important; }
+  .sec-head .sec-num { font-size: 21px; font-weight: 800; color: #1D4ED8 !important; }
+  .sec-head .sec-title { font-size: 21px; font-weight: 800; color: #0B1F3A !important; letter-spacing: .3px; }
+  .sec-head .sec-note { font-size: 13.5px; color: #3B4A5F !important; }
   .sec-head .sec-tag {
-    font-size: 11px; padding: 1px 9px; border-radius: 999px;
+    font-size: 12px; padding: 1px 10px; border-radius: 999px;
     background: #EEF3FE; color: #1D4ED8 !important; border: 1px solid #D8E3FA;
     align-self: center;
   }
 
   /* ===== 卡片内小标题（紧凑取数面板等窄容器里用）===== */
-  .mini-head { font-size: 13.5px; font-weight: 800; color: #0B1F3A !important; margin: 2px 0 8px 0; }
+  .mini-head { font-size: 15px; font-weight: 800; color: #0B1F3A !important; margin: 2px 0 9px 0; }
 
   /* ===== 统一分区标题（卡片内表头）=====
      编号方块 + 深色短标题 + 灰色小字说明；无色块、只留一条分隔线。
-     标题用 #0B1F3A（16.5:1）、说明用 #475569（8.1:1），
-     不再出现"一片中蓝色字挤在一起"。 */
+     标题用 #0B1F3A（16.5:1）、说明用 #3B4A5F（9.0:1），
+     不再出现"一片中蓝色字挤在一起"。
+     v7：编号方块改成**青蓝渐变 + 外发光**（原来是一块死蓝底），
+         并把编号从 20px 提到 23px、标题从 15px 提到 17px。 */
   .step-head {
     display: flex;
     align-items: baseline;
     flex-wrap: wrap;
-    gap: 9px;
+    gap: 10px;
     background: transparent;
     border: none;
     border-bottom: 1px solid #EDF2F8;
     border-radius: 0;
-    padding: 0 0 10px 0;
-    margin: 0 0 14px 0;
+    padding: 0 0 11px 0;
+    margin: 0 0 15px 0;
   }
   .step-head .sh-num {
     flex: 0 0 auto;
-    width: 20px; height: 20px; border-radius: 6px;
-    background: #1D4ED8; color: #FFFFFF !important;
-    font-size: 12px; font-weight: 800;
+    width: 23px; height: 23px; border-radius: 7px;
+    background: linear-gradient(145deg, #38BDF8 0%, #1D4ED8 100%);
+    color: #FFFFFF !important;
+    font-size: 13px; font-weight: 800;
     display: inline-flex; align-items: center; justify-content: center;
     align-self: center;
+    box-shadow: 0 2px 9px rgba(29, 78, 216, 0.32);
   }
-  .step-head .sh-title { font-size: 15px; font-weight: 800; color: #0B1F3A !important; letter-spacing: .2px; }
+  .step-head .sh-title { font-size: 17px; font-weight: 800; color: #0B1F3A !important; letter-spacing: .2px; }
   .step-head .sh-tag {
-    font-size: 11px; padding: 1px 8px; border-radius: 999px;
+    font-size: 12px; padding: 1px 9px; border-radius: 999px;
     background: #EEF3FE; color: #1D4ED8 !important; border: 1px solid #D8E3FA;
     align-self: center;
   }
-  .step-head .sh-note { font-size: 12px; color: #475569 !important; }
+  .step-head .sh-note { font-size: 13px; color: #3B4A5F !important; }
 
   /* 内容区小标题（h4/h5）：全站统一同一档字号 + 左竖条 + 统一间距
      原来 h4/h5 混用、margin 走 Streamlit 默认值，导致区块之间忽宽忽窄，
      观感上就是"排版乱"。现在一次锁死，全部 markdown 标题自动对齐。 */
+  h3 {
+    color: #0B1F3A !important;
+    font-size: 20px !important;
+    font-weight: 800 !important;
+    margin: 20px 0 10px 0 !important;
+    line-height: 1.45;
+  }
   h4, h5 {
     color: #0B1F3A !important;
-    font-size: 13.5px !important;
+    font-size: 15.5px !important;
     font-weight: 800 !important;
-    margin: 18px 0 8px 0 !important;
+    margin: 20px 0 9px 0 !important;
     padding-left: 9px;
     border-left: 3px solid #93B4E8;
     letter-spacing: .2px;
@@ -639,8 +680,8 @@ CUSTOM_CSS = """
      v6 侧栏改深蓝后，这里的分组小标题必须走浅色（#E8F0FF 6.8:1），
      分隔线也要换成半透明白线，否则深底上"黑线 + 黑字"整片糊掉。 */
   .hist-head {
-    font-size: 13px; font-weight: 800; color: #FFFFFF !important;
-    margin-top: 8px; padding-top: 10px;
+    font-size: 14.5px; font-weight: 800; color: #FFFFFF !important;
+    margin-top: 9px; padding-top: 11px;
     border-top: 1px solid rgba(255, 255, 255, 0.16);
     letter-spacing: .3px;
   }
@@ -654,7 +695,7 @@ CUSTOM_CSS = """
     box-shadow: 0 2px 8px rgba(15, 35, 70, 0.05);
   }
   div[data-testid="stMetric"] label {
-    color: #475569 !important;
+    color: #3B4A5F !important;
     font-weight: 600;
   }
   div[data-testid="stMetric"] div {
@@ -694,8 +735,8 @@ CUSTOM_CSS = """
     background: #FFFFFF;
     border: 1px solid #D6E0EC;
     border-radius: 999px;
-    padding: 5px 12px;
-    margin: 3px 2px;
+    padding: 6px 14px;
+    margin: 3px 3px;
     transition: all .18s ease;
     color: #334155 !important;
   }
@@ -762,12 +803,13 @@ CUSTOM_CSS = """
     box-shadow: 0 2px 10px rgba(15, 35, 70, 0.045);
   }
 
-  /* ===== 侧边栏：深蓝渐变（v6 主视觉）=====
+  /* ===== 侧边栏：深蓝渐变（v6 主视觉，v7 提亮文字）=====
      模板（用户手绘稿）里最显眼的一块就是"深蓝导航条 + 白色亮块选中项"：
      深色侧栏一下子把"这是工作台"和"这是内容"分开，比在浅色里描边有效得多。
-     深底带来的唯一风险是**文字对比度**，所以下面每一条文字都显式上色并量化：
-       #E8F0FF 正文 6.8:1 / #B7CAEA 说明 5.05:1 / #67E8F9 强调 5.78:1
-     —— 均以渐变最亮的一端（#16489E）为最坏情况计算，全 ≥4.5:1。 */
+     深底带来的唯一风险是**文字对比度**，所以下面每一条文字都显式上色并量化
+     （以渐变最亮的一端 #16489E 为最坏情况）：
+       #EAF4FF 正文 7.69:1 / #AFD2F5 说明 5.44:1 / #7FE9FF 强调 6.11:1
+     全部 ≥4.5:1，在 17px 根字号下正文已经是"亮青白"，不会再"看着发灰"。 */
   section[data-testid="stSidebar"] {
     background: linear-gradient(180deg, #0E2A5E 0%, #123A80 46%, #16489E 100%);
     border-right: none;
@@ -792,8 +834,8 @@ CUSTOM_CSS = """
      会把品牌卡里本该是白色的标题刷成深蓝 #1E3A5F，压在蓝色渐变卡上
      实测对比度只有 1.83:1（截图里几乎看不见）。
      改为只给 Streamlit 原生文本上色，自定义组件各自保留自己的配色。
-     ⚠️ v6 同理：**绝不能把 `span` 加进这个列表** —— 选中态导航按钮是"白底深蓝字"，
-     一旦通配到 span 就会被刷成浅色，变成白底白字（又是一次看不见）。 */
+     ⚠️ **绝不能把 `span` 加进这个列表** —— 选中态导航按钮是"白底深蓝字"，
+     一旦通配到 span 就会被刷成浅色，变成白底白字（又一次"字没了"）。 */
   section[data-testid="stSidebar"] p,
   section[data-testid="stSidebar"] li,
   section[data-testid="stSidebar"] label,
@@ -802,19 +844,19 @@ CUSTOM_CSS = """
   section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] *,
   section[data-testid="stSidebar"] [data-testid="stWidgetLabel"],
   section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] * {
-    color: #E8F0FF !important;
+    color: #EAF4FF !important;
   }
   /* 说明类文字（caption / 额度行）压暗一档，但仍要 ≥4.5:1 */
   section[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
   section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] * {
-    color: #B7CAEA !important;
+    color: #AFD2F5 !important;
   }
   section[data-testid="stSidebar"] code {
-    background: rgba(255, 255, 255, 0.14);
-    color: #67E8F9;
+    background: rgba(255, 255, 255, 0.16);
+    color: #7FE9FF;
   }
   section[data-testid="stSidebar"] h3 {
-    border-left: 3px solid #67E8F9;
+    border-left: 3px solid #7FE9FF;
     padding-left: 8px;
     color: #FFFFFF !important;
   }
@@ -823,7 +865,7 @@ CUSTOM_CSS = """
   section[data-testid="stSidebar"] .stButton > button {
     background: rgba(255, 255, 255, 0.10);
     border: 1px solid rgba(255, 255, 255, 0.20);
-    color: #E8F0FF !important;
+    color: #EAF4FF !important;
     border-radius: 9px;
     font-weight: 600;
     justify-content: flex-start;
@@ -831,19 +873,43 @@ CUSTOM_CSS = """
   }
   section[data-testid="stSidebar"] .stButton > button:hover {
     background: rgba(255, 255, 255, 0.20);
-    border-color: #67E8F9;
+    border-color: #7FE9FF;
     color: #FFFFFF !important;
   }
-  section[data-testid="stSidebar"] .stButton > button[kind="primary"] {
-    background: #FFFFFF;
-    border: none;
-    color: #14377A !important;
-    font-weight: 800;
-    box-shadow: 0 3px 12px rgba(4, 16, 40, 0.28);
+  /* ---- 选中态导航按钮：**不依赖任何 Streamlit 内部属性** ----
+     用户担心"点了之后是不是会变成全白、看不清"。这个担心在 v6 是有现实可能的：
+       · v6 用 `button[kind="primary"]` 表达选中 —— 而 1.57 前端的按钮是
+         styled-components v6 渲染的，未知属性（kind）**不一定**会写到 DOM 上，
+         这条规则可能整条不生效（实测同类选择器在页面里挑不到元素）；
+       · 一旦底色规则失效而文字规则生效，就正好是"浅字压深底"或"白底白字"。
+     修法：改用**应用自己控制的 key 类名** `st-key-nav_on_*`
+     （前端会为带 key 的元素生成 `st-key-<key>` 类，这是 1.57 里唯一稳定的挂钩点）。
+     同时把"白底"和"深蓝字"写在**同一条规则组里**，且文字规则带上按钮内所有子元素
+     （`button *`）—— 布局与配色同一来源，不存在只生效一半的可能。 */
+  section[data-testid="stSidebar"] [class*="st-key-nav_on_"] button {
+    background: #FFFFFF !important;
+    border: 1px solid #FFFFFF !important;
+    border-left: 4px solid #0EA5E9 !important;
+    box-shadow: 0 4px 16px rgba(2, 10, 26, 0.34) !important;
+    font-weight: 800 !important;
   }
-  section[data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {
-    background: #EAF1FF;
-    color: #0E2A5E !important;
+  section[data-testid="stSidebar"] [class*="st-key-nav_on_"] button,
+  section[data-testid="stSidebar"] [class*="st-key-nav_on_"] button * {
+    color: #14377A !important;   /* 白底上的深蓝字：11.31:1 */
+  }
+  section[data-testid="stSidebar"] [class*="st-key-nav_on_"] button:hover {
+    background: #F4F8FF !important;
+    border-left-color: #0284C7 !important;
+  }
+  /* 兼容兜底：若该版本确实把 kind 写进了 DOM，也一并按同样配色处理
+     （与上面同色，不会互相覆盖；且**只在侧栏作用域内**，不影响主区主按钮） */
+  section[data-testid="stSidebar"] .stButton > button[kind="primary"],
+  section[data-testid="stSidebar"] [data-testid="stBaseButton-primary"] {
+    background: #FFFFFF !important;
+    border: none !important;
+    color: #14377A !important;
+    font-weight: 800 !important;
+    box-shadow: 0 4px 16px rgba(2, 10, 26, 0.34) !important;
   }
   /* 双模型开关（st.toggle）在深蓝侧栏上原本是"深蓝轨道压深蓝底"，看不出开关状态：
      用 :has() 直接判里面的 switch 选没选中，把整颗开关放进一块可见的小底板里
@@ -853,11 +919,11 @@ CUSTOM_CSS = """
     background: rgba(255, 255, 255, 0.10);
     border: 1px solid rgba(255, 255, 255, 0.20);
     border-radius: 10px;
-    padding: 6px 8px;
+    padding: 7px 9px;
   }
   section[data-testid="stSidebar"] label:has([role="switch"]:checked) {
-    background: rgba(34, 211, 238, 0.14);
-    border-color: rgba(103, 232, 249, 0.55);
+    background: rgba(34, 211, 238, 0.16);
+    border-color: rgba(127, 233, 255, 0.60);
   }
   /* 分析记录：深底上单独给一个半透明凹槽，记录多了自己滚动 */
   [class*="st-key-khist-scroll"] {
@@ -865,30 +931,30 @@ CUSTOM_CSS = """
     border: 1px solid rgba(255, 255, 255, 0.14);
     border-radius: 12px;
   }
-  /* 侧边栏品牌头：v6 保留**白底卡**（模板里左上角就是一块白卡压深蓝栏），
+  /* 侧边栏品牌头：保留**白底卡**（模板里左上角就是一块白卡压深蓝栏），
      左侧竖条换成青色提亮 —— 深蓝底上的白卡本身就是最强的视觉锚点。
-     对比度沿用 v4 的白底深字：标题 #0B1F3A 16.5:1 / 副说明 #475569 8.1:1。 */
+     对比度沿用白底深字：标题 #0B1F3A 16.5:1 / 副说明 #475569 7.58:1。 */
   .sb-brand {
     background: #FFFFFF;
     border: 1px solid #E4EAF2;
     border-left: 4px solid #22D3EE;
     border-radius: 10px;
-    padding: 11px 13px;
+    padding: 12px 14px;
     font-weight: 800;
-    font-size: 15px;
+    font-size: 16.5px;
     letter-spacing: 0.3px;
     box-shadow: 0 4px 16px rgba(4, 16, 40, 0.22);
   }
   /* 深色文字同时作用于子元素 —— 只写 .sb-brand 时，任何作用到子元素的
-     通配符规则都会把文字压成别的颜色（v3 本次事故的根因），故在此加固。
-     v4 一律走深墨色：即使被全局规则改写，落在白底上依然清晰可读。 */
+     通配符规则都会把文字压成别的颜色（v3 事故的根因），故在此加固。
+     一律走深墨色：即使被全局规则改写，落在白底上依然清晰可读。 */
   .sb-brand, .sb-brand * { color: #0B1F3A !important; }
   .sb-brand .sb-sub, .sb-brand .sb-sub * {
     display: block;
     color: #475569 !important;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 600;
-    margin-top: 4px;
+    margin-top: 5px;
     letter-spacing: 0.2px;
   }
   /* 侧边栏内容卡片（安全提醒）：同样走白底卡 + 深字（深蓝栏上的白块） */
@@ -896,7 +962,7 @@ CUSTOM_CSS = """
     background: #FFFFFF;
     border: 1px solid #E4EAF2;
     border-radius: 10px;
-    padding: 10px 12px;
+    padding: 11px 13px;
     margin: 8px 0;
     box-shadow: 0 4px 16px rgba(4, 16, 40, 0.18);
   }
@@ -905,10 +971,10 @@ CUSTOM_CSS = """
        ② 白卡里的小标题（⚠️ 安全提醒）→ 深色（且该处有 inline !important 兜底）
      把它写成同一个颜色，就一定会有一处看不清 —— 这正是 v3 那次翻车的模式。 */
   .sb-title {
-    color: #E8F0FF !important;
+    color: #EAF4FF !important;
     font-weight: 700;
-    font-size: 13px;
-    margin-bottom: 6px;
+    font-size: 14.5px;
+    margin-bottom: 7px;
     letter-spacing: 0.3px;
   }
   .sb-card .sb-title {
@@ -918,31 +984,54 @@ CUSTOM_CSS = """
     margin: 0;
     padding-left: 18px;
     color: #334155 !important;
-    font-size: 12.5px;
-    line-height: 1.8;
+    font-size: 13px;
+    line-height: 1.85;
   }
   .sb-chip {
     display: inline-block;
-    background: rgba(255, 255, 255, 0.14);
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    color: #67E8F9 !important;
+    background: rgba(255, 255, 255, 0.16);
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    color: #7FE9FF !important;
     border-radius: 999px;
-    padding: 1px 9px;
-    font-size: 11px;
+    padding: 1px 10px;
+    font-size: 12px;
     margin: 2px 2px;
     white-space: nowrap;
   }
-  .sb-quota-head { font-size: 12px; margin-bottom: 4px; color: #B7CAEA !important; }
+  .sb-quota-head { font-size: 13px; margin-bottom: 5px; color: #AFD2F5 !important; }
   .sb-quota-head b { color: #FBBF24 !important; }
   .sb-quota-bar {
-    height: 6px;
-    background: rgba(255, 255, 255, 0.18);
+    height: 7px;
+    background: rgba(255, 255, 255, 0.20);
     border-radius: 999px;
     overflow: hidden;
   }
   .sb-quota-bar div { height: 100%; border-radius: 999px; }
   /* 侧栏内的页脚（主区也有 .footer-note，但那边是浅底深字，故只做作用域覆盖） */
-  section[data-testid="stSidebar"] .footer-note { color: #B7CAEA !important; }
+  section[data-testid="stSidebar"] .footer-note { color: #AFD2F5 !important; }
+
+  /* ===== 侧栏底部科技装饰（v7 新增，纯 CSS）=====
+     侧栏下半部分原来是"一片纯深蓝"，用户反馈太空旷。
+     这里用三圈同心圆 + 一圈虚线刻度环 + 一条渐变扫描线做底纹，
+     全部 `pointer-events:none` 且透明度 ≤0.2，绝不干扰点击与阅读。
+     放在侧栏**最底部**（在代码里最后注入），且 absolute 定位不占布局高度。 */
+  .sb-deco {
+    position: relative; height: 96px; margin: 10px 0 -6px 0;
+    pointer-events: none; overflow: hidden; opacity: .9;
+  }
+  .sb-deco i {
+    position: absolute; left: 50%; bottom: -46px; transform: translateX(-50%);
+    border-radius: 50%; border: 1px solid rgba(127, 233, 255, 0.22);
+  }
+  .sb-deco i:nth-child(1) { width: 190px; height: 190px; }
+  .sb-deco i:nth-child(2) { width: 132px; height: 132px; border-style: dashed;
+                            border-color: rgba(127, 233, 255, 0.28); }
+  .sb-deco i:nth-child(3) { width: 74px; height: 74px; border-color: rgba(255, 255, 255, 0.26); }
+  .sb-deco b {
+    position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
+    width: 150px; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(127, 233, 255, 0.55), transparent);
+  }
 
   /* ===== 提示条 ===== */
   div[data-testid="stSuccess"] {
@@ -981,8 +1070,8 @@ CUSTOM_CSS = """
   /* ===== 页脚 ===== */
   .footer-note {
     text-align: center;
-    color: #475569;
-    font-size: 12px;
+    color: #3B4A5F;
+    font-size: 13px;
     padding: 8px;
   }
   .footer-note b { color: #B45309; }
@@ -994,9 +1083,9 @@ CUSTOM_CSS = """
     display: inline-block;
     background: linear-gradient(90deg, #1E3A8A 0%, #2563EB 100%);
     color: #FFFFFF !important;
-    padding: 4px 12px;
+    padding: 4px 13px;
     border-radius: 999px;
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 700;
     margin: 6px 0;
     box-shadow: 0 4px 14px rgba(30, 64, 175, 0.40);
@@ -1004,13 +1093,34 @@ CUSTOM_CSS = """
 
   /* ===== 区块小标题：统一深墨色 =====
      原来 h4/h5 混用 + 中蓝色 #1E40AF，一屏里出现七八种蓝，
-     用户反馈"一片蓝字看不清"。现在标题只有一档深墨色。 */
-  h3, h4, h5 { color: #0B1F3A !important; font-weight: 700 !important; }
+     用户反馈"一片蓝字看不清"。现在标题只有一档深墨色。
+     ⚠️ 这里**不要再写 font-weight / font-size** —— 上面已经按档位锁死，
+        在下面重复声明只会把上面的 800 覆盖成 700（同特异性、后写的赢）。 */
+  h3, h4, h5 { color: #0B1F3A !important; }
   h3, h4 { letter-spacing: 0.3px; }
   p, li, span, div { color: #334155; }
+  /* v7：说明类文字从 #475569 提到 #3B4A5F ——
+     #475569 压在浅蓝灰画布 #DAE6F6 上只有 6.0:1，字号小的时候明显"发灰看不清"；
+     #3B4A5F 是 7.14:1，白卡上是 9.0:1，两级都稳。 */
   small, .stCaption, [data-testid="stCaptionContainer"],
-  [data-testid="stCaptionContainer"] * { color: #475569 !important; }
+  [data-testid="stCaptionContainer"] * { color: #3B4A5F !important; }
   code { background: #EEF3FE; color: #1D4ED8; padding: 1px 6px; border-radius: 4px; }
+
+  /* ===== 空状态插图（v7 新增）=====
+     未取数时结果区只有两行小字，正是用户说的"太空旷"。
+     这里给一块科技风占位：同心环 + 六边形 + 折线 + "待取数"提示。
+     纯内联 SVG，无图片素材；深色描边压浅底，对比度足够但不抢视线。 */
+  .empty-art {
+    text-align: center; padding: 26px 12px 22px 12px;
+    border: 1px dashed #C9DAF0; border-radius: 14px;
+    background: linear-gradient(180deg, #FBFDFF 0%, #F3F8FE 100%);
+    margin: 6px 0 4px 0;
+  }
+  .empty-art svg { display: block; margin: 0 auto 12px auto; }
+  .empty-art .ea-title { font-size: 16px; font-weight: 800; color: #0B1F3A !important; }
+  .empty-art .ea-note {
+    font-size: 13.5px; color: #3B4A5F !important; margin-top: 6px; line-height: 1.85;
+  }
   a { color: #1D4ED8 !important; }
 
   /* ===== RAG 检索结果卡 ===== */
@@ -1024,8 +1134,8 @@ CUSTOM_CSS = """
     padding: 10px 12px;
     margin: 6px 0;
     color: #334155;
-    font-size: 12.5px;
-    line-height: 1.7;
+    font-size: 13.5px;
+    line-height: 1.75;
   }
   .rag-hit .rag-rank {
     color: #1D4ED8;
@@ -1038,7 +1148,10 @@ CUSTOM_CSS = """
   }
   .rag-hit .rag-sim-high { color: #15803D; font-weight: 700; }
   .rag-hit .rag-sim-mid { color: #B45309; font-weight: 700; }
-  .rag-hit .rag-sim-low { color: #64748B; font-weight: 700; }
+  /* v7：低相似度原来是 #64748B —— 压在白卡上只有 4.76:1（勉强），
+     压到浅蓝灰画布上只剩 3.77:1（不合格，就是用户说的"看不清"）。
+     统一收到 #475569（白卡 7.58:1 / 画布 6.0:1）。 */
+  .rag-hit .rag-sim-low { color: #475569; font-weight: 700; }
 
   /* ===== 图表解读卡 ===== */
   .insight-card {
@@ -1046,16 +1159,16 @@ CUSTOM_CSS = """
     border: 1px solid #E4EAF2;
     border-left: 3px solid #93B4E8;
     border-radius: 10px;
-    padding: 10px 14px;
+    padding: 11px 15px;
     margin: 8px 0 14px 0;
     color: #334155;
-    font-size: 13px;
-    line-height: 1.75;
+    font-size: 14px;
+    line-height: 1.8;
   }
   .insight-card b { color: #0B1F3A; }
   .insight-card .up { color: #DC2626; font-weight: 700; }
   .insight-card .down { color: #16A34A; font-weight: 700; }
-  .insight-card .neutral { color: #64748B; }
+  .insight-card .neutral { color: #475569; }
 
   /* ===== 分割线 ===== */
   hr { border: none; border-top: 1px solid #E4EAF2; }
@@ -1065,16 +1178,16 @@ CUSTOM_CSS = """
     background: #FFFFFF;
     border: 1px solid #E4EAF2;
     border-radius: 10px;
-    padding: 10px 14px;
+    padding: 11px 15px;
     margin: 6px 0 12px 0;
-    font-size: 12.5px;
-    line-height: 1.8;
+    font-size: 13.5px;
+    line-height: 1.85;
     color: #334155;
   }
   .quad-note .q-star { color: #DC2626; font-weight: 700; }
   .quad-note .q-cash { color: #B45309; font-weight: 700; }
   .quad-note .q-quest { color: #1D4ED8; font-weight: 700; }
-  .quad-note .q-dog { color: #64748B; font-weight: 700; }
+  .quad-note .q-dog { color: #475569; font-weight: 700; }
 
   /* ===== 同业对标基准条（行业选择器下方） =====
      说明: 只用类选择器, 不用通配符 + !important
@@ -1084,16 +1197,16 @@ CUSTOM_CSS = """
     border: 1px solid #E4EAF2;
     border-left: 3px solid #1D4ED8;
     border-radius: 8px;
-    padding: 9px 14px;
+    padding: 10px 15px;
     margin: 4px 0 12px 0;
-    font-size: 13px;
-    line-height: 1.75;
+    font-size: 14px;
+    line-height: 1.8;
     color: #334155;
     text-align: left;
   }
   .base-bar b { color: #0B1F3A; }
   .base-bar .bb-num { color: #B45309; font-weight: 700; }
-  .base-bar .bb-note { color: #475569; }
+  .base-bar .bb-note { color: #3B4A5F; }
 </style>
 """
 
@@ -1143,6 +1256,12 @@ LOGIN_CSS = """
     background-attachment: fixed !important;
   }
   [data-testid="stMain"], [data-testid="stMainBlockContainer"] { background: transparent !important; }
+  /* ⚠️ v7 关键：把主内容抬到装饰层之上。
+     下面新增的 `.lb-deco` 是 fixed 定位的装饰层 —— fixed 元素默认会**盖在**
+     普通静态内容上面（定位元素优先绘制）。虽然它带 pointer-events:none 不会
+     挡点击，但网格线/光环仍会压到文字上。所以这里给主内容一个更高的层叠级别，
+     让"装饰永远在文字下面"，一劳永逸。 */
+  [data-testid="stMainBlockContainer"] { position: relative; z-index: 3; }
   header[data-testid="stHeader"] { background: transparent !important; }
   /* 顶栏工具栏（Share / 星标 / GitHub）在深底上是深色图标 → 显式改浅 */
   [data-testid="stAppToolbar"] svg, [data-testid="stAppHeader"] svg {
@@ -1164,12 +1283,12 @@ LOGIN_CSS = """
                 inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
   }
 
-  /* 外置标签：账号 / 密码 —— 浅色加粗，14px（比框内占位符大一档） */
+  /* 外置标签：账号 / 密码 —— 浅色加粗（比框内占位符大一档） */
   [data-testid="stForm"] [data-testid="stWidgetLabel"] p,
   [data-testid="stForm"] [data-testid="stWidgetLabel"] label,
   [data-testid="stForm"] label[data-testid="stWidgetLabel"] p {
     color: #EAF2FF !important;
-    font-size: 14px !important;
+    font-size: 15.5px !important;
     font-weight: 700 !important;
     letter-spacing: .2px;
   }
@@ -1180,16 +1299,16 @@ LOGIN_CSS = """
     border: 1px solid rgba(150, 190, 240, 0.34) !important;
     border-radius: 9px !important;
     color: #EAF2FF !important;
-    font-size: 14px !important;
-    padding: 9px 12px !important;
+    font-size: 15.5px !important;
+    padding: 10px 13px !important;
   }
   [data-testid="stForm"] input:focus {
     border-color: #22D3EE !important;
     box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.18) !important;
   }
   [data-testid="stForm"] input::placeholder {
-    color: #8FA9D4 !important;
-    font-size: 12px !important;
+    color: #A9C0E6 !important;
+    font-size: 13px !important;
     letter-spacing: .3px;
   }
   /* 密码框的「显示/隐藏」眼睛图标 */
@@ -1203,8 +1322,8 @@ LOGIN_CSS = """
     color: #052438 !important;
     border: none !important;
     border-radius: 10px !important;
-    padding: 11px 18px !important;
-    font-size: 15px !important;
+    padding: 12px 18px !important;
+    font-size: 17px !important;
     font-weight: 800 !important;
     letter-spacing: 1px;
     box-shadow: 0 8px 22px rgba(34, 211, 238, 0.30) !important;
@@ -1227,34 +1346,102 @@ LOGIN_CSS = """
   [data-testid="stForm"] [data-testid="stAlert"] * { color: #FECACA !important; }
 
   /* ---- 登录页品牌区（深底浅字，全部用类选择器 + !important） ---- */
-  /* 中央「AI 六边形徽标」：CSS 画的发光六边形，对应模板里那颗 AI 球 */
+  /* 中央「AI 六边形徽标」：CSS 画的发光六边形，对应模板里那颗 AI 球。
+     v7：外面再套两圈旋转光环（.lb-ring），把"中间一个孤零零的六边形"变成
+     "一颗悬浮在环形轨道上的核心"，是整页最省力也最见效的科技感来源。 */
   .login-brand .lb-orb {
-    width: 78px; height: 88px; margin: 0 auto 18px auto;
+    width: 88px; height: 99px; margin: 0 auto 20px auto;
     clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
     background: linear-gradient(160deg, #22D3EE 0%, #3B82F6 100%);
     box-shadow: 0 0 34px rgba(34, 211, 238, 0.55);
     display: flex; align-items: center; justify-content: center;
-    font-size: 26px; font-weight: 900; letter-spacing: 1px;
+    font-size: 30px; font-weight: 900; letter-spacing: 1px;
     color: #052438 !important;
   }
   .login-brand .lb-badge {
-    display: inline-block; font-size: 12px; letter-spacing: 1.2px;
-    color: #67E8F9 !important; background: rgba(34, 211, 238, 0.10);
+    display: inline-block; font-size: 13px; letter-spacing: 1.2px;
+    color: #7FE9FF !important; background: rgba(34, 211, 238, 0.10);
     border: 1px solid rgba(103, 232, 249, 0.42); border-radius: 999px;
-    padding: 4px 15px; margin-bottom: 14px;
+    padding: 5px 16px; margin-bottom: 15px;
   }
   /* ⚠️ 这里刻意用 <div> 而不是 <h1>：Streamlit 会给 markdown 标题自动塞一个
      深色的「跳转到本节」锚点图标，压在任何底上都是一块脏点；
      用 div 就完全不会生成锚点，也顺带躲开了全站 h3/h4/h5 的样式覆盖。 */
   .login-brand .lb-title {
-    color: #FFFFFF !important; font-size: 31px; font-weight: 800;
-    margin: 0 0 8px 0; letter-spacing: 1px;
+    color: #FFFFFF !important; font-size: 36px; font-weight: 800;
+    margin: 0 0 9px 0; letter-spacing: 1px;
     text-shadow: 0 2px 18px rgba(34, 211, 238, 0.28);
   }
-  .login-brand .lb-title em { color: #67E8F9 !important; font-style: normal; }
-  .login-brand .lb-sub { color: #CBDCF6 !important; font-size: 14px; margin: 0; }
-  .login-brand .lb-note { color: #A9C0E6 !important; font-size: 12px; margin-top: 7px; }
-  .login-foot { text-align: center; font-size: 12px; color: #8FA9D4 !important; margin: 16px 0 0 0; }
+  .login-brand .lb-title em { color: #7FE9FF !important; font-style: normal; }
+  .login-brand .lb-sub { color: #CBDCF6 !important; font-size: 15.5px; margin: 0; }
+  .login-brand .lb-note { color: #A9C0E6 !important; font-size: 13.5px; margin-top: 8px; }
+  .login-foot { text-align: center; font-size: 13.5px; color: #A9C0E6 !important; margin: 18px 0 0 0; }
+
+  /* ==========================================================
+     v7 新增：登录页科技装饰层（用户："不要只给我一个登录的账号，
+     里面有很多图形，给我放一点在上面，要不然给人的感觉太空旷"）
+     全部纯 CSS，没有任何图片素材；
+       ① .lb-deco  —— fixed 全屏装饰层（pointer-events:none，绝不挡点击）
+       ② .lb-ring  —— 品牌区背后的两圈光环（虚线刻度环 + 实线内环）
+       ③ .lb-scan  —— 缓慢旋转的锥形扫描光（conic-gradient）
+       ④ .lb-grid  —— 底部透视网格（渐隐遮罩，像"地面"）
+       ⑤ .lb-side  —— 左右两侧的悬浮数据面板（迷你折线/圆环/节点网络）
+     ⚠️ 这些元素都压在主内容**下面**（主内容 z-index:3，见文件上方），
+        所以即使窄屏重叠也不会糊住文字；≤1200px 时两侧面板直接隐藏。 */
+  .lb-deco { position: fixed; inset: 0; overflow: hidden; pointer-events: none; z-index: 0; }
+  .lb-ring {
+    position: absolute; left: 50%; top: 5vh; transform: translateX(-50%);
+    width: 420px; height: 420px; border-radius: 50%;
+    border: 1px dashed rgba(103, 232, 249, 0.20);
+  }
+  .lb-ring::after {
+    content: ""; position: absolute; inset: 38px; border-radius: 50%;
+    border: 1px solid rgba(56, 189, 248, 0.16);
+  }
+  .lb-scan {
+    position: absolute; left: 50%; top: 0; width: 760px; height: 760px;
+    margin-left: -380px; border-radius: 50%;
+    background: conic-gradient(from 0deg, rgba(34, 211, 238, 0.09), transparent 26%);
+    animation: lb-spin 18s linear infinite;
+  }
+  @keyframes lb-spin { to { transform: rotate(360deg); } }
+  .lb-grid {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 24vh;
+    background-image:
+      linear-gradient(rgba(103, 232, 249, 0.14) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(103, 232, 249, 0.14) 1px, transparent 1px);
+    background-size: 48px 48px;
+    -webkit-mask-image: linear-gradient(to top, rgba(0,0,0,.9), transparent);
+    mask-image: linear-gradient(to top, rgba(0,0,0,.9), transparent);
+  }
+  .lb-side { position: absolute; top: 50%; transform: translateY(-50%); width: 236px; }
+  .lb-side.l { left: 2.2vw; }
+  .lb-side.r { right: 2.2vw; }
+  .lb-panel {
+    background: rgba(9, 26, 56, 0.60);
+    border: 1px solid rgba(103, 232, 249, 0.24);
+    border-top: 2px solid rgba(103, 232, 249, 0.55);
+    border-radius: 12px;
+    padding: 9px 12px 10px 12px;
+    margin-bottom: 16px;
+    box-shadow: 0 12px 30px rgba(2, 10, 26, 0.42);
+  }
+  .lb-panel .lp-head {
+    font-size: 12.5px; font-weight: 700; letter-spacing: 1px;
+    color: #7FE9FF !important; margin-bottom: 7px;
+  }
+  .lb-panel .lp-row {
+    display: flex; justify-content: space-between; gap: 8px;
+    font-size: 12px; color: #CBDCF6 !important; line-height: 1.9;
+  }
+  .lb-panel .lp-row b { color: #FFFFFF !important; }
+  .lb-panel .lp-bar {
+    height: 6px; border-radius: 999px; margin-top: 8px;
+    background: linear-gradient(90deg, #22D3EE, #3B82F6);
+  }
+  .lb-panel svg { display: block; }
+  @media (max-width: 1280px) { .lb-side { display: none; } }
+  @media (max-width: 900px) { .lb-ring, .lb-scan { display: none; } }
 </style>
 """
 
@@ -1275,11 +1462,119 @@ def check_login():
     # LOGIN_CSS 再把侧边栏兜底隐藏，确保"登录前只有这一屏"。
     st.markdown(LOGIN_CSS, unsafe_allow_html=True)
 
+    # ---- v7：两侧科技装饰层（纯 CSS + 内联 SVG，无任何图片素材）----
+    # 用户反馈"不要只给我一个登录的账号，里面有很多图形，给我放一点在上面，
+    # 要不然给人的感觉太空旷"。这里按参考图补上：
+    #   左：走势曲线 / 财务指标 / 公司关系网络   右：指标摘要 / 财务评分 / 风险评分
+    # 全部装在一个 fixed 定位、pointer-events:none 的 `.lb-deco` 里，
+    # 且主内容 z-index:3（见 LOGIN_CSS），所以永远不会挡住表单与文字。
+    st.markdown(
+        """
+        <div class="lb-deco" aria-hidden="true">
+          <div class="lb-ring"></div>
+          <div class="lb-scan"></div>
+          <div class="lb-grid"></div>
+
+          <div class="lb-side l">
+            <div class="lb-panel">
+              <div class="lp-head">■ 走势曲线 · K 线结构</div>
+              <svg width="212" height="58" viewBox="0 0 212 58" fill="none"
+                   xmlns="http://www.w3.org/2000/svg">
+                <line x1="0" y1="46" x2="212" y2="46" stroke="rgba(103,232,249,.16)"/>
+                <line x1="0" y1="26" x2="212" y2="26" stroke="rgba(103,232,249,.16)"/>
+                <polyline points="2,44 28,30 54,37 80,18 106,27 132,12 158,23 184,7 210,17"
+                          stroke="#22D3EE" stroke-width="2" fill="none"
+                          stroke-linejoin="round" stroke-linecap="round"/>
+                <polyline points="2,50 28,42 54,46 80,34 106,40 132,30 158,36 184,24 210,31"
+                          stroke="rgba(56,189,248,.55)" stroke-width="1.6" fill="none"
+                          stroke-linejoin="round" stroke-linecap="round"/>
+                <circle cx="184" cy="7" r="3" fill="#7FE9FF"/>
+              </svg>
+              <div class="lp-row"><span>区间振幅</span><b>+18.6%</b></div>
+            </div>
+
+            <div class="lb-panel">
+              <div class="lp-head">■ 财务指标</div>
+              <div class="lp-row"><span>营业收入</span><b>1,742.6 亿</b></div>
+              <div class="lp-row"><span>净利润</span><b>862.3 亿</b></div>
+              <div class="lp-row"><span>ROE</span><b>34.2%</b></div>
+              <div class="lp-bar" style="width:78%;"></div>
+            </div>
+
+            <div class="lb-panel">
+              <div class="lp-head">■ 公司关系网络</div>
+              <svg width="212" height="76" viewBox="0 0 212 76" fill="none"
+                   xmlns="http://www.w3.org/2000/svg">
+                <line x1="34" y1="22" x2="106" y2="42" stroke="rgba(103,232,249,.35)"/>
+                <line x1="34" y1="58" x2="106" y2="42" stroke="rgba(103,232,249,.35)"/>
+                <line x1="106" y1="42" x2="178" y2="20" stroke="rgba(103,232,249,.35)"/>
+                <line x1="106" y1="42" x2="178" y2="60" stroke="rgba(103,232,249,.35)"/>
+                <line x1="34" y1="22" x2="178" y2="20" stroke="rgba(56,189,248,.20)"/>
+                <circle cx="34" cy="22" r="5" fill="#22D3EE"/>
+                <circle cx="34" cy="58" r="5" fill="#3B82F6"/>
+                <circle cx="106" cy="42" r="7" fill="#7FE9FF"/>
+                <circle cx="178" cy="20" r="5" fill="#3B82F6"/>
+                <circle cx="178" cy="60" r="5" fill="#22D3EE"/>
+              </svg>
+            </div>
+          </div>
+
+          <div class="lb-side r">
+            <div class="lb-panel">
+              <div class="lp-head">■ 指标摘要</div>
+              <div class="lp-row"><span>市盈率 TTM</span><b>21.4</b></div>
+              <div class="lp-row"><span>市净率</span><b>5.86</b></div>
+              <div class="lp-row"><span>毛利率</span><b>91.3%</b></div>
+              <div class="lp-row"><span>资产负债率</span><b>16.8%</b></div>
+            </div>
+
+            <div class="lb-panel">
+              <div class="lp-head">■ 财务评分 · 四维</div>
+              <svg width="212" height="62" viewBox="0 0 212 62" fill="none"
+                   xmlns="http://www.w3.org/2000/svg">
+                <rect x="6"   y="22" width="18" height="34" rx="3" fill="#22D3EE"/>
+                <rect x="32"  y="12" width="18" height="44" rx="3" fill="#38BDF8"/>
+                <rect x="58"  y="30" width="18" height="26" rx="3" fill="#3B82F6"/>
+                <rect x="84"  y="18" width="18" height="38" rx="3" fill="#22D3EE"/>
+                <rect x="110" y="34" width="18" height="22" rx="3" fill="#3B82F6"/>
+                <rect x="136" y="8"  width="18" height="48" rx="3" fill="#7FE9FF"/>
+                <rect x="162" y="26" width="18" height="30" rx="3" fill="#38BDF8"/>
+                <line x1="0" y1="58" x2="212" y2="58" stroke="rgba(103,232,249,.30)"/>
+              </svg>
+            </div>
+
+            <div class="lb-panel">
+              <div class="lp-head">■ 风险评分</div>
+              <svg width="212" height="70" viewBox="0 0 212 70" fill="none"
+                   xmlns="http://www.w3.org/2000/svg">
+                <circle cx="35" cy="35" r="24" stroke="rgba(103,232,249,.22)"
+                        stroke-width="7" fill="none"/>
+                <circle cx="35" cy="35" r="24" stroke="#22D3EE" stroke-width="7"
+                        fill="none" stroke-dasharray="106 151" stroke-linecap="round"
+                        transform="rotate(-90 35 35)"/>
+                <text x="35" y="40" text-anchor="middle" fill="#EAF2FF"
+                      font-size="14" font-weight="700">4.2</text>
+                <circle cx="130" cy="35" r="24" stroke="rgba(103,232,249,.22)"
+                        stroke-width="7" fill="none"/>
+                <circle cx="130" cy="35" r="24" stroke="#7FE9FF" stroke-width="7"
+                        fill="none" stroke-dasharray="132 151" stroke-linecap="round"
+                        transform="rotate(-90 130 35)"/>
+                <text x="130" y="40" text-anchor="middle" fill="#EAF2FF"
+                      font-size="14" font-weight="700">7.8</text>
+              </svg>
+              <div class="lp-row"><span>低风险 / 高稳健</span><b>同业对标</b></div>
+            </div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
     # 品牌区（压在深蓝底上 → 全部显式浅色，见 LOGIN_CSS 的对比度清单）
     st.markdown(
         """
         <div class="login-brand" style="text-align:center;max-width:680px;
-                    margin:6vh auto 22px auto;">
+                    margin:5vh auto 22px auto;">
           <div class="lb-orb">AI</div>
           <div class="lb-badge">第二届全国人工智能应用创新大赛 · 参赛作品</div>
           <div class="lb-title">📈 金融智能投研 <em>Agent</em></div>
@@ -1297,9 +1592,9 @@ def check_login():
     with _mid:
         with st.form("login_form", clear_on_submit=False):
             st.markdown(
-                '<div style="text-align:center;margin:0 0 18px 0;">'
-                '<div style="font-size:17px;font-weight:800;color:#FFFFFF !important;">账号登录</div>'
-                '<div style="font-size:12px;color:#A9C0E6 !important;margin-top:4px;">'
+                '<div style="text-align:center;margin:0 0 20px 0;">'
+                '<div style="font-size:19px;font-weight:800;color:#FFFFFF !important;">账号登录</div>'
+                '<div style="font-size:13.5px;color:#A9C0E6 !important;margin-top:5px;">'
                 '输入账号与密码进入投研工作台</div>'
                 "</div>",
                 unsafe_allow_html=True,
@@ -1315,8 +1610,8 @@ def check_login():
                 else:
                     st.error("账号或密码错误，请检查后重试（区分大小写）。")
             st.markdown(
-                '<div style="margin-top:16px;padding-top:13px;border-top:1px solid rgba(255,255,255,0.16);'
-                'font-size:12px;color:#CBDCF6 !important;line-height:1.95;">'
+                '<div style="margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.16);'
+                'font-size:13.5px;color:#CBDCF6 !important;line-height:2.0;">'
                 '<b style="color:#FFFFFF !important;">① 单公司深度分析</b>　联网取数 → 规则引擎四维评分 → 图表与风险提示<br>'
                 '<b style="color:#FFFFFF !important;">② 多公司横向对比</b>　2~5 家各按本行业基准评分，对照表 / 差额 / CSV 导出<br>'
                 '<b style="color:#FFFFFF !important;">③ 年报原文引用</b>　解析年报 PDF 后按页建库，结论标注「见年报第 X 页」<br>'
@@ -1541,12 +1836,32 @@ def step_head(num: str, title: str, note: str = "", tag: str = "") -> None:
 #   sec_head  → 我在这个视图的第几段（"1. 对比公司管理"）
 #   card      → 这一段的内容从哪到哪（白卡边界）
 def page_head(title: str, note: str = "", tag: str = "") -> None:
-    """视图顶部的大标题（25px 深墨色）+ 副说明 + 品牌蓝短横。"""
+    """视图顶部的大标题（30px 深墨色）+ 副说明 + 品牌蓝短横 + 右侧科技徽记。
+
+    v7 加的 `.ph-deco` 是右侧那块"同心环 + 六边形 + 迷你折线"的 SVG：
+    用户反馈"页面太空旷"，而纯文字标题旁边正好有一大片空白。
+    全部用内联 SVG 画（不引图片素材），透明度压到 0.9 以内不抢视线。
+    """
     _tag = f' <span class="sh-tag">{tag}</span>' if tag else ""
     _note = f'<span class="ph-note">{note}</span>' if note else ""
     st.markdown(
-        f'<div class="page-head"><div class="ph-title">{title}{_tag}</div>'
-        f'<span class="ph-rule"></span>{_note}</div>',
+        f'<div class="page-head">'
+        f'<div class="ph-text"><div class="ph-title">{title}{_tag}</div>'
+        f'<span class="ph-rule"></span>{_note}</div>'
+        f'<svg class="ph-deco" width="168" height="94" viewBox="0 0 168 94" fill="none" '
+        f'xmlns="http://www.w3.org/2000/svg" aria-hidden="true">'
+        f'<circle cx="84" cy="47" r="43" stroke="#C3D7F2" stroke-width="1" stroke-dasharray="5 7"/>'
+        f'<circle cx="84" cy="47" r="29" stroke="#D5E3F7" stroke-width="1"/>'
+        f'<path d="M84 18 L106 31 L106 63 L84 76 L62 63 L62 31 Z" stroke="#93B4E8" stroke-width="1.5"/>'
+        f'<path d="M66 58 L75 45 L83 51 L93 34 L103 41" stroke="#1D4ED8" stroke-width="2.2" '
+        f'stroke-linecap="round" stroke-linejoin="round" opacity="0.75"/>'
+        f'<circle cx="75" cy="45" r="2.8" fill="#38BDF8"/>'
+        f'<circle cx="93" cy="34" r="2.8" fill="#38BDF8"/>'
+        f'<circle cx="62" cy="31" r="2.2" fill="#93B4E8"/>'
+        f'<circle cx="106" cy="63" r="2.2" fill="#93B4E8"/>'
+        f'<circle cx="84" cy="76" r="2.2" fill="#93B4E8"/>'
+        f'</svg>'
+        f'</div>',
         unsafe_allow_html=True,
     )
 
@@ -3067,7 +3382,8 @@ _tb_rag_txt = "📚 年报索引已就绪" if _tb_rag_ok else "📚 未建年报
 _tb_who = "🎤 演示模式" if st.session_state.get("demo_mode") else "🔒 已登录"
 st.markdown(
     '<div class="topbar">'
-    '<span class="tb-brand">📈 金融智能投研 <b>Agent</b></span>'
+    '<span class="tb-logo">AI</span>'
+    '<span class="tb-brand">金融智能投研 <b>Agent</b></span>'
     '<span class="tb-gap"></span>'
     f'<span class="tb-obj">{_tb_obj}</span>'
     f'<span class="tb-chip">{_tb_who}</span>'
@@ -3099,16 +3415,27 @@ _NAV_ITEMS = [
 def _render_icon_menu() -> None:
     """侧边栏导航菜单（图标 + 文字）。点击切换右侧工作台视图。
 
-    用 `type="primary"` 表达「当前选中」——侧边栏宽度有限，
-    靠底色高亮比加文字标记更省地方。
+    选中态怎么表达 —— 这是 v7 修掉的一个**真隐患**：
+      v6 用 `type="primary"` 表达"当前选中"，CSS 里靠 `button[kind="primary"]`
+      把它刷成"白底 + 深蓝字"。但 1.57 前端的按钮由 styled-components v6 渲染，
+      它**不保证**把 `kind` 这种非标准属性写到 DOM 上 —— 一旦这条选择器整条失效，
+      侧栏上就只剩"浅色字压深蓝底"（虽然还看得清，但**看不出哪个是选中的**），
+      而如果只失效一半（底色规则没了、文字规则还在）就会更糟。
+    修法：给选中项换一个**应用自己控制的 key**（`nav_on_*` / `nav_off_*`），
+      前端会给带 key 的元素加 `st-key-<key>` 类，CSS 直接钩这个类 ——
+      不依赖任何 Streamlit 内部属性，"白底 + 深蓝字"写在同一条规则组里，
+      结构与配色的来源是同一个，不可能只生效一半。
     """
     _cur = st.session_state.get("main_view", "🏢")
     for _icon, _label in _NAV_ITEMS:
+        _on = (_icon == _cur)
+        # key 里带 on/off：key 一变就是"另一个控件"，Streamlit 不会复用旧状态
+        # （按钮本来就是无状态的，这样改没有任何副作用）
         if st.button(
             f"{_icon} {_label}",
-            key=f"nav_btn_{_icon}",
+            key=f"nav_{'on' if _on else 'off'}_{_icon}",
             use_container_width=True,
-            type="primary" if _icon == _cur else "secondary",
+            type="primary" if _on else "secondary",
         ):
             st.session_state["main_view"] = _icon
             st.rerun()
@@ -3196,7 +3523,7 @@ with st.sidebar:
         st.markdown(
             '<div class="sb-card" style="border-left:3px solid #D9A441;">'
             '<div class="sb-title" style="color:#B45309 !important;">⚠️ 安全提醒</div>'
-            '<div style="font-size:11.5px;line-height:1.7;color:#78350F !important;">'
+            '<div style="font-size:12.5px;line-height:1.75;color:#78350F !important;">'
             '当前使用<b>内置默认凭据</b>。<br>公开部署请在 Secrets 中设置 '
             '<code>APP_USER</code> / <code>APP_PASSWORD</code> / <code>DEMO_KEY</code> '
             '（模板见 <code>.streamlit/secrets.toml.example</code>）。'
@@ -3226,6 +3553,14 @@ with st.sidebar:
         st.rerun()
     st.markdown(
         '<p class="footer-note">金融智能投研 Agent · 大赛参赛作品</p>',
+        unsafe_allow_html=True,
+    )
+
+    # ---- v7：侧栏底部科技装饰（纯 CSS，解决"下半截一片纯深蓝太空旷"）----
+    # 三圈同心圆 + 虚线刻度环 + 一条渐变扫描线，全部 pointer-events:none，
+    # 不占布局高度（absolute 定位），也不会挡住任何控件与文字。
+    st.markdown(
+        '<div class="sb-deco" aria-hidden="true"><i></i><i></i><i></i><b></b></div>',
         unsafe_allow_html=True,
     )
 
@@ -3267,7 +3602,7 @@ _single_name = st.session_state.get("single_online_name", "")
 _single_code = st.session_state.get("single_online_code", "")
 
 # ---------------------------------------------------------------
-# 单公司视图的「页面大标题 + 多栏网格」必须在这里（模块级）先建立
+# 单公司视图的「页面大标题 + 两行网格」必须在这里（模块级）先建立
 #
 # 为什么要抢在 _view_single() 之前：
 #   Streamlit 是按**执行顺序**往容器里追加元素的。第 1 步「行业财务基准库」
@@ -3275,21 +3610,30 @@ _single_code = st.session_state.get("single_online_code", "")
 #   而 _view_single() 要到文件末尾才被调用 —— 于是真实渲染顺序变成
 #   「顶栏 → 卡 1 → 大标题『单公司深度分析』→ 卡 2…」，
 #   标题被第一张卡压在下面，整页看上去仍然是"一堆卡片摊着"（用户：布局没变）。
-#   把标题与网格提到这里，顺序才对：顶栏 → 大标题 → 三栏卡片 → 结果区 → 追问区。
+#   把标题与网格提到这里，顺序才对：顶栏 → 大标题 → 两行卡片 → 结果区 → 追问区。
 #
-# 三栏怎么分（对应模板：并排的小卡片，而不是一条竖着排到底的长列表）：
-#   第 1 栏 ①行业基准 + ②数据来源 ｜ 第 2 栏 ③取数 + ④补充材料 ｜ 第 3 栏 ⑤运行分析
+# v7 为什么从"三栏"改成"两行"（用户："他什么行业财务基准库在线取数……这些地方，
+# 是不是排版不合理啊，感觉从左往右乱乱的"）：
+#   三栏版的实际读序是 左列(①②) / 中列(③④) / 右列(⑤) —— 编号确实是从左到右，
+#   但每列卡片张数与高度都不一样，第 ④ 张卡会"掉到 ⑤ 的左边偏下"，
+#   眼睛扫过去就是"忽高忽低、不知道下一张在哪"。
+#   改成两行后读序是唯一的"Z 字"：① ② ③ / ④ ⑤，与截图模板一致的规整网格。
+#     · 第 1 行 `st.columns([1, 1, 1.15])`：① 行业基准 ｜ ② 数据来源 ｜ ③ 数据获取
+#     · 第 2 行 `st.columns([2, 1])`      ：④ 补充材料 ｜ ⑤ 运行分析
+#   ⚠️ 第 2 行必须在**第 1 行的 ③ 之后**才创建：创建 columns 的顺序 = 视觉先后，
+#      提前创建会让第 2 行跑到第 1 行上边去。见 _view_single 里 `_single_grid_r2`。
 # ⚠️ 追问区（st.chat_input）**不进网格**：一旦进了列，父容器就从"页面根层"
 #    变成"列"，Streamlit 会把它从"钉视口底部"降级成内联渲染（见 chat.py 判定）。
 # ---------------------------------------------------------------
-_single_grid = None
+_single_grid = None        # 第 1 行：① ② ③
+_single_grid_r2 = None     # 第 2 行：④ ⑤（在 _view_single 里、③ 渲染完之后创建）
 if _cur_view == "🏢":
     page_head(
         "单公司深度分析",
         "输入一家上市公司 → 在线取数（行情 / 多期财务指标 / 年报原文）→ 规则引擎四维评分 → "
-        "年报按页引用 → 一键生成研报。下面每一步都是一张卡片，按 ①②③④⑤ 从左到右读一遍即可。",
+        "年报按页引用 → 一键生成研报。下面按 ①②③ / ④⑤ 两行读一遍即可。",
     )
-    _single_grid = st.columns(3, gap="medium")
+    _single_grid = st.columns([1, 1, 1.15], gap="medium")
 
 if _cur_view == "🏢":
     # 第 1 步：行业财务基准库（整块现在住在一张白卡里 —— 卡片表头就是原来的步骤条）
@@ -3389,12 +3733,14 @@ def system_prompt_with_kb(industry_override: str = ""):
 def _view_single():
     # ⚠️ 页面大标题放在模块级（本函数之外）渲染：第 1 步「行业财务基准库」在模块级
     #    先执行，标题写在这里会落到第一张卡**下面**（详见模块级的说明）。
-    #    这里只负责 ②~⑤ 的卡片，全部挂进模块级建好的 _single_grid 三栏网格。
+    #    这里只负责 ②~⑤ 的卡片，全部挂进模块级 / 本函数内建好的**两行网格**：
+    #      第 1 行 _single_grid    （模块级建）：① ② ③
+    #      第 2 行 _single_grid_r2 （本函数内、③ 之后建）：④ ⑤
 
-    # ---- 数据来源选择（第 1 栏） ----
+    # ---- 数据来源选择（第 1 行第 2 栏） ----
     with card("src", "2", "数据来源",
               "在线取数已包含实时行情、多期财务指标与年报检索片段",
-              tag="二选一", col=_single_grid[0]):
+              tag="二选一", col=_single_grid[1]):
         src_mode = st.radio(
             "数据来源",
             ["🌐 在线自动取数（推荐）", "✍️ 手动粘贴 / 上传"],
@@ -3410,8 +3756,31 @@ def _view_single():
     if src_mode.startswith("🌐"):
         # 第 3 步的卡片表头由 panel 内部的 step_head("3", ...) 渲染，
         # 这里只开卡片、不再传 title —— 否则一张卡上会出现两条表头。
-        with card("fetch", col=_single_grid[1]):
+        with card("fetch", col=_single_grid[2]):
             online_text, online_name, online_pdftext = online_fetch_panel("single")
+    else:
+        with card("manual", "3", "手动输入 / 上传",
+                  "可粘贴财报摘要，或上传 PDF / txt / md（上传的年报会按页进入检索库）",
+                  tag="二选一", col=_single_grid[2]):
+            # ⚠️ 这一栏只有主区的 ~1/3 宽 —— 再分成左右两栏会把输入框挤成
+            #    ~180px，所以两个控件改成上下堆叠。
+            data_text = st.text_area(
+                "① 粘贴财报摘要（营收、净利润、毛利率、负债等）",
+                height=200,
+                key="single_text",
+            )
+            up = st.file_uploader("② 或上传财报文件（支持 PDF / txt / md）", type=["pdf", "txt", "md"], key="single_upload")
+            uploaded_text, upload_err = read_upload(up)
+            if upload_err:
+                st.warning(upload_err)
+
+    # ---- 第 2 行网格（④ 补充材料 ｜ ⑤ 运行分析）----
+    # ⚠️ 必须**在这里**创建：创建 columns 的顺序就是视觉先后。提前建会让
+    #    第 2 行跑到第 1 行 ③ 的上边去；而 ③ 又在 if/else 两个分支里，
+    #    所以这一行只能落在"两分支都结束之后"。
+    _single_grid_r2 = st.columns([2, 1], gap="medium")
+
+    if src_mode.startswith("🌐"):
         # 【补充材料 · 三选一】原来这里直接摊开一块大输入框，看起来像"必须手填"。
         # 在线取数其实已经把行情、多期财务指标、年报检索全部接进来了，手填多数时候是多余的；
         # 但"系统拿不到的材料"（业绩说明会纪要、券商研报结论、自有 Excel）又确实需要入口。
@@ -3419,7 +3788,7 @@ def _view_single():
         # 只有真要粘第三方材料时，才落到手写框。
         with card("extra", "4", "补充材料",
                   "在线取数已够用，仅在需要第三方材料时追加",
-                  tag="可选", col=_single_grid[1]):
+                  tag="可选", col=_single_grid_r2[0]):
             _extra_mode = st.radio(
                 "补充材料方式",
                 ["🟢 不追加（推荐）", "⚡ 一键用在线数据生成摘要", "✍️ 手动粘贴自定义内容"],
@@ -3455,21 +3824,6 @@ def _view_single():
                     height=140,
                     key="single_text",
                 )
-    else:
-        with card("manual", "3", "手动输入 / 上传",
-                  "可粘贴财报摘要，或上传 PDF / txt / md（上传的年报会按页进入检索库）",
-                  tag="二选一", col=_single_grid[1]):
-            # ⚠️ 手动模式整块住在"第 2 栏"里，宽度只有主区的 1/3 ——
-            #    再分成左右两栏会把输入框挤成 ~180px，所以改成上下堆叠。
-            data_text = st.text_area(
-                "① 粘贴财报摘要（营收、净利润、毛利率、负债等）",
-                height=200,
-                key="single_text",
-            )
-            up = st.file_uploader("② 或上传财报文件（支持 PDF / txt / md）", type=["pdf", "txt", "md"], key="single_upload")
-            uploaded_text, upload_err = read_upload(up)
-            if upload_err:
-                st.warning(upload_err)
 
     # 合并所有数据源
     # 年报全文不再只截开头送模型：开头 3000 字供"公司概况"，
@@ -3509,10 +3863,15 @@ def _view_single():
     elif _PIPELINE_SOURCE == "file":
         st.caption("ℹ️ 统一流程模块已就绪（常规 import 失败，已按绝对路径加载）。")
 
+    # ⑤ 运行分析落哪一栏：
+    #   在线模式 → 第 2 行第 2 栏（④ 补充材料在左、⑤ 在右，Z 字读序）
+    #   手动模式 → 没有 ④，⑤ 直接占第 2 行左侧那一栏（宽 2/3），
+    #              否则会出现在"右侧 1/3、左边一大片空白"的怪位置。
+    _run_col = _single_grid_r2[1] if src_mode.startswith("🌐") else _single_grid_r2[0]
     with card("run", "5", "运行分析",
               "规则引擎固定评分 + 千问润色 + 年报按页引用",
-              tag="出结果", col=_single_grid[2]):
-        # ⚠️ 同"手动输入"：这一栏只有 1/3 宽，两个按钮并排会各自挤到 ~180px、
+              tag="出结果", col=_run_col):
+        # ⚠️ 这一栏只有 1/3 宽（在线模式），两个按钮并排会各自挤到 ~180px、
         #    按钮文案会折行，所以改成上下两个整宽按钮（主操作在上）。
         run_btn = st.button("🚀 开始结构化分析", disabled=not raw_data, use_container_width=True, type="primary")
         st.caption("先看分数：四维评分、图表、风险与亮点（结果按四个页签展开）。")
@@ -3520,7 +3879,29 @@ def _view_single():
         st.caption("直接出稿：把上面的结果整理成一份可下载的 Markdown 研报。")
 
         if not raw_data:
-            st.info("请先通过「在线自动取数」获取数据，或手动粘贴 / 上传财报，再开始分析。")
+            # v7：未取数时不再只丢一行 info —— 这里放一块科技风空状态插图，
+            # 把"接下来会发生什么"画出来（同心环 + 六边形 + 折线），
+            # 解决"卡片里空空如也、整页看着太空"。（用户明确要求"多放点图形"）
+            st.markdown(
+                '<div class="empty-art">'
+                '<svg width="150" height="84" viewBox="0 0 150 84" fill="none" '
+                'xmlns="http://www.w3.org/2000/svg" aria-hidden="true">'
+                '<circle cx="75" cy="42" r="38" stroke="#D5E3F7" stroke-width="1" stroke-dasharray="4 6"/>'
+                '<circle cx="75" cy="42" r="25" stroke="#E1EBF8" stroke-width="1"/>'
+                '<path d="M75 18 L94 29 L94 55 L75 66 L56 55 L56 29 Z" stroke="#93B4E8" stroke-width="1.4"/>'
+                '<polyline points="60 52 68 41 75 46 84 32 92 38" stroke="#1D4ED8" stroke-width="2" '
+                'stroke-linecap="round" stroke-linejoin="round" opacity="0.7"/>'
+                '<circle cx="68" cy="41" r="2.4" fill="#38BDF8"/>'
+                '<circle cx="84" cy="32" r="2.4" fill="#38BDF8"/>'
+                '<circle cx="75" cy="66" r="2" fill="#C3D7F2"/>'
+                '</svg>'
+                '<div class="ea-title">等待数据 · 还没有可分析的内容</div>'
+                '<div class="ea-note">先在上面「🌐 在线自动取数」里检索一家上市公司，<br>'
+                '或切到「✍️ 手动粘贴 / 上传」贴一段财报摘要 —— 之后这里会展开 '
+                '四维评分、年度时间轴与按页引用。</div>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
         elif not DEEPSEEK_API_KEY and (run_btn or report_btn):
             st.error("未配置 DEEPSEEK_API_KEY，请联系管理员。")
 
@@ -4065,7 +4446,7 @@ def _view_single():
                     f'<span class="q-cash">■ 现金牛</span> ROE≥{_rl:g}% 且 增速&lt;{_gl:g}%<br>'
                     f'<span class="q-quest">■ 问题</span> ROE&lt;{_rl:g}% 且 增速≥{_gl:g}%<br>'
                     f'<span class="q-dog">■ 瘦狗</span> ROE&lt;{_rl:g}% 且 增速&lt;{_gl:g}%<br>'
-                    f'<span style="color:#64748B">切换行业财务基准库按钮，基准线会随之调整。</span>'
+                    f'<span style="color:#475569">切换行业财务基准库按钮，基准线会随之调整。</span>'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
