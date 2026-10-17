@@ -322,6 +322,79 @@ try:
 except ImportError:
     lq = None
 
+# ---- Agent 执行轨迹（工具调用链）----
+# 赛题是「让 AI Agent 赋能千行百业」，但页面上原本只呈现**最终结果**：
+# Agent 自己调用了哪些工具、按什么顺序、哪一步走了降级，评委看不见。
+# agent_trace 把这些真实发生的步骤落成台账，让「Agent 做了什么」从代码事实变成页面事实。
+# ⚠️ 它是**观测层**：模块缺失或记录异常都不允许反过来拖垮分析，所以给了空实现兜底。
+try:
+    import agent_trace
+except ImportError:
+    agent_trace = None
+
+
+class _NullTracer:
+    """agent_trace 缺失时的空实现（与 rag / lq 同一套「可选模块」思路）。"""
+
+    class _S:
+        out = ""
+        note = ""
+        status = "ok"
+
+        def finish(self):
+            pass
+
+    @contextmanager
+    def span(self, *a, **k):
+        yield self._S()
+
+    def hit(self, *a, **k):
+        return self._S()
+
+    def rows(self):
+        return []
+
+    def summary(self):
+        return {}
+
+    def clear(self):
+        pass
+
+    @property
+    def steps(self):
+        return []
+
+
+_NULL_TRACER = _NullTracer()
+
+# 轨迹里「动作」的中文名：直接把 action= 打出来太工程化，评委看不懂
+_ACTION_LABEL = {
+    "analysis": "结构化财务抽取",
+    "metrics_extract": "指标兜底抽取",
+    "chat": "追问回答（带年报检索）",
+    "report": "研报生成",
+    "polish": "千问润色校验",
+    "llm": "通用对话",
+}
+
+
+def get_tracer():
+    """取当前会话的轨迹记录器。
+
+    拿不到 session_state（离线评测、_import 期）时返回一个一次性实例 ——
+    记录自然被丢弃，但调用方代码不用写任何分支，业务链路保持干净。
+    """
+    if agent_trace is None:
+        return _NULL_TRACER
+    try:
+        _tr = st.session_state.get("agent_tracer")
+        if _tr is None:
+            _tr = agent_trace.Tracer()
+            st.session_state["agent_tracer"] = _tr
+        return _tr
+    except Exception:
+        return agent_trace.Tracer()
+
 # ============ 配置：优先从 Secrets 读取，其次从环境变量 ============
 def _get_secret(key, default=None):
     try:
@@ -1853,32 +1926,46 @@ def llm_once(messages, temperature=0.2, action="llm", json_mode=False):
     """
     import time
     _t0 = time.time()
-    if not check_quota():
-        return ""
-    _bump_usage()
-    _last = None
-    for _m in _model_candidates():
-        _r, _err = None, None
-        # json_mode 先试带 response_format，服务端不支持时裸调一次同名模型
-        for _jm in ([True, False] if json_mode else [False]):
-            try:
-                _r = _chat_once(_m, messages, temperature, _jm)
-                break
-            except Exception as _e:
-                _err = _e
-                if _jm and not _is_model_error(_e):
-                    continue
-                break
-        if _r is not None:
-            _model_in_use["name"] = _m
-            _out = _r.choices[0].message.content or ""
-            log_event(action, ok=True, dur=time.time() - _t0, extra=f"model={_m}")
-            return _out
-        _last = _err
-        if not _is_model_error(_err):
-            break  # 与模型名无关（限流/网络/额度）→ 换名没有意义
-    log_event(action, ok=False, dur=time.time() - _t0, extra=type(_last).__name__ if _last else "unknown")
-    raise _last if _last else RuntimeError("LLM 调用失败（无可用模型名）")
+    # 【Agent 轨迹】这是全站唯一的非流式模型出口，在这里插一次桩就能覆盖
+    # 结构化分析 / 指标抽取 / 研报 / 润色等全部调用，不必逐处埋点；
+    # 模型名回退、JSON 模式裸调等细节都会落到这一步的「产出/备注」里。
+    with get_tracer().span(
+        "大模型", _ACTION_LABEL.get(action, action),
+        inp=f"temperature={temperature}" + (" · JSON 模式" if json_mode else ""),
+    ) as _s:
+        if not check_quota():
+            _s.status = "failed"
+            _s.out = "今日额度已用尽，未发起调用"
+            return ""
+        _bump_usage()
+        _last = None
+        for _m in _model_candidates():
+            _r, _err = None, None
+            # json_mode 先试带 response_format，服务端不支持时裸调一次同名模型
+            for _jm in ([True, False] if json_mode else [False]):
+                try:
+                    _r = _chat_once(_m, messages, temperature, _jm)
+                    break
+                except Exception as _e:
+                    _err = _e
+                    if _jm and not _is_model_error(_e):
+                        continue
+                    break
+            if _r is not None:
+                _model_in_use["name"] = _m
+                _out = _r.choices[0].message.content or ""
+                _s.out = f"model={_m} · 返回 {len(_out)} 字符"
+                if _m != _model_candidates()[0]:
+                    # 换名才成功说明默认模型名不可用 —— 属于「降级但产出了结果」
+                    _s.status = "degraded"
+                    _s.note = "默认模型名不可用，已自动回退到兼容模型名"
+                log_event(action, ok=True, dur=time.time() - _t0, extra=f"model={_m}")
+                return _out
+            _last = _err
+            if not _is_model_error(_err):
+                break  # 与模型名无关（限流/网络/额度）→ 换名没有意义
+        log_event(action, ok=False, dur=time.time() - _t0, extra=type(_last).__name__ if _last else "unknown")
+        raise _last if _last else RuntimeError("LLM 调用失败（无可用模型名）")
 
 
 def llm_stream(messages, placeholder, temperature=0.3, action="chat"):
@@ -3158,19 +3245,34 @@ def _panel_store(key_prefix: str, code: str, name: str, org: str, periods: int):
     """
     if not code:
         return False, "内部错误：目标代码为空，已取消取数。"
-    text = ds.build_summary_text(code, name=name, periods=periods)
-    if not text:
-        return False, (f"未取到 {name}（{code}）的公开财务数据：可能是网络受限、"
-                       "或该证券无可用财报，可改用手动粘贴。")
+    # 【Agent 轨迹】这是全站唯一的在线取数落库入口，在这里插桩即可覆盖
+    # 单公司页与多公司对比页的全部取数动作（两者共用本函数）。
+    with get_tracer().span("在线取数", "巨潮资讯网 + 东方财富公开接口",
+                           inp=f"{name or code}（{code}）· 请求 {periods} 期") as _s:
+        text = ds.build_summary_text(code, name=name, periods=periods)
+        if not text:
+            _s.status = "failed"
+            _s.out = "接口未返回数据"
+            return False, (f"未取到 {name}（{code}）的公开财务数据：可能是网络受限、"
+                           "或该证券无可用财报，可改用手动粘贴。")
+        _s.out = f"取到财务摘要 {len(text)} 字符"
     st.session_state[f"{key_prefix}_online"] = text
     st.session_state[f"{key_prefix}_online_name"] = name
     st.session_state[f"{key_prefix}_online_code"] = code
     st.session_state[f"{key_prefix}_online_org"] = org or ""
     # 自动匹配行业财务基准库（不直接改已渲染的 industry radio，
     # 而是存进 session_state，由顶部 radio 在下一轮渲染时读取）
+    # 【Agent 轨迹 · 决策点】"按公司名猜行业"是 Agent 自己做的判断，
+    # 猜中要说明命中了哪套规则，猜不中要如实说退回通用框架 —— 不能假装很确定。
     gi = ds.guess_industry(name)
     if gi:
         st.session_state[f"{key_prefix}_auto_industry"] = gi
+        get_tracer().hit("行业识别", "自动匹配财务基准库", inp=f"公司名：{name}",
+                         out=f"命中「{gi}」行业规则", kind="decision")
+    else:
+        get_tracer().hit("行业识别", "自动匹配财务基准库", inp=f"公司名：{name}",
+                         out="未命中，回退「通用」四维框架", status="degraded",
+                         kind="decision")
     return True, ""
 
 
@@ -4096,16 +4198,32 @@ def _view_single():
         _code = st.session_state.get("single_online_code", "")
         _year = st.session_state.get("single_pdf_year", "")
         _tag = st.session_state.get("single_pdf_tag", "")
+        _tr = get_tracer()
         if rag is None or not _code or not _year or not st.session_state.get("single_pdftext"):
+            # 【Agent 轨迹】没建索引也要如实记一步「未执行」：
+            # 台账里凭空少一步，比记录"这步没做"更容易让人误以为检索过了。
+            _tr.hit("年报 RAG", "检索年报相关章节", inp=str(query)[:36],
+                    out="未执行", note="尚未解析年报 PDF，无向量索引", status="skipped")
             return []
         if not rag.has_index(_code, _year, _tag):
             # 兼容老会话：索引可能是按"无 doc_tag"的老命名建的
             _tag = rag.find_index_tag(_code, _year) or _tag
             if not rag.has_index(_code, _year, _tag):
+                _tr.hit("年报 RAG", "检索年报相关章节", inp=str(query)[:36],
+                        out="未执行", note=f"{_code} {_year} 年报索引不存在", status="skipped")
                 return []
         try:
-            return rag.retrieve(query, _code, _year, top_k=top_k, doc_tag=_tag)
-        except Exception:
+            with _tr.span("年报 RAG", "检索年报相关章节",
+                          inp=f"top_k={top_k} · {str(query)[:36]}") as _s:
+                _hits = rag.retrieve(query, _code, _year, top_k=top_k, doc_tag=_tag)
+                _pgs = sorted({int(h.get("page") or 0) for h in (_hits or [])
+                               if str(h.get("page") or "").isdigit()})
+                _s.out = f"命中 {len(_hits or [])} 个章节" + (
+                    f" · 页码 {_pgs[:6]}" if _pgs else "")
+            return _hits
+        except Exception as e:
+            _tr.hit("年报 RAG", "检索年报相关章节", out="检索失败", status="failed",
+                    note=f"{type(e).__name__}: {e}")
             return []
 
     if run_btn and raw_data and DEEPSEEK_API_KEY:
@@ -4197,6 +4315,65 @@ def _view_single():
                     metrics_extractor=_llm_extract,
                 )
                 analysis = _core["analysis"]
+
+                # 【Agent 轨迹】规则评分 / 输出校验 / 证据核对都在 pipeline 内部完成
+                # （页面与离线评测共用同一条链路），所以只能在调用**之后**回填台账。
+                # 附加好处：台账里每个数字都取自 _core 本身，与页面上显示的评分、
+                # 黄条提示**同源** —— 不会出现"页面显示一套、轨迹记录另一套"。
+                _agent_tr = get_tracer()
+                _agent_tr.hit(
+                    "口径控制", "锁定最近一个年报口径",
+                    inp=("在线接口" if _is_online else "手动粘贴文本")
+                         + f" · 请求 {int(st.session_state.get('single_periods', 4) or 4)} 期",
+                    out=(f"采用 {_core.get('score_period')}"
+                         if _core.get("score_period")
+                         else "无年报记录 → 退回最近报告期，并在页面显式标注口径已退化"),
+                    status=("ok" if _core.get("score_period") else "degraded"),
+                    kind="decision",
+                )
+                _agent_tr.hit(
+                    "规则引擎", "四维评分（固定阈值，可复现）",
+                    inp=f"行业={industry} · 来源={_core.get('score_source') or '—'}",
+                    out=(f"{analysis.get('total_score')} / 10"
+                         if analysis.get("total_score") is not None else "数据不足 → 明确不给分"),
+                    note=(f"指标覆盖率 {int(round((analysis.get('score_coverage') or 0) * 100))}%"
+                          if isinstance(analysis.get("score_coverage"), (int, float)) else ""),
+                    kind="check",
+                )
+                _v_iss = _core.get("validation_issues") or []
+                _agent_tr.hit(
+                    "输出校验", "字段 / 类型 / 范围校验",
+                    inp="validate_analysis（页面与评测同一实现）",
+                    out=("全部通过" if not _v_iss else f"{len(_v_iss)} 项已修正或提示"),
+                    status=("ok" if not _v_iss else "degraded"),
+                    kind="check",
+                )
+                _ev_items_now = _core.get("evidence_items") or []
+                _ev_num_now = [e for e in _ev_items_now
+                               if isinstance(e.get("value"), (int, float))
+                               and not isinstance(e.get("value"), bool)]
+                _ev_loc_now = [e for e in _ev_num_now if e.get("found") and e.get("page")]
+                _agent_tr.hit(
+                    "证据核对", "数值溯源 + 页码定位",
+                    inp="证据库：年报全文 + 检索片段 + 取数摘要",
+                    out=f"可核验数值 {len(_ev_num_now)} 项 · 定位到年报原文 {len(_ev_loc_now)} 项"
+                        + (f" · 存疑 {len(_core.get('evidence_issues') or [])} 条"
+                           if _core.get("evidence_issues") else ""),
+                    note=("未建年报索引时只能定位到取数摘要，无法给出页码"
+                          if not _ev_loc_now and _ev_num_now else ""),
+                    kind="check",
+                )
+                _cit_now = _core.get("citation") or {}
+                if _cit_now.get("rate") is not None:
+                    _agent_tr.hit(
+                        "引用核验", "正文页码引用正确率",
+                        inp=(f"合法页码区间 1~{_pg_count}"
+                             if isinstance(_pg_count, int) and _pg_count > 0
+                             else "无年报索引，无法核验"),
+                        out=f"{_cit_now.get('ok', 0)}/{_cit_now.get('refs', 0)}"
+                            f"（{_cit_now['rate'] * 100:.0f}%）",
+                        kind="check",
+                    )
 
                 # 4) 输出校验（字段/类型/范围/缺失值）—— 由 pipeline 内部调用，
                 #    页面与评测看到的是同一份问题清单。
@@ -4418,8 +4595,11 @@ def _view_single():
         # 原来是一条长页面从上往下堆（图表 → 时间轴 → 评分依据 → 研报），
         # 想看年度时间轴要滚很久。现在按使用顺序分四页：
         #   概览看数字 → 时间轴看多年 → 评分与依据看证据 → 研报看结论。
-        _w1, _w2, _w3, _w4 = st.tabs(
-            ["📊 分析概览", "🗓️ 年度时间轴", "🧮 评分与依据", "📝 研报"]
+        # 【新增第 5 个页签】把 Agent 的工具调用链摊开。
+        # 赛题是「AI Agent」，但前四个页签呈现的都是**结果**；评委想判断"这是
+        # 不是真 Agent"，看的是它自主调了哪些工具、按什么顺序、失败后怎么换路。
+        _w1, _w2, _w3, _w4, _w5 = st.tabs(
+            ["📊 分析概览", "🗓️ 年度时间轴", "🧮 评分与依据", "📝 研报", "🤖 Agent 轨迹"]
         )
 
     # ⚠️ 下面每个 _tab*_ 函数体**一行渲染逻辑都没改**，只是外面套了一层 def。
@@ -4447,6 +4627,75 @@ def _view_single():
                         st.markdown(f"&nbsp;&nbsp;- {_r}")
                 if _missing:
                     st.caption("未参与计分的缺失指标：" + "、".join(_missing))
+
+    def _tab5_agent_trace():
+        """Agent 轨迹 · 工具调用链与自主决策点。
+
+        为什么单独占一个页签：
+          前四个页签回答「分析出了什么」，这一页回答「Agent 是怎么做出来的」。
+          同样调一次接口，会不会自己判断「这是中报，不能当年报用」、
+          「这个字段缺了，不能硬凑分」，才是 Agent 与普通脚本的分水岭 ——
+          而这个区别如果只写在代码注释里，评委翻到页面是看不到的。
+
+        ⚠️ 这里展示的是**真实调用记录**：由代码中各调用点实时写入，
+        不是事后整理的说明文字；每一步的产出数字都与页面显示同源。
+        """
+        _tr = get_tracer()
+        _rows = _tr.rows()
+        if not _rows:
+            st.info(
+                "暂无轨迹记录。完成一次「🌐 在线取数 → 🚀 运行分析」后，"
+                "本页会按真实发生顺序列出 Agent 调用的每一步工具、耗时与是否降级。"
+            )
+            return
+
+        _sum = _tr.summary()
+        _c1, _c2, _c3, _c4 = st.columns(4)
+        with _c1:
+            st.metric("工具调用", f"{_sum.get('tools', 0)} 次")
+        with _c2:
+            st.metric("自主决策", f"{_sum.get('decisions', 0)} 处")
+        with _c3:
+            st.metric("自检环节", f"{_sum.get('checks', 0)} 项")
+        with _c4:
+            st.metric("降级 / 失败",
+                      f"{_sum.get('degraded', 0)} / {_sum.get('failed', 0)}")
+        st.caption(
+            f"本次会话累计 {_sum.get('total', 0)} 步 · 总耗时 {_sum.get('elapsed_ms', 0)} ms"
+            " —— 降级项表示「Agent 自己换了条路但仍产出了结果」，"
+            "失败项表示这一步确实没做成；两者都在页面上如实呈现，不做静默处理。"
+        )
+
+        # 内部字段（_kind / _status）不展示，只留给程序判断，避免表格出现两列噪音
+        _df = pd.DataFrame([
+            {k: v for k, v in _r.items() if not str(k).startswith("_")}
+            for _r in _rows
+        ])
+        st.dataframe(_df, use_container_width=True, hide_index=True)
+
+        if agent_trace is not None:
+            _dec = agent_trace.decisions_of(_tr)
+            if _dec:
+                with st.expander("🧭 自主决策点（Agent 自己判断了什么）", expanded=True):
+                    st.caption(
+                        "工具调用表回答「做了什么」，这里回答「为什么这么做」。"
+                        "这几处判断是本作品与「直接把财报丢给大模型」的关键差异。"
+                    )
+                    st.dataframe(pd.DataFrame(_dec), use_container_width=True,
+                                 hide_index=True)
+
+        st.divider()
+        st.markdown("**这条链路上的每一步，分别回答什么问题**")
+        st.markdown(
+            "- 🌐 **在线取数**：自己去公开接口拿数据，而不是等人把财报粘进来\n"
+            "- 📄 **年报解析 / RAG 检索**：自己决定去年报的哪一页找依据，而不是读开头几千字\n"
+            "- 🤖 **大模型抽取**：只让它做擅长的「读文本、抽指标、写解读」，不让它打分\n"
+            "- 🧮 **规则引擎评分**：分数由固定阈值算出，同一份数据必然同一分数（可复现）\n"
+            "- ✅ **输出校验 / 证据核对 / 引用核验**：自己检查自己的输出，发现问题显式提示"
+        )
+        if st.button("🧹 清空本次轨迹记录", key="btn_clear_agent_trace"):
+            _tr.clear()
+            st.rerun()
 
     def _tab1_b():
         """分析概览 · 关键财务指标图 + 构成圆环 + 指标明细。"""
@@ -4767,6 +5016,8 @@ def _view_single():
             _tab3_dh()
         with _w4:
             _tab4()
+        with _w5:
+            _tab5_agent_trace()
 
     # ---- 追问对话（多轮，上下文实时更新） ----
     # 【顺序很关键 · 为什么这么排】
