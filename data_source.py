@@ -55,9 +55,12 @@ def insecure_fallbacks() -> List[str]:
     """返回本次运行内发生过明文降级的接口 URL（供 UI 提示数据来源完整性）。"""
     return list(_INSECURE_FALLBACKS)
 
-CNINFO_SEARCH = "http://www.cninfo.com.cn/new/information/topSearch/query"
-CNINFO_ANNOUNCE = "http://www.cninfo.com.cn/new/hisAnnouncement/query"
-CNINFO_STATIC = "http://static.cninfo.com.cn/"
+# BUG-05（外部测试报告）：巨潮三个接口原来硬编码 http://，取数成功后 UI 会出现
+# 「HTTPS 降级为 HTTP（明文连接）」警告 —— 评委会关注传输安全。实测三个域名
+# 均支持 HTTPS（2026-10-17 验证 200），全部升级，警告从此不再出现。
+CNINFO_SEARCH = "https://www.cninfo.com.cn/new/information/topSearch/query"
+CNINFO_ANNOUNCE = "https://www.cninfo.com.cn/new/hisAnnouncement/query"
+CNINFO_STATIC = "https://static.cninfo.com.cn/"
 
 EM_QUOTE = "https://push2.eastmoney.com/api/qt/stock/get"
 EM_KLINE = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
@@ -132,7 +135,7 @@ def _get(url: str, params=None, referer="https://data.eastmoney.com/", tries: in
     return None
 
 
-def _post(url: str, data=None, referer="http://www.cninfo.com.cn/"):
+def _post(url: str, data=None, referer="https://www.cninfo.com.cn/"):
     if requests is None:
         return None
     for _ in range(2):
@@ -327,23 +330,27 @@ def resolve_stock(keyword: str) -> Dict[str, Any]:
     kw = (keyword or "").strip()
     blank = {"ok": False, "code": "", "name": "", "orgId": "", "candidates": [], "ambiguous": False}
 
+    # BUG-03（外部测试报告）：错误提示把 5000 字符原文塞进 alert 撑破布局。
+    # 回显一律截断到 16 字符（UI 侧另有 max_chars=20 的输入上限做双保险）。
+    echo = kw if len(kw) <= 16 else kw[:16] + "…"
+
     if not kw:
         return {**blank, "error": "请输入股票代码（6 位数字）或公司名称。"}
 
     # ---- 1) 形态校验：全数字就必须是 6 位，否则直接拒绝，不去请求接口 ----
     if kw.isdigit() and not _CODE_RE.match(kw):
-        return {**blank, "error": f"「{kw}」不是有效的股票代码：A 股代码应为 6 位数字（如 600519）。"}
+        return {**blank, "error": f"「{echo}」不是有效的股票代码：A 股代码应为 6 位数字（如 600519）。"}
     if len(kw) < 2:
-        return {**blank, "error": f"「{kw}」太短，请输入完整的 6 位代码或公司名称。"}
+        return {**blank, "error": f"「{echo}」太短，请输入完整的 6 位代码或公司名称。"}
     # A 股简称一定含中文字符。纯英数关键词（如 'abc'）走搜索接口会被模糊匹配到
     # 毫不相干的证券（实测 'abc' → 180306 华夏安博仓储REIT），因此直接拦掉。
     # 注意：合法的 6 位代码本身不含中文，必须排除在本条之外。
     if not _CODE_RE.match(kw) and not _CJK_RE.search(kw):
-        return {**blank, "error": f"「{kw}」既不是 6 位股票代码，也不像 A 股公司名称，请重新输入。"}
+        return {**blank, "error": f"「{echo}」既不是 6 位股票代码，也不像 A 股公司名称，请重新输入。"}
 
     hits = search_stock(kw)
     if not hits:
-        return {**blank, "error": f"未找到与「{kw}」对应的证券，请检查代码或名称是否正确。"}
+        return {**blank, "error": f"未找到与「{echo}」对应的证券，请检查代码或名称是否正确。"}
 
     # ---- 2) 6 位代码：必须精确命中，否则一律拒绝（不允许模糊降级） ----
     if _CODE_RE.match(kw):
@@ -355,7 +362,7 @@ def resolve_stock(keyword: str) -> Dict[str, Any]:
         return {
             **blank,
             "candidates": hits[:8],
-            "error": (f"未找到代码为 {kw} 的证券。搜索接口返回的 {len(hits)} 条都是「相近匹配」"
+            "error": (f"未找到代码为 {echo} 的证券。搜索接口返回的 {len(hits)} 条都是「相近匹配」"
                       f"（如 {hits[0].get('name','')} {hits[0].get('code','')}），"
                       f"已拒绝自动选择，以免分析错公司。"),
         }
@@ -377,7 +384,7 @@ def resolve_stock(keyword: str) -> Dict[str, Any]:
         **blank,
         "candidates": pool[:8],
         "ambiguous": True,
-        "error": f"「{kw}」匹配到 {len(pool)} 家公司，需要你确认具体是哪一家。",
+        "error": f"「{echo}」匹配到 {len(pool)} 家公司，需要你确认具体是哪一家。",
     }
 
 

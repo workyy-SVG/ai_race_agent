@@ -4093,6 +4093,12 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
         否则 3~5 家公司并列时，光取数 UI 就把页面撑得无法使用。
         取数逻辑、防"猜代码"逻辑与完整模式**完全一致**。
     """
+    # BUG-02（外部测试报告）：报错后输入框残留旧值，用户接着输入会拼接在一起
+    # （自动化实测出现「999999999600000」）。失败路径置 _clear_kw 标志并 rerun，
+    # 这里在**控件实例化之前**消费标志清空输入框 —— 控件实例化之后再改它的
+    # session key 会抛 StreamlitAPIException，所以必须放在函数最顶部。
+    if st.session_state.pop(f"{key_prefix}_clear_kw", False):
+        st.session_state[f"{key_prefix}_kw"] = ""
     if compact:
         st.markdown('<div class="mini-head">🌐 在线取数</div>', unsafe_allow_html=True)
     else:
@@ -4154,6 +4160,7 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
         kw = st.text_input(
             "股票代码或名称（可编辑；确认后点右侧 🔍 获取数据）",
             key=_kw_key,
+            max_chars=20,   # BUG-03：A 股代码 6 位 / 简称 ≤8 字，20 字上限防超长输入撑破布局
             placeholder="例如：600519 或 贵州茅台",
         )
     periods = 3
@@ -4182,6 +4189,14 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
         )
 
     # ---- 取数主流程（手动按钮与热门下拉自动触发共用，v11 抽成函数）----
+    def _fail_fetch(msg: str) -> None:
+        """取数失败的统一出口：清空输入框 + 持久化错误信息 + rerun。
+        （BUG-02/03：旧实现只打一条 st.error 就结束，输入框残留旧值，
+        用户接着输入会拼接；超长输入还会把 alert 撑破布局。）"""
+        st.session_state[f"{key_prefix}_last_err"] = msg
+        st.session_state[f"{key_prefix}_clear_kw"] = True
+        st.rerun()
+
     def _fetch_by_kw(kw_val: str, p: int) -> None:
         """【证券解析】把输入变成一个**确定**的目标公司。
         巨潮搜索是模糊/前缀匹配，直接取第一条会把用户没输入过的公司当成分析对象
@@ -4196,8 +4211,9 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
                     key_prefix, _res["code"], _res["name"], _res.get("orgId", ""), p
                 )
             if not _ok:
-                _panel_clear(key_prefix)
-                st.error(_err)
+                _fail_fetch(_err or "取数失败")
+            else:
+                st.session_state.pop(f"{key_prefix}_last_err", None)
         elif _res.get("ambiguous"):
             # 多义名称 → 记下候选，交给下方"候选确认"区，绝不自动采用首项
             _panel_clear(key_prefix)
@@ -4206,7 +4222,10 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
         else:
             # 失败 → 清空该面板全部旧数据，杜绝"查询失败却仍显示上一家公司"
             _panel_clear(key_prefix)
-            st.error(f"❌ {_res.get('error')}")
+            # BUG-02：报错后清空输入框并 rerun，避免旧输入残留（用户原话场景：
+            # 输错 999999999 报错后改输 600000，残值拼接成 999999999600000 仍失败）。
+            # 错误信息存 session，rerun 后照常显示（rerun 会冲掉本轮直接打印的 error）。
+            _fail_fetch(str(_res.get("error") or "取数失败"))
 
     _auto_fetch = st.session_state.pop(f"{key_prefix}_auto_fetch", False)
     if _auto_fetch and not do_fetch:
@@ -4224,6 +4243,11 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
             st.error("请先输入 6 位股票代码或公司名称，再点击「获取数据」。")
         else:
             _fetch_by_kw(_kw, periods)
+
+    # BUG-02：rerun 后在这里回放上一轮失败的错误信息（输入框已被清空，可直接重输）
+    _last_err = st.session_state.pop(f"{key_prefix}_last_err", "")
+    if _last_err:
+        st.error(f"❌ {_last_err}")
 
     # ---- 名称多义时的用户确认（对应验收标准「名称存在多个结果」）----
     _cands = st.session_state.get(f"{key_prefix}_cands") or []
@@ -4312,18 +4336,29 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
             '</div></div>',
             unsafe_allow_html=True,
         )
-        with st.expander("查看获取到的原始数据", expanded=False):
-            st.markdown(text)
+        return text, name, ""
 
-        # 年报 PDF 一键获取：默认展开，且解析成功后保持展开
-        pdf_done = bool(st.session_state.get(f"{key_prefix}_pdftext"))
-        _rag_ok = bool(st.session_state.get(f"{key_prefix}_rag_status", {}).get("ok"))
-        # 索引还没建 → 默认展开这个面板，把"要页码引用就先解析年报"变成显式引导，
-        # 而不是让评委点完「开始分析」才发现结论里没有引用（优化清单：RAG 不是开箱即用）
-        with st.expander(
-            "📄 一键获取并解析年报 PDF → 启用「见年报第X页」页码引用（约 40-80 秒）",
-            expanded=not _rag_ok,
-        ):
+    # ------------------ 单公司完整模式才走到这里 ------------------
+    # 【v12 修复 · 用户阶段四第 ①/③ 条】「查看原始数据 + 年报 PDF 一键解析 + RAG 状态」
+    # 这一整块原来被错误地缩进在 `elif compact:` 分支里，后果是：
+    #   · 单公司页（非 compact）**永远渲染不出**「📄 一键获取并解析年报 PDF」面板；
+    #   · 年报向量索引因此无法建立 → 右上角永远显示「页码引用未启用」；
+    #   · 面板反而只在"对比页且未取数"这个根本用不了的场合出现。
+    # 现在提升到函数级：单公司页取数后即可一键下载解析年报、建立向量索引。
+    with st.expander("查看获取到的原始数据", expanded=False):
+        st.markdown(text)
+
+    # 年报 PDF 一键获取：默认展开，且解析成功后保持展开
+    _rag_ok = bool(st.session_state.get(f"{key_prefix}_rag_status", {}).get("ok"))
+    # 索引还没建 → 默认展开这个面板，把"要页码引用就先解析年报"变成显式引导，
+    # 而不是让评委点完「开始分析」才发现结论里没有引用（优化清单：RAG 不是开箱即用）
+    with st.expander(
+        "📄 一键获取并解析年报 PDF → 启用「见年报第X页」页码引用（约 40-80 秒）",
+        expanded=not _rag_ok,
+    ):
+        if not code:
+            st.info("请先在上方取数成功，这里才能下载并解析年报 PDF。")
+        else:
             rtype = st.radio("报告类型", ["年报", "半年报", "一季报", "三季报"], horizontal=True, key=f"{key_prefix}_rtype")
             if st.button("获取报告列表", key=f"{key_prefix}_listbtn"):
                 reports = ds.list_reports(code, org, rtype, limit=8)
@@ -4404,20 +4439,22 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
                                     else:
                                         st.warning(f"RAG 索引未构建：{_st.get('msg', '未知原因')}（分析仍可用年报开头文本）")
 
-        # RAG 状态提示：明确告诉使用者"现在有没有页码引用能力"
-        if _rag_ok:
-            _st_ = st.session_state.get(f"{key_prefix}_rag_status", {})
-            st.caption(
-                f"📚 年报向量库已就绪：{_st_.get('chunks', 0)} chunks · "
-                f"{_st_.get('pages', 0)} 页 · 分析/研报/追问将按问题检索相关章节并标注页码"
-            )
-        else:
-            st.caption(
-                "ℹ️ **当前未建立年报向量索引** —— 分析结果基于取数文本（含年报开头部分），"
-                "**不含「见年报第X页」式页码引用**。若要启用页码引用，请点开上方面板"
-                "「📄 一键获取并解析年报 PDF」下载解析一份年报（约 40-80 秒），"
-                "建好后本页会自动提示「向量库已就绪」。"
-            )
+    # RAG 状态提示：明确告诉使用者"现在有没有页码引用能力"
+    # （重新读一次：向量索引可能就在本轮刚构建完成，不能用构建前的旧值）
+    _rag_ok = bool(st.session_state.get(f"{key_prefix}_rag_status", {}).get("ok"))
+    if _rag_ok:
+        _st_ = st.session_state.get(f"{key_prefix}_rag_status", {})
+        st.caption(
+            f"📚 年报向量库已就绪：{_st_.get('chunks', 0)} chunks · "
+            f"{_st_.get('pages', 0)} 页 · 分析/研报/追问将按问题检索相关章节并标注页码"
+        )
+    else:
+        st.caption(
+            "ℹ️ **当前未建立年报向量索引** —— 分析结果基于取数文本（含年报开头部分），"
+            "**不含「见年报第X页」式页码引用**。若要启用页码引用，请点开上方面板"
+            "「📄 一键获取并解析年报 PDF」下载解析一份年报（约 40-80 秒），"
+            "建好后本页会自动提示「向量库已就绪」。"
+        )
 
     pdftext = st.session_state.get(f"{key_prefix}_pdftext", "")
     return text, name, pdftext
@@ -4425,38 +4462,51 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
 # ============ 紧凑顶栏 + 侧边栏 ============
 # 原来的深蓝大横幅（三行、近 100px 高）换成单行顶栏：
 # 品牌 + 当前分析对象 + 状态徽章。信息一样，纵向空间还给工作台。
-_tb_name = st.session_state.get("single_online_name", "")
-_tb_code = st.session_state.get("single_online_code", "")
-_tb_obj = (
-    f"当前对象：<b>{_tb_name}（{_tb_code}）</b>"
-    if _tb_name and _tb_code else "当前对象：<b>尚未选择</b>"
-)
-_tb_ragst = st.session_state.get("single_rag_status") or {}
-_tb_rag_ok = bool(isinstance(_tb_ragst, dict) and _tb_ragst.get("ok"))
-# v11（用户阶段三第 ⑨ 条）：右上角"未建年报索引"让用户困惑"这是什么问题"。
-# ① 文案改成人话：它不是报错，只是"还没有解析过年报 PDF，所以没有页码引用"；
-# ② 悬停出完整解释（HTML title），把"影响什么、怎么启用"一次说清。
-_tb_rag_txt = "📚 页码引用已启用" if _tb_rag_ok else "📚 页码引用未启用（非报错）"
-_tb_rag_tip = (
-    "年报向量索引已建立：分析/研报/追问会检索年报原文，结论标注「见年报第X页」。"
-    if _tb_rag_ok else
-    "这是什么：还没有解析过年报 PDF，所以无法给出「见年报第X页」式页码引用 —— "
-    "不是报错，分析照常可用（基于在线取数的财务文本）。"
-    "想启用：在单公司「🌐 在线取数」面板里点「📄 一键获取并解析年报 PDF」"
-    "（约 40-80 秒），建好后这个徽章会自动变化。"
-)
-_tb_who = "🎤 演示模式" if st.session_state.get("demo_mode") else "🔒 已登录"
-st.markdown(
-    '<div class="topbar">'
-    '<span class="tb-logo">AI</span>'
-    '<span class="tb-brand">金融智能投研 <b>Agent</b></span>'
-    '<span class="tb-gap"></span>'
-    f'<span class="tb-obj">{_tb_obj}</span>'
-    f'<span class="tb-chip">{_tb_who}</span>'
-    f'<span class="tb-chip{" warn" if not _tb_rag_ok else ""}" title="{_tb_rag_tip}">{_tb_rag_txt}</span>'
-    "</div>",
-    unsafe_allow_html=True,
-)
+#
+# 【v12 修 · 外部测试报告 BUG-06】顶栏原来只在模块级渲染一次，而「当前对象 /
+# 页码引用」这些 session 值要等到文件末尾的视图函数里（取数面板 / RAG 建库）
+# 才会被更新 —— 于是取数成功后顶栏仍显示「尚未选择 / 未启用」，滞后一整轮。
+# 修法：顶栏画进 st.empty() 槽位，脚本**末尾**（视图全部执行完）按最新
+# session_state 重画一次。st.empty() 覆盖写入不改变位置，视觉仍在页面最上方。
+_topbar_slot = st.empty()
+
+
+def _topbar_html() -> str:
+    """按当前 session_state 生成顶栏 HTML（渲染两次：占位 + 末尾刷新）。"""
+    _tb_name = st.session_state.get("single_online_name", "")
+    _tb_code = st.session_state.get("single_online_code", "")
+    _tb_obj = (
+        f"当前对象：<b>{_tb_name}（{_tb_code}）</b>"
+        if _tb_name and _tb_code else "当前对象：<b>尚未选择</b>"
+    )
+    _tb_ragst = st.session_state.get("single_rag_status") or {}
+    _tb_rag_ok = bool(isinstance(_tb_ragst, dict) and _tb_ragst.get("ok"))
+    # v11（用户阶段三第 ⑨ 条）：右上角"未建年报索引"让用户困惑"这是什么问题"。
+    # ① 文案改成人话：它不是报错，只是"还没有解析过年报 PDF，所以没有页码引用"；
+    # ② 悬停出完整解释（HTML title），把"影响什么、怎么启用"一次说清。
+    _tb_rag_txt = "📚 页码引用已启用" if _tb_rag_ok else "📚 页码引用未启用（非报错）"
+    _tb_rag_tip = (
+        "年报向量索引已建立：分析/研报/追问会检索年报原文，结论标注「见年报第X页」。"
+        if _tb_rag_ok else
+        "这是什么：还没有解析过年报 PDF，所以无法给出「见年报第X页」式页码引用 —— "
+        "不是报错，分析照常可用（基于在线取数的财务文本）。"
+        "想启用：在单公司「🌐 在线取数」面板里点「📄 一键获取并解析年报 PDF」"
+        "（约 40-80 秒），建好后这个徽章会自动变化。"
+    )
+    _tb_who = "🎤 演示模式" if st.session_state.get("demo_mode") else "🔒 已登录"
+    return (
+        '<div class="topbar">'
+        '<span class="tb-logo">AI</span>'
+        '<span class="tb-brand">金融智能投研 <b>Agent</b></span>'
+        '<span class="tb-gap"></span>'
+        f'<span class="tb-obj">{_tb_obj}</span>'
+        f'<span class="tb-chip">{_tb_who}</span>'
+        f'<span class="tb-chip{" warn" if not _tb_rag_ok else ""}" title="{_tb_rag_tip}">{_tb_rag_txt}</span>'
+        "</div>"
+    )
+
+
+_topbar_slot.markdown(_topbar_html(), unsafe_allow_html=True)
 
 # ---------------------------------------------------------------
 # 侧边栏导航（图标 + 文字）· 分析记录
@@ -4806,7 +4856,11 @@ if _cur_view == "🏢":
         industry = st.radio(
             "行业",
             list(INDUSTRY_KB.keys()),
-            index=list(INDUSTRY_KB.keys()).index(_default_industry),
+            # 【v12 · BUG-01 加固】key 一旦存在，index 在二次渲染起就会被忽略；
+            # 两者混用在不同 Streamlit 版本上还可能触发"控件锁死"（外部测试报告
+            # 复现的"点行业没反应"）。这里去掉 index，默认值完全由上方
+            # session_state["industry_widget"] 初始化逻辑决定 —— 这是官方推荐的
+            # 唯一写法，任何版本下行为一致。
             horizontal=True,
             label_visibility="collapsed",
             key="industry_widget",
@@ -6315,8 +6369,12 @@ def _view_compare():
         _rows = []
         if _s["online"] and _s["code"] and _pipeline is not None:
             try:
-                _rows = _pipeline.all_annual_rows(
-                    _s["code"], periods=max(_cmp_periods, 8))
+                # 【v12 · 用户阶段四第 ④ 条】年报行固定取满 24 期（≈6 个年报年度），
+                # **不再跟随报告期数选择器** —— 之前用 max(_cmp_periods, 8)，
+                # 默认 8 期只够 2 个年报，用户选 2022 年时基准年份下拉里根本没有
+                # 2022，追问问 2022 也只会得到"没有该年数据"。年报行只是一次
+                # pageSize=24 的接口调用，成本极低，放开取满才能支撑跨年对比。
+                _rows = _pipeline.all_annual_rows(_s["code"], periods=24)
             except Exception:
                 _rows = []
         _annual_rows[_s["i"]] = _rows
@@ -6372,6 +6430,32 @@ def _view_compare():
                 "或把报告期数调大到 16~24 期后再试（年报年份覆盖更多）。"
             )
 
+    def _annual_table_txt(rows) -> str:
+        """把一家公司的多年年报行压成「年份: 指标」文本，供 LLM 直接引用。
+        【v12 · 用户阶段四第 ④ 条】对比提示词 / 追问上下文原来只带**取数文本**
+        （最近 N 期）与最新一期指标 —— 用户选 2022 年或追问 2022 年时，
+        模型手里根本没有 2022 的数字，只能回答"无 2022 年报数据"。
+        现在把年报行全量注入（与评分/图表同一份取值），选了哪年就有哪年的数。"""
+        _out = []
+        for _r in (rows or []):
+            _y = _pipeline.year_of(_r) if _pipeline is not None else ""
+            if not _y:
+                continue
+            _kv = []
+            for _k, _lab in (
+                ("revenue", "营收(亿)"), ("net_profit", "归母净利(亿)"),
+                ("revenue_yoy", "营收同比%"), ("net_profit_yoy", "净利同比%"),
+                ("roe", "ROE%"), ("gross_margin", "毛利率%"), ("net_margin", "净利率%"),
+                ("debt_ratio", "资产负债率%"), ("ocf_to_revenue", "经营现金流/营收%"),
+            ):
+                _v = (_r or {}).get(_k)
+                if isinstance(_v, (int, float)):
+                    _kv.append(f"{_lab}={_v:g}")
+            if _kv:
+                _out.append((int(_y), f"{_y}年年报： " + "；".join(_kv)))
+        _out.sort(key=lambda t: t[0], reverse=True)
+        return "\n".join(t[1] for t in _out)
+
     def _cmp_side_metrics(side):
         """取一家公司的标准指标（在线优先且只取年报；对齐到基准年份）→ (metrics, 期别, 行业)。"""
         _ind = side["industry"]
@@ -6389,7 +6473,7 @@ def _view_compare():
             else:
                 try:
                     met, per = _pipeline.annual_metrics(
-                        side["code"], periods=max(_cmp_periods, 8))
+                        side["code"], periods=24)
                 except Exception:
                     met, per = {}, ""
         if not met and scoring is not None and (side["data"] or "").strip():
@@ -6496,9 +6580,15 @@ def _view_compare():
                     for _it in _items_saved:
                         _s = next((x for x in _cmp_side if x["name"] == _it["name"]), None)
                         _txt = ((_s or {}).get("data") or "")[:MAX_CHARS]
-                        _blocks.append(
+                        _blk = (
                             f"【{_it['name']}｜行业：{_it['industry']}｜基准期：{_it['period'] or '未获取'}】\n{_txt}"
                         )
+                        # 【v12 · 用户阶段四第 ④ 条】逐年年报指标表 —— 用户选哪一年
+                        # （含 2022 这类历史年份）模型就必须有哪一年的数字可引用。
+                        _at = _annual_table_txt(_it.get("annual"))
+                        if _at:
+                            _blk += "\n【逐年年报指标（程序联网取数，与评分同源，可直接引用）】\n" + _at
+                        _blocks.append(_blk)
                     _inds_txt = " vs ".join(sorted({_it["industry"] for _it in _items_saved})) or industry
                     cmp_prompt = (
                         f"请对比以下 {len(_items_saved)} 家公司的财务表现：\n\n"
@@ -6517,6 +6607,8 @@ def _view_compare():
                         )
                         + (f"\n本次所有公司统一取 **{_base_year} 年年报**数据，可直接同年份比较。"
                            if _cs_saved.get("base_year") else "")
+                        + ("\n用户问某一年份时，优先引用「逐年年报指标」中该年的数据；"
+                           "该年不在列表里就如实说明，并明确列出**可用的年份范围**，禁止编造或用其它年份冒充。")
                     )
                     _sys = system_prompt_with_kb(
                         _items_saved[0]["industry"] if _items_saved else industry
@@ -6703,16 +6795,27 @@ def _view_compare():
         st.markdown("##### 💬 对比追问（基于上方全部对比公司的数据继续提问）")
 
         def _cmp_context() -> str:
-            """把每家公司的指标与评分压成一段可引用的上下文（与评分表同一份取值）。"""
+            """把每家公司的指标与评分压成一段可引用的上下文（与评分表同一份取值）。
+            【v12 · 用户阶段四第 ④ 条】追加「逐年年报指标」：追问"2022 年谁更强"
+            这类跨年问题，模型必须能直接拿到对应年份的数字，而不是回答"没有该年数据"。"""
             _parts = []
             for it in _citems:
                 _rows = [f"{k}={v}" for k, v in (it.get("raw") or {}).items()
                          if isinstance(v, (int, float))]
                 _sc = it.get("scores") or {}
-                _parts.append(
+                _at = _annual_table_txt(it.get("annual"))
+                _years = sorted({(_pipeline.year_of(r) or "") for r in (it.get("annual") or [])
+                                 if _pipeline is not None and _pipeline.year_of(r)}, reverse=True)
+                _blk = (
                     f"【{it['name']}（{it.get('code') or '—'}）· {it.get('industry') or '—'} · "
                     f"基准期 {it.get('period') or '—'} · 综合评分 {_sc.get('total_score', '—')}】\n"
-                    + "；".join(_rows[:24]))
+                    + "；".join(_rows[:24])
+                )
+                if _at:
+                    _blk += "\n【逐年年报指标（可直接引用，缺失年份不得编造）】\n" + _at
+                if _years:
+                    _blk += f"\n（可用年报年份：{'、'.join(_years)}）"
+                _parts.append(_blk)
             return "\n\n".join(_parts)
 
         if "cmp_messages" not in st.session_state:
@@ -6736,6 +6839,8 @@ def _view_compare():
                             + _cmp_context()
                             + "\n\n请基于以上数据回答用户问题。涉及公司间比较时，"
                               "注明每家公司使用的报告期与行业口径；数据中没有的不要编造。"
+                              "用户问某一年份（如 2022 年）时，优先引用「逐年年报指标」中"
+                              "该年的数据；该年不在可用年份里就如实说明并给出可用年份范围。"
                         )
                         _msgs = [{"role": "system", "content": _sys},
                                  {"role": "user", "content": _prompt},
@@ -7060,6 +7165,11 @@ elif _v == "📖":
     _view_help()
 else:
     _view_single()
+
+# 【v12 修 · BUG-06】视图函数里发生的取数 / RAG 建库都已写入 session_state，
+# 在这里按**最新**状态重画顶栏（st.empty() 覆盖写入，位置仍在页面最上方），
+# 消除"取数成功后顶栏还显示『尚未选择 / 页码引用未启用』"的滞后。
+_topbar_slot.markdown(_topbar_html(), unsafe_allow_html=True)
 
 st.divider()
 st.markdown(
