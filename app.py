@@ -334,6 +334,19 @@ try:
 except ImportError:
     lq = None
 
+# ---- 确定性财务计算 + 语言方向校验 + 润色守卫（优化方案 O05 / O10）----
+# 这三个模块**零外部依赖**（只用标准库），导入失败即视为不可用，
+# 调用点一律走 `if fc is not None` 的兜底，绝不因为可选模块缺失把页面打崩。
+try:
+    import fincalc as fc
+except Exception:
+    fc = None
+# ---- 统一当前分析上下文（优化方案 O01，修复 B01 / B02）----
+try:
+    import analysis_context as actx
+except Exception:
+    actx = None
+
 # ---- Agent 执行轨迹（工具调用链）----
 # 赛题是「让 AI Agent 赋能千行百业」，但页面上原本只呈现**最终结果**：
 # Agent 自己调用了哪些工具、按什么顺序、哪一步走了降级，评委看不见。
@@ -544,7 +557,20 @@ BASE_SYSTEM_PROMPT = """你是一名专业、严谨的金融投研分析师。�
 - 语言专业但通俗易懂，使用 markdown 小标题组织内容。
 - 结合下方【行业财务基准】中的同业对标基准、关键指标与风险信号展开分析；
   注意不同行业的合理区间本就不同（例如银行业 ROE 11% 已属优秀，白酒业 ROE 11% 则明显落后），
-  切勿用同一把尺子衡量所有行业。"""
+  切勿用同一把尺子衡量所有行业。
+
+【指标计算的硬性口径】（违反即为错误输出）
+- 估值比率之间的**依赖关系必须分开判断**：PB = 股价 ÷ 每股净资产，
+  只要这两项齐备就必须给出计算结果；缺少全年 EPS 预测只能导致
+  「动态 PE」无法计算，**绝不能**连带把 PB 也说成无法计算。
+- 上下文中若给出【程序已计算的估值指标】区块，必须**原样采用**其数值与口径，
+  不得改写为"无法计算"，也不得另算一套。
+- 只有当确实缺少某项输入时，才写清"缺少 XX，无法计算 XX"；
+  "不会算"与"算不出高低"是两件事：算出 PB=6.61 后仍可以说明
+  "缺少历史分位数据，无法判断是否便宜"，但必须先给出 PB 的值。
+- 描述数值变化时，方向由数字决定：后值大于前值用"上升 / 提高"，
+  后值小于前值用"下降 / 降低"，比率变化用"百分点（pp）"，不要用百分比。
+  例如 50.53% → 50.75% 只能写"上升 0.22 个百分点"，写成"下降"即为错误。"""
 
 # ============ 全局样式（金融主题：浅冷灰底 + 单一品牌蓝） ============
 CUSTOM_CSS = """
@@ -3494,12 +3520,35 @@ def build_chart_insight(chart_data: list) -> str:
             f"两者相差 <b>{max_val - min_val:,.2f}</b>，指标结构呈明显梯度。"
         )
     # 中位对比
+    # 【B12 修复】旧版这里用「最高/最低的倍数」冒充「分布偏度」：
+    # ① 最大值 / 最小值的比率**不是**统计偏度（skewness），二者没有任何关系；
+    # ② 金额里混有负数时（收入 10、净利润 -1、经营现金流 -2），
+    #    "最小 -2 -> 最大 10"算出 -5.0×，这个负数倍率既不能说明分布，
+    #    还会让人误读成"某项是最小的 -5 倍"。
+    # 现在：有负值就讲业务含义（亏损 / 净流出），全为正时才谈倍数，且只说"倍数"不说"偏度"。
     if len(rows_sorted) >= 3:
         mid = rows_sorted[len(rows_sorted) // 2]
         lines.append(
             f"• 中位项 <b>{mid[0]}</b>（{mid[1]:,.2f}）居于 {len(rows_sorted)} 项中第 "
-            f"{len(rows_sorted) // 2 + 1} 位，分布偏度可通过最大/最小比 "
-            f"<b>{(max_val / min_val) if min_val else 0:.1f}×</b> 看出。"
+            f"{len(rows_sorted) // 2 + 1} 位。"
+        )
+    _neg_rows = [(n, v) for n, v in rows if v < 0]
+    if _neg_rows:
+        _neg_txt = "、".join(f"<b>{n}</b>（{v:,.2f}）" for n, v in _neg_rows[:3])
+        _kinds = []
+        if any(("现金流" in str(n) or "流量" in str(n)) for n, _v in _neg_rows):
+            _kinds.append("经营活动现金净流出")
+        if any(("利润" in str(n)) for n, _v in _neg_rows):
+            _kinds.append("本期亏损")
+        _kind_txt = "、".join(_kinds) if _kinds else "本期为负"
+        lines.append(
+            f"• 存在负值科目：{_neg_txt} —— 反映<b>{_kind_txt}</b>，"
+            "这类科目<b>不适用倍数与占比比较</b>，应直接按业务含义解读。"
+        )
+    elif min_val > 0 and len(rows_sorted) >= 2:
+        lines.append(
+            f"• 最高项与最低项相差 <b>{max_val / min_val:.1f}×</b>（仅为最高/最低的倍数，"
+            "不代表分布形态）。"
         )
     if not _share_ok:
         # 说明文字要贴合图上真实内容，不能一口咬定「含构成项」——
@@ -4358,6 +4407,148 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
     code = st.session_state.get(f"{key_prefix}_online_code", "")
     org = st.session_state.get(f"{key_prefix}_online_org", "")
 
+    # ---- 下载 → 解析 → 建索引 ----
+    # 【B04】提升到函数级：单公司完整模式与多公司紧凑模式共用同一条链路，
+    # 这样紧凑模式（对比页）取数成功后也能保留年报 PDF 解析入口。
+    # ---- 下载 → 解析 → 建索引（一键自动 / 手动选报告两条路径共用）----
+    def _build_rag_from_report(_r: dict, _rtype: str):
+        """下载年报 → 解析 → 建立页码索引，返回 (ok, 说明文案)。
+
+        【v13】以前「下载解析」和「建索引」是两段割裂的代码，且建索引被
+        `if rag is not None` 挡着 —— rag 为 None 时（chromadb 缺失）
+        点了就只是"已解析 XX 字"，索引永远不会建，页面永远提示"未建立"。
+        现在合并成一条必走链路，且**任何一步失败都返回可见原因**。
+        """
+        if rag is None:
+            return False, "RAG 模块不可用（rag_engine 与 rag_lite 均未能加载）"
+        with st.spinner(f"正在下载《{_r.get('title', '')}》（大文件约 10-30 秒）……"):
+            try:
+                pdf = ds.download_pdf(_r["url"])
+            except Exception as _e:
+                pdf = None
+        if not pdf:
+            return False, "PDF 下载失败（可能是网络或公告链接失效），请稍后重试或改用手动上传。"
+        ptxt = extract_pdf_bytes(pdf)
+        if not ptxt or len(ptxt) < 200:
+            return False, "该 PDF 提取不到文字（疑似扫描件/图片型），页码引用无法建立。"
+
+        # ⚠️ 用**报告期所属年度**而非公告年份：2025 年年报是 2026-04 公告的，
+        # 取 [:4] 会得到 2026（错）。详见 _report_year()。
+        _yr = _report_year(_r.get("date") or "", _rtype)
+        # 文档标签：公告日期 + 报告类型。用于区分"同一年披露的年报/半年报/修订版"，
+        # 否则它们会共用同一份索引，检索到的是另一份报告的原文与页码。
+        try:
+            _tag = rag.doc_tag_for(_r.get("date"), _rtype)
+        except Exception:
+            _tag = ""
+        _pdf_path = Path(tempfile.gettempdir()) / f"{code}_{_yr}_{_rtype}.pdf"
+        try:
+            _pdf_path.write_bytes(pdf)
+        except Exception:
+            return False, "PDF 保存到临时目录失败（磁盘不可写）。"
+
+        st.session_state[f"{key_prefix}_pdftext"] = ptxt
+        st.session_state[f"{key_prefix}_pdf_title"] = _r.get("title", "")
+        st.session_state[f"{key_prefix}_pdf_year"] = _yr
+        st.session_state[f"{key_prefix}_pdf_tag"] = _tag
+        st.session_state[f"{key_prefix}_pdf_path"] = str(_pdf_path)
+        st.session_state.pop(f"{key_prefix}_rag_status", None)
+
+        if not code or not _yr:
+            return False, f"无法从公告日期解析出年报年份（date={_r.get('date')}）。"
+
+        # 【RAG 接通关键步】立即按页切片并建立索引
+        # ⚠️ 不再依赖"双模型润色"开关：那个开关只决定要不要花钱调千问润色；
+        #    证据检索是**分析链路的一部分**，跟着开关走会出现入口不一致。
+        import time as _time
+        _t0 = _time.time()
+        _pbar = st.progress(0.0, text="正在建立年报页码索引……")
+
+        def _pcb(done: int, total: int):
+            _pbar.progress(
+                min(done / max(total, 1), 1.0),
+                text=f"正在建立年报页码索引… 批次 {done}/{total}"
+                     f"（完整年报约需 40-80 秒，请勿关闭页面）",
+            )
+
+        try:
+            _st = rag.build_index_from_pdf(
+                _pdf_path, code, _yr, progress_cb=_pcb, doc_tag=_tag
+            )
+        except Exception as _e:
+            _st = {"ok": False, "chunks": 0, "pages": 0,
+                   "msg": f"{type(_e).__name__}: {_e}"}
+        _pbar.empty()
+        log_event(
+            "rag_build", ok=bool(_st.get("ok")),
+            dur=_time.time() - _t0,
+            extra=f"chunks={_st.get('chunks', 0)};backend={_st.get('backend', '?')}",
+        )
+        st.session_state[f"{key_prefix}_rag_status"] = _st
+        if _st.get("ok"):
+            _be = "语义向量" if _st.get("backend") == "chroma" else "本地页级"
+            return True, (
+                f"✅ 已解析《{_r.get('title', '')}》并建立**{_be}索引**："
+                f"{_st.get('chunks', 0)} 个文本块 · 覆盖 {_st.get('pages', 0)} 页；"
+                f"后续分析 / 研报 / 追问将自动检索原文并标注「见年报第X页」。"
+                + (f"（{_st.get('msg', '')}）" if "⚠️" in str(_st.get("msg", "")) else "")
+            )
+        return False, f"索引未建立：{_st.get('msg') or '未知原因'}"
+
+    # 年报索引状态（提前读一次：紧凑模式的 PDF 面板也要用它提示"已建/未建"）
+    _rag_ok = bool(st.session_state.get(f"{key_prefix}_rag_status", {}).get("ok"))
+
+    def _compact_pdf_body():
+        """紧凑模式（多公司对比页）的「原始数据 + 年报 PDF 解析」面板。
+
+        【B04】旧实现在取数成功后整块 `return`，多公司页每家公司于是只剩
+        "成功摘要 + 行业控件"：想核对原始数据、想给这家公司建年报页码索引，
+        都只能离开对比页到单公司页去做。现在窄卡里也给入口（默认折叠）。
+        """
+        if not text:
+            st.caption("（尚未取到数据 —— 选好上方股票后取数，这里会显示原始文本）")
+        else:
+            with st.container(height=220):
+                st.markdown(text[:20000])
+        st.divider()
+        if not code:
+            st.caption("📄 取数成功后，这里会出现「一键解析年报 PDF」入口。")
+            return
+        st.caption(
+            "📄 年报 PDF 解析 → 建立页码索引（约 40-80 秒）："
+            + ("✅ 已就绪" if _rag_ok else "当前**未**建立")
+        )
+        if st.button("⚡ 一键解析最新年报并建立页码索引",
+                     key=f"{key_prefix}_cautobtn", use_container_width=True):
+            with st.spinner("正在查找该公司最新年报公告……"):
+                try:
+                    _c_reports = ds.list_reports(code, org, "年报", limit=3)
+                except Exception:
+                    _c_reports = []
+            if not _c_reports:
+                st.warning("未找到完整版年报公告，可改用手动上传 PDF。")
+            else:
+                _c_ok, _c_msg = _build_rag_from_report(_c_reports[0], "年报")
+                (st.success if _c_ok else st.warning)(_c_msg)
+        if st.button("📋 获取报告列表", key=f"{key_prefix}_clistbtn",
+                     use_container_width=True):
+            try:
+                st.session_state[f"{key_prefix}_reports"] = ds.list_reports(
+                    code, org, "年报", limit=8)
+            except Exception:
+                st.session_state[f"{key_prefix}_reports"] = []
+        _c_rep = st.session_state.get(f"{key_prefix}_reports", [])
+        if _c_rep:
+            _c_opts = [f"{r.get('date', '')} {r.get('title', '')}" for r in _c_rep]
+            _c_i = st.selectbox("选择报告", range(len(_c_opts)),
+                                format_func=lambda i: _c_opts[i],
+                                key=f"{key_prefix}_crsel",
+                                label_visibility="collapsed")
+            if st.button("下载并解析该报告", key=f"{key_prefix}_cdlbtn",
+                         use_container_width=True):
+                _c_ok, _c_msg = _build_rag_from_report(_c_rep[_c_i], "年报")
+                (st.success if _c_ok else st.error)(_c_msg)
+
     if text:
         auto_ind = st.session_state.get(f"{key_prefix}_auto_industry")
         if compact:
@@ -4392,9 +4583,10 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
                 f"⚠️ 本次取数中有 {len(_insec)} 个接口由 HTTPS 降级为 HTTP（明文连接），"
                 "数据来自公开接口，仅供参考；如长期出现请检查网络是否拦截了 HTTPS。"
             )
-        if compact:
-            # 紧凑模式到此为止：不铺开原始数据、不提供年报解析面板（对比页只需指标）
-            return text, name, ""
+        # 【B04 修复】紧凑模式**不再提前 return**（旧实现 4431-4433 直接返回）。
+        # 后果：多公司对比页每家公司"数据取到之前有入口、取到之后只剩一行摘要"，
+        # 用户再也无法查看原始数据、也无法为这家公司建立年报页码索引。
+        # 现在：成功摘要只是**卡片上半截**，下面的入口与单公司页共用同一套。
     elif compact:
         # 没取到数据时也要有"进度"：不然卡片下半截是空的，
         # 用户不知道这家到底取没取（v10-2 · 用户第 8a 条）。
@@ -4404,17 +4596,31 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
             '</div></div>',
             unsafe_allow_html=True,
         )
-        return text, name, ""
 
-    # ------------------ 单公司完整模式才走到这里 ------------------
+    # ------------------ 【B04】原始数据 / 年报 PDF 入口：四种状态都在 ------------------
+    # 未取数 / 取数成功 / 缓存命中 / 取数失败 —— 入口一律保留，
+    # 只有里面的内容随状态变化。成功摘要绝不替代完整组件。
     # 【v12 修复 · 用户阶段四第 ①/③ 条】「查看原始数据 + 年报 PDF 一键解析 + RAG 状态」
     # 这一整块原来被错误地缩进在 `elif compact:` 分支里，后果是：
     #   · 单公司页（非 compact）**永远渲染不出**「📄 一键获取并解析年报 PDF」面板；
     #   · 年报向量索引因此无法建立 → 右上角永远显示「页码引用未启用」；
     #   · 面板反而只在"对比页且未取数"这个根本用不了的场合出现。
     # 现在提升到函数级：单公司页取数后即可一键下载解析年报、建立向量索引。
-    with st.expander("查看获取到的原始数据", expanded=False):
-        st.markdown(text)
+    # ------------------ 【B04】取数完成后仍保留「原始数据」入口 ------------------
+    # 旧实现把「查看获取到的原始数据」放在 `if text:` 之后、又被 compact 的
+    # return 挡掉，取数一成功就再也看不到原始文本。现在无条件渲染。
+    # ⚠️ 单独包一层 try：原始文本再长也只是展示，绝不能因为渲染异常
+    #    把后面的「年报 PDF 解析入口」一起吞掉（B04 的核心诉求）。
+    if compact:
+        # 紧凑模式（多公司对比）：窄卡里折叠成一个入口，不撑破卡片
+        with st.expander("📄 原始数据 / 年报 PDF（点击展开）", expanded=False):
+            _compact_pdf_body()
+    else:
+        try:
+            with st.expander("查看获取到的原始数据", expanded=False):
+                st.markdown(text or "（尚未取到数据 —— 先在上方检索一家上市公司）")
+        except Exception:
+            pass
 
     # 年报 PDF 一键获取：默认展开，且解析成功后保持展开
     _rag_ok = bool(st.session_state.get(f"{key_prefix}_rag_status", {}).get("ok"))
@@ -4429,90 +4635,6 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
         else:
             rtype = st.radio("报告类型", ["年报", "半年报", "一季报", "三季报"], horizontal=True, key=f"{key_prefix}_rtype")
 
-            # ---- 下载 → 解析 → 建索引（一键自动 / 手动选报告两条路径共用）----
-            def _build_rag_from_report(_r: dict, _rtype: str):
-                """下载年报 → 解析 → 建立页码索引，返回 (ok, 说明文案)。
-
-                【v13】以前「下载解析」和「建索引」是两段割裂的代码，且建索引被
-                `if rag is not None` 挡着 —— rag 为 None 时（chromadb 缺失）
-                点了就只是"已解析 XX 字"，索引永远不会建，页面永远提示"未建立"。
-                现在合并成一条必走链路，且**任何一步失败都返回可见原因**。
-                """
-                if rag is None:
-                    return False, "RAG 模块不可用（rag_engine 与 rag_lite 均未能加载）"
-                with st.spinner(f"正在下载《{_r.get('title', '')}》（大文件约 10-30 秒）……"):
-                    try:
-                        pdf = ds.download_pdf(_r["url"])
-                    except Exception as _e:
-                        pdf = None
-                if not pdf:
-                    return False, "PDF 下载失败（可能是网络或公告链接失效），请稍后重试或改用手动上传。"
-                ptxt = extract_pdf_bytes(pdf)
-                if not ptxt or len(ptxt) < 200:
-                    return False, "该 PDF 提取不到文字（疑似扫描件/图片型），页码引用无法建立。"
-
-                # ⚠️ 用**报告期所属年度**而非公告年份：2025 年年报是 2026-04 公告的，
-                # 取 [:4] 会得到 2026（错）。详见 _report_year()。
-                _yr = _report_year(_r.get("date") or "", _rtype)
-                # 文档标签：公告日期 + 报告类型。用于区分"同一年披露的年报/半年报/修订版"，
-                # 否则它们会共用同一份索引，检索到的是另一份报告的原文与页码。
-                try:
-                    _tag = rag.doc_tag_for(_r.get("date"), _rtype)
-                except Exception:
-                    _tag = ""
-                _pdf_path = Path(tempfile.gettempdir()) / f"{code}_{_yr}_{_rtype}.pdf"
-                try:
-                    _pdf_path.write_bytes(pdf)
-                except Exception:
-                    return False, "PDF 保存到临时目录失败（磁盘不可写）。"
-
-                st.session_state[f"{key_prefix}_pdftext"] = ptxt
-                st.session_state[f"{key_prefix}_pdf_title"] = _r.get("title", "")
-                st.session_state[f"{key_prefix}_pdf_year"] = _yr
-                st.session_state[f"{key_prefix}_pdf_tag"] = _tag
-                st.session_state[f"{key_prefix}_pdf_path"] = str(_pdf_path)
-                st.session_state.pop(f"{key_prefix}_rag_status", None)
-
-                if not code or not _yr:
-                    return False, f"无法从公告日期解析出年报年份（date={_r.get('date')}）。"
-
-                # 【RAG 接通关键步】立即按页切片并建立索引
-                # ⚠️ 不再依赖"双模型润色"开关：那个开关只决定要不要花钱调千问润色；
-                #    证据检索是**分析链路的一部分**，跟着开关走会出现入口不一致。
-                import time as _time
-                _t0 = _time.time()
-                _pbar = st.progress(0.0, text="正在建立年报页码索引……")
-
-                def _pcb(done: int, total: int):
-                    _pbar.progress(
-                        min(done / max(total, 1), 1.0),
-                        text=f"正在建立年报页码索引… 批次 {done}/{total}"
-                             f"（完整年报约需 40-80 秒，请勿关闭页面）",
-                    )
-
-                try:
-                    _st = rag.build_index_from_pdf(
-                        _pdf_path, code, _yr, progress_cb=_pcb, doc_tag=_tag
-                    )
-                except Exception as _e:
-                    _st = {"ok": False, "chunks": 0, "pages": 0,
-                           "msg": f"{type(_e).__name__}: {_e}"}
-                _pbar.empty()
-                log_event(
-                    "rag_build", ok=bool(_st.get("ok")),
-                    dur=_time.time() - _t0,
-                    extra=f"chunks={_st.get('chunks', 0)};backend={_st.get('backend', '?')}",
-                )
-                st.session_state[f"{key_prefix}_rag_status"] = _st
-                if _st.get("ok"):
-                    _be = "语义向量" if _st.get("backend") == "chroma" else "本地页级"
-                    return True, (
-                        f"✅ 已解析《{_r.get('title', '')}》并建立**{_be}索引**："
-                        f"{_st.get('chunks', 0)} 个文本块 · 覆盖 {_st.get('pages', 0)} 页；"
-                        f"后续分析 / 研报 / 追问将自动检索原文并标注「见年报第X页」。"
-                        + (f"（{_st.get('msg', '')}）" if "⚠️" in str(_st.get("msg", "")) else "")
-                    )
-                return False, f"索引未建立：{_st.get('msg') or '未知原因'}"
 
             # ---- ⚡ 一键自动建立：无需手动选报告，自动取最新一份完整年报 ----
             # 用户的原话是"你没有给我建立年报索引" —— 他要的是系统自己建，
@@ -4624,11 +4746,22 @@ _topbar_slot = st.empty()
 
 def _topbar_html() -> str:
     """按当前 session_state 生成顶栏 HTML（渲染两次：占位 + 末尾刷新）。"""
-    _tb_name = st.session_state.get("single_online_name", "")
-    _tb_code = st.session_state.get("single_online_code", "")
+    # 【B02】顶栏的"当前对象"必须读**统一分析上下文**：
+    # 旧实现读 single_online_name/code，切到手动材料后这两个键还留着上一只
+    # 在线股票 → 顶部一直显示"贵州茅台（600519）"，而下方分析的是另一份材料。
+    if actx is not None:
+        _tb_ctx = actx.get()
+        _tb_name, _tb_code = _tb_ctx["name"], _tb_ctx["code"]
+        _tb_src = _tb_ctx["source"]
+    else:
+        _tb_name = st.session_state.get("single_online_name", "")
+        _tb_code = st.session_state.get("single_online_code", "")
+        _tb_src = ""
     _tb_obj = (
         f"当前对象：<b>{_tb_name}（{_tb_code}）</b>"
-        if _tb_name and _tb_code else "当前对象：<b>尚未选择</b>"
+        if _tb_name and _tb_code else
+        (f"当前对象：<b>{_tb_name}</b>（手动材料 · 未识别到证券代码）"
+         if _tb_name else "当前对象：<b>尚未选择</b>")
     )
     _tb_ragst = st.session_state.get("single_rag_status") or {}
     _tb_rag_ok = bool(isinstance(_tb_ragst, dict) and _tb_ragst.get("ok"))
@@ -4804,11 +4937,26 @@ def _render_history_list() -> None:
                 _snap = _h.get("snapshot") or {}
                 st.session_state["analysis"] = _h.get("analysis")
                 if _snap:
-                    st.session_state["single_src"] = "🌐 在线自动取数（推荐）"
-                    st.session_state["single_online"] = _snap.get("online", "")
-                    st.session_state["single_online_code"] = _snap.get("code", "")
-                    st.session_state["single_online_name"] = _snap.get("name", "")
-                    st.session_state["single_online_org"] = _snap.get("org", "")
+                    # 【B03】恢复 = 整个上下文快照（含行业）。
+                    # 旧实现只恢复分析对象与取数文本，行业控件仍停在「通用」，
+                    # 于是"恢复了消费行业的记录，评分口径却变了"。
+                    _rs_ind = _h.get("industry") or ""
+                    if _rs_ind in INDUSTRY_KB:
+                        st.session_state["biz_industry"] = _rs_ind
+                        st.session_state["industry_widget"] = _rs_ind
+                        st.session_state["_industry_auto_applied"] = _rs_ind
+                        st.session_state["industry_manual"] = ""
+                    _rs_src = _snap.get("source") or ""
+                    if _rs_src == "manual":
+                        # 手动材料记录：数据来源切回手动 + 文本回填到粘贴框
+                        st.session_state["single_src"] = "✍️ 手动粘贴 / 上传"
+                        st.session_state["single_text"] = _snap.get("online", "")
+                    else:
+                        st.session_state["single_src"] = "🌐 在线自动取数（推荐）"
+                        st.session_state["single_online"] = _snap.get("online", "")
+                        st.session_state["single_online_code"] = _snap.get("code", "")
+                        st.session_state["single_online_name"] = _snap.get("name", "")
+                        st.session_state["single_online_org"] = _snap.get("org", "")
                     st.session_state["single_periods"] = _snap.get("periods", 3)
                     st.session_state["data_sig"] = None       # 见上：跳过当轮清空
                     st.session_state["messages"] = _snap.get("messages") or []
@@ -4816,10 +4964,24 @@ def _render_history_list() -> None:
                         st.session_state["report"] = _snap["report"]
                     else:
                         st.session_state.pop("report", None)
+                # 【B02】身份也跟着回到当时那条记录（名称 + 代码 + 来源），
+                # 否则回看一条手动材料的记录时，顶栏/推荐问题仍是上一只在线股票。
+                if actx is not None:
+                    if (_snap.get("source") or "") == "manual":
+                        actx.set_manual(_snap.get("online", ""))
+                    else:
+                        actx.set_online(_snap.get("name", ""), _snap.get("code", ""))
+                    if isinstance(_h.get("analysis"), dict):
+                        actx.sync_from_analysis(_h["analysis"])
                 st.session_state["hist_active"] = _h.get("id")
                 st.rerun()
+            # 【B11】缺失的综合评分不能显示成 "None"：
+            # dict.get(key, 默认) 只在**键不存在**时返回默认值，键存在但值是 None
+            # 时会照样返回 None，于是记录里直接出现"综合 None"。
+            _ht = _h.get("total")
+            _ht_txt = ("—（数据不足未评分）" if _ht is None else f"{_ht:g}")
             st.caption(
-                f"{_h.get('ts', '')} · {_h.get('industry', '')} · 综合 {_h.get('total', '—')}"
+                f"{_h.get('ts', '')} · {_h.get('industry', '') or '—'} · 综合 {_ht_txt}"
             )
 
 
@@ -4920,19 +5082,29 @@ _applied_auto = st.session_state.get("_industry_auto_applied", "")
 
 if _auto_matched and _auto_matched != _applied_auto:
     # 换公司 → 行业自动跟随（并作废之前的手动选择）
-    st.session_state["industry_widget"] = _auto_matched
+    st.session_state["biz_industry"] = _auto_matched
     st.session_state["_industry_auto_applied"] = _auto_matched
     st.session_state["industry_manual"] = ""
     _manual_pick = ""
-elif "industry_widget" not in st.session_state:
-    st.session_state["industry_widget"] = (
+elif "biz_industry" not in st.session_state:
+    st.session_state["biz_industry"] = (
         _manual_pick if _manual_pick in INDUSTRY_KB else "通用"
     )
 
-_default_industry = st.session_state.get("industry_widget", "通用")
+_default_industry = st.session_state.get("biz_industry", "通用")
 if _default_industry not in INDUSTRY_KB:
     _default_industry = "通用"
-    st.session_state["industry_widget"] = "通用"
+    st.session_state["biz_industry"] = "通用"
+# 【B03 修复 · 业务状态与控件状态分离】
+# 行业是**业务值**（决定评分口径），行业 radio 只是它的一个**控件**。
+# Streamlit 会清理「本轮未渲染的控件」的 session 值 —— 行业 radio 只在单公司
+# 视图渲染，切到「多公司对比 / 使用说明」时它不渲染 → `industry_widget` 被清掉
+# → 回到单公司页时 key 不存在 → 落成「通用」（实测：消费 → 通用），
+# 同时数据指纹变化把分析与研报一并清空。
+# 现在业务值存在非控件键 `biz_industry` 里（永不因导航被清理），
+# 每轮渲染前再同步回控件键 —— 控件被清了也能原样恢复。
+st.session_state["biz_industry"] = _default_industry
+st.session_state["industry_widget"] = _default_industry
 
 # ⚠️ 视图分发写在文件末尾，但这里必须**提前**知道当前视图：
 #    「单公司行业基准库」整块（行业按钮 + 金融子行业口径 + 同业对标基准条）
@@ -5000,8 +5172,13 @@ if _cur_view == "🏢":
               col=_single_grid[0]):
 
         def _on_industry_change():
-            """用户手动点击才记录为「手动选择」；自动跟随写入的值不算手动。"""
+            """用户手动点击才记录为「手动选择」；自动跟随写入的值不算手动。
+
+            【B03】同时把新值写回业务键 `biz_industry`：否则下一次导航往返时，
+            同步逻辑又会把控件键覆盖回旧的业务值，用户的选择等于白点。
+            """
             _v = st.session_state.get("industry_widget", "")
+            st.session_state["biz_industry"] = _v
             if _v != st.session_state.get("single_auto_industry"):
                 st.session_state["industry_manual"] = _v
 
@@ -5070,7 +5247,12 @@ if _cur_view == "🏢":
 else:
     # 非单公司视图：不渲染行业选择器与基准条（它们只对单公司分析有意义），
     # 沿用上次选择的行业作为「多公司对比」的默认口径。
-    industry = st.session_state.get("industry_widget", "通用")
+    # 【B03】读业务键而不是控件键：控件在别的视图里不渲染，其值会被清理，
+    # 读它会让行业悄悄退回「通用」。
+    _biz_now = st.session_state.get("biz_industry", "")
+    if _biz_now not in INDUSTRY_KB:
+        _biz_now = st.session_state.get("industry_widget", "通用")
+    industry = _biz_now if _biz_now in INDUSTRY_KB else "通用"
     if industry not in INDUSTRY_KB:
         industry = "通用"
     if industry != "金融":
@@ -5197,13 +5379,43 @@ def _view_single():
         parts.append(uploaded_text.strip())
     raw_data = "\n\n".join(parts).strip()
 
+    # ---- 【B01 / B02 · 统一当前分析上下文（优化方案 O01）】----
+    # 每次进入本视图都按**当前数据来源**重建上下文：
+    #   · 在线     → 身份 = 取数面板解析出来的那只证券；
+    #   · 手动/上传 → 身份重置；代码只认本次材料里写明的，绝不继承上一次在线公司。
+    #
+    # 旧实现的身份散落在 single_online_code / current_target / analysis['company']
+    # 三处，手动模式从来不清理 single_online_code，于是：
+    #   · 四象限图拿上一次在线公司的年报趋势顶包（B01）；
+    #   · 虚构公司"QA测试公司"被记成「QA测试公司 · 600519」，
+    #     推荐问题写成"贵州茅台的『盈利能力』得分最高"（B02）。
+    _ctx_now = actx.get() if actx is not None else {}
+    if actx is not None:
+        if src_mode.startswith("🌐"):
+            if online_name or st.session_state.get("single_online_code"):
+                actx.set_online(
+                    online_name or st.session_state.get("single_online_name", ""),
+                    st.session_state.get("single_online_code", ""),
+                )
+        else:
+            # 材料内容指纹：同一份材料未改动时保留已识别到的公司名，
+            # 否则手动模式的每一轮 rerun 都会把刚分析出来的名字清掉。
+            import hashlib as _hl_ctx
+            _mat_key = _hl_ctx.md5(
+                (raw_data or "").encode("utf-8", "ignore")).hexdigest()[:10]
+            actx.set_manual(raw_data, _mat_key)
+        _ctx_now = actx.get()
+
     if online_name:
         st.caption(f"当前分析对象：**{online_name}**")
         # 记录当前分析对象，用于"是否需要清空旧结果"的判断
         st.session_state["current_target"] = online_name
-    elif st.text_input is not None and not online_name:
-        # 手动模式时不强提示
-        pass
+    else:
+        # 手动 / 上传模式：**绝不**继承上一次在线分析的对象（B02）
+        st.session_state.pop("current_target", None)
+        _cn = (_ctx_now.get("name") or "").strip()
+        if _cn:
+            st.caption(f"当前分析对象：**{_cn}**（手动材料 · 未识别到证券代码）")
 
     # 【降级提示】pipeline 没加载成功时必须**当场**告诉用户，而不是等点完按钮报一句天书。
     # 正常部署下 _PIPELINE_SOURCE == "module"，这里什么都不显示。
@@ -5277,7 +5489,11 @@ def _view_single():
     def _data_sig():
         return "|".join([
             src_mode,
-            st.session_state.get("single_online_code", ""),
+            # 【B01/B02】身份片段走**统一上下文**：手动材料会把 code 置空，
+            # 于是切到手动模式本身就构成一次数据版本变化 → 旧结果必然失效，
+            # 不会再出现"手动材料套用上一次在线公司指标"的串台。
+            (actx.signature_part() if actx is not None
+             else st.session_state.get("single_online_code", "")),
             st.session_state.get("single_online_name", ""),
             str(st.session_state.get("single_periods", "")),
             st.session_state.get("single_pdf_title", ""),
@@ -5295,7 +5511,13 @@ def _view_single():
         st.session_state.pop("analysis_data", None)
         st.session_state.pop("rag_hits_last", None)
         st.session_state["messages"] = []
-        st.info("🔄 检测到分析对象或数据版本已变化，旧的分析结果与研报已清空，请重新点击「🚀 开始结构化分析」。")
+        # 【B09】提示**不在这里当场渲染**。
+        # 旧实现直接在清空后 st.info，而「🚀 开始结构化分析」的响应就在下方
+        # 同一轮里执行 —— 于是页面同时出现刚生成的完整评分、8.4 综合分与
+        # "旧的分析结果与研报已清空，请重新点击「开始结构化分析」"，
+        # 用户无法判断本次到底成功没有（实测 B09）。
+        # 现在改为：先记账，等本轮业务跑完，再由下方统一出口决定是否提示。
+        st.session_state["_stale_pending"] = _sig_now
     st.session_state["data_sig"] = _sig_now
 
     # 【RAG 按问题检索】不再把年报当"开头几千字"硬塞给模型，
@@ -5495,6 +5717,12 @@ def _view_single():
                 #        并不在 raw_data（在线取数摘要）中。pipeline 已把 pdftext + rag_hits
                 #        一起纳入证据库，并对金额单位做换算链比对 —— 否则满屏黄条全是误报。
                 _ev_issues = _core["evidence_issues"]
+                # 先算"本次到底有没有可核验的数值"：证据卡与证据核对共用这一个事实，
+                # 避免页面出现"0 项可核验"却显示"核对通过"的自相矛盾（B05）。
+                _ev_items = _core["evidence_items"]
+                _ev_num = [e for e in _ev_items
+                           if isinstance(e.get("value"), (int, float))
+                           and not isinstance(e.get("value"), bool)]
                 if _ev_issues:
                     with st.expander(
                         f"🔎 证据核对：{len(_ev_issues)} 条提示（点击展开）", expanded=False
@@ -5509,19 +5737,28 @@ def _view_single():
                         if len(_ev_issues) > 12:
                             st.caption(f"（另有 {len(_ev_issues) - 12} 条同类提示，已省略）")
                 else:
-                    st.caption(
-                        "✅ 证据核对通过：指标与图表数值均可在「在线取数摘要 / 年报检索片段」中找到出处。"
-                    )
+                    # 【B05】"没有待核验指标" ≠ "核对通过"。
+                    # 旧实现只要 evidence_issues 为空就打绿勾，于是页面同时出现
+                    # 「metrics 缺失或格式异常」「覆盖率 0%」「综合评分：数据不足」
+                    # 和「✅ 证据核对通过」—— 给用户一个完全错误的可信信号。
+                    # 现在区分四种结果：通过 / 失败 / 未执行 / 不适用。
+                    if not _ev_num:
+                        st.caption(
+                            "— 未执行核验：本次材料没有可核验的数值指标"
+                            "（指标覆盖率 0%），因此**不给出「核对通过」结论**，"
+                            "请补充财务数据后重新分析。"
+                        )
+                    else:
+                        st.caption(
+                            "✅ 证据核对通过：指标与图表数值均可在"
+                            "「在线取数摘要 / 年报检索片段」中找到出处。"
+                        )
 
                 # 4c) 证据卡：把每个数值**正向**定位回它的出处（页码 + 原文片段）。
                 #     P1-05 要求「关键结论可定位到支持的原文」—— 只报"哪些找不到"不够，
                 #     还得能指着说"这一条出自第 42 页这一段"，否则"引用核验"无法被核查；
                 #     证据不足时也要能明确说出"无法定位，原因是没有建索引"。
-                _ev_items = _core["evidence_items"]
                 st.session_state["evidence_items_last"] = _ev_items
-                _ev_num = [e for e in _ev_items
-                           if isinstance(e.get("value"), (int, float))
-                           and not isinstance(e.get("value"), bool)]
                 _ev_located = [e for e in _ev_num if e.get("found") and e.get("page")]
                 if _ev_num:
                     with st.expander(
@@ -5569,6 +5806,14 @@ def _view_single():
                 # 每次重新分析时清空旧的追问记录与旧的研报，避免上下文/报告串台
                 st.session_state["messages"] = []
                 st.session_state.pop("report", None)
+                # 【B02】分析完成后回写上下文：名称与报告期只认本次分析结果
+                # （推荐问题、历史记录、顶栏随后都读这份上下文）
+                if actx is not None:
+                    actx.sync_from_analysis(analysis)
+                    _ctx_now = actx.get()
+                # 【B09】本次分析已成功 → 撤掉当轮的"旧结果已清空"提示：
+                # 不能要求用户重复运行刚成功的操作。
+                st.session_state.pop("_stale_pending", None)
 
                 # ---- 往「分析记录」写一条（session_state + 本地文件，2 小时 TTL）----
                 # 存的是 analysis 的**引用**：回看时直接把它放回 session_state，
@@ -5581,14 +5826,22 @@ def _view_single():
                 # 公司三要素、报告期、研报、追问对话一起存进去，回看=整页时光倒流。
                 import time as _time_hist
                 _hist = st.session_state.get("analysis_history") or []
-                _hid = f"{st.session_state.get('single_online_code') or 'x'}-" \
-                       f"{len(_hist)}-{id(analysis)}"
+                # 【B02】历史记录的身份只能来自**当前分析上下文**：
+                # 旧实现直接读 single_online_code / single_online_name，
+                # 手动材料模式下这两个键还留着上一次在线公司的值 →
+                # 一条《QA测试公司》的分析被记成「QA测试公司 · 600519」。
+                if actx is not None:
+                    _h_name, _h_code = actx.identity_for_history(analysis)
+                else:
+                    _h_name = (analysis.get("company")
+                               or st.session_state.get("single_online_name", ""))
+                    _h_code = st.session_state.get("single_online_code", "")
+                _hid = f"{_h_code or 'x'}-{len(_hist)}-{id(analysis)}"
                 _hist.append(
                     {
                         "id": _hid,
-                        "code": st.session_state.get("single_online_code", ""),
-                        "name": (analysis.get("company")
-                                 or st.session_state.get("single_online_name", "")),
+                        "code": _h_code,
+                        "name": _h_name,
                         "industry": industry,
                         "total": analysis.get("total_score"),
                         "ts": datetime.datetime.now().strftime("%H:%M:%S"),
@@ -5596,8 +5849,9 @@ def _view_single():
                         "analysis": analysis,
                         "snapshot": {
                             "online": (raw_data or "")[:60000],
-                            "code": st.session_state.get("single_online_code", ""),
-                            "name": st.session_state.get("single_online_name", ""),
+                            "code": _h_code,
+                            "name": _h_name,
+                            "source": (_ctx_now.get("source") if actx is not None else ""),
                             "org": st.session_state.get("single_online_org", ""),
                             "periods": st.session_state.get("single_periods", 3),
                             "report": (st.session_state.get("report") or "")[:60000],
@@ -5630,6 +5884,18 @@ def _view_single():
                     "并在 Streamlit Cloud 点一次 Reboot 后重试。"
                 )
 
+    # ---- 【B09 统一失效提示出口】----
+    # 放在业务（取数 → 分析）全部执行完之后、结果区渲染之前：
+    #   · 本轮分析成功 → 成功分支已 pop 掉 _stale_pending → 这里不提示；
+    #   · 本轮只是换了数据还没分析 → 这里给出"请重新点击开始结构化分析"。
+    # 于是"刚跑完的完整评分"与"请重新分析"不会同时出现在同一屏上。
+    _pending_sig = st.session_state.pop("_stale_pending", None)
+    if _pending_sig:
+        st.info(
+            "🔄 检测到分析对象或数据版本已变化，旧的分析结果与研报已清空，"
+            "请重新点击「🚀 开始结构化分析」生成新结果。"
+        )
+
     analysis = st.session_state.get("analysis")
     if analysis:
         # 兜底默认值：这三个变量原本在 `if analysis.get("score_engine")` 分支里才赋值，
@@ -5641,7 +5907,16 @@ def _view_single():
         _suspicious = []
         # 年报趋势：公共头算一次，多个页签共用（概览页补 ROE/增速、依据页画趋势图）。
         # 原来「算趋势」写在雷达图旁边的分支里，页签化后其它页签也要用，提到公共头。
-        _oc = st.session_state.get("single_online_code", "")
+        #
+        # 【B01 根因修复】趋势必须按**本次分析对象**联网取。
+        # 旧实现直接读 `single_online_code`：手动材料模式下这个键还留着上一次
+        # 在线公司（600519）的代码 → 趋势拿回茅台的年报数据 → 四象限图与解读
+        # 把茅台的 ROE 32.5% / 增速 -1.2% 画在"0% 指标覆盖率"的分析结果上。
+        # 现在走统一上下文：手动来源的代码为空 → 趋势为空 → 缺指标就不画定位点。
+        if actx is not None:
+            _oc = actx.code_for_source(actx.SOURCE_ONLINE)
+        else:
+            _oc = st.session_state.get("single_online_code", "")
         _trend_annual = []
         if _oc:
             try:
@@ -5982,17 +6257,60 @@ def _view_single():
                 unsafe_allow_html=True,
             )
         else:
-            st.caption(
-                "ℹ️ 象限定位图需 ROE 与营收同比两项指标；当前数据不足未绘制"
-                "（完整分析模式下会自动补齐）。"
+            # 【B01】缺指标就**明确说出缺什么**并撤掉定位点：
+            # 旧实现会拿上一次（或别的来源的）指标顶上，导致"0% 覆盖率"的分析
+            # 却画着茅台的定位点、并给出"落在现金牛象限"的定性结论。
+            _miss_q = []
+            if not isinstance(_roe_v, (int, float)):
+                _miss_q.append("ROE（净资产收益率）")
+            if not isinstance(_growth_v, (int, float)):
+                _miss_q.append("营收同比增速")
+            st.info(
+                "ℹ️ 当前材料缺少定位所需指标（" + "、".join(_miss_q) +
+                "），**未绘制公司定位点，也不给出象限结论** —— 缺失指标不会用"
+                "其它来源或上一次分析的数值顶替。请补充上述指标后重新分析。"
             )
+
+        # 【B08】估值参考：**程序计算**，独立于大模型。
+        # PB 只要"股价 + 每股净资产"就能算，与有没有 EPS 预测无关；
+        # 旧实现把二者混为一谈，导致"已有 1329.0 元股价、200.99 元每股净资产，
+        # 却称因缺少全年 EPS 预测而无法计算 PB"。
+        if fc is not None:
+            _vin = fc.parse_valuation_inputs(raw_data or "")
+            _pb_v, _pb_msg = fc.pb_from(_vin["price"], _vin["bps"])
+            _v_rows = []
+            if _vin["price"] is not None:
+                _v_rows.append(("最新价", f"{_vin['price']:.2f} 元"))
+            if _vin["bps"] is not None:
+                _v_rows.append(("每股净资产", f"{_vin['bps']:.2f} 元"))
+            if _pb_v is not None:
+                _v_rows.append(("PB（= 股价 ÷ 每股净资产）", f"{_pb_v:.2f}"))
+            if _vin["pe_ttm"] is not None:
+                _v_rows.append(("PE-TTM（行情接口）", f"{_vin['pe_ttm']:.2f}"))
+            if _v_rows:
+                st.markdown(
+                    "##### 🧮 估值参考（程序计算 · 不依赖大模型）\n\n"
+                    + "\n".join(f"- **{_k}**：{_v}" for _k, _v in _v_rows)
+                )
+                st.caption(
+                    f"口径：{_pb_msg if _pb_v is not None else 'PB 缺少输入值，未计算'}"
+                    "；每股净资产取最新一期财报。"
+                    "动态 PE 需全年 EPS 预测，本次材料未提供 → 单独不计算，"
+                    "**不影响 PB 的计算结果**。是否便宜还需历史分位与同业对比，"
+                    "本次材料未提供分位数据，故不给出高低判断。"
+                )
 
     def _tab2_e():
         """年度时间轴 · 近 N 年年报（独立于 LLM 的确定性区块，可复现）。"""
         # ---- 🗓️ 年度时间轴（优化清单 P1-01）----
         # 独立于 LLM 的确定性区块：数据直接来自财务指标接口的年报记录，
         # 所以年份切换、指标切换、导出都可复现，不受模型输出影响。
-        _tl_code = st.session_state.get("single_online_code", "")
+        # 【B02】手动材料没有证券代码，这里就必须为空 —— 时间轴是"某只证券的
+        # 历年年报"，未知公司不画，也不许借上一次在线公司的代码画。
+        if actx is not None:
+            _tl_code = actx.code_for_source(actx.SOURCE_ONLINE)
+        else:
+            _tl_code = st.session_state.get("single_online_code", "")
         if _tl_code:
             st.divider()
             render_year_timeline(
@@ -6066,6 +6384,16 @@ def _view_single():
         with st.spinner("正在生成完整研报……"):
             try:
                 context = f"行业：{industry}\n\n财务数据：\n{raw_data[:MAX_CHARS]}"
+                # 【B08】估值比率由**程序**先算好再交给模型。
+                # PB = 股价 / 每股净资产，只要这两项齐备就能算，**与 EPS 预测无关**；
+                # 旧实现让模型自己判断"能不能算"，它于是拿"缺少全年 EPS 预测和
+                # 一致预期"当理由，把明明可算的 PB 一并判成"无法计算"（实测）。
+                # 现在：可算的直接把「输入值 + 算式 + 结果 + 口径」写进上下文，
+                # 模型只能引用，不能改写；不可算的分别说明缺哪一项。
+                if fc is not None:
+                    _vb = fc.valuation_block(raw_data)
+                    if ("PB = " in _vb) or ("PE = " in _vb) or ("PE-TTM = " in _vb):
+                        context += "\n\n" + _vb
                 if analysis:
                     context += f"\n\n已有的结构化评分（供参考，保持一致）：{json.dumps(analysis.get('scores', {}), ensure_ascii=False)}"
                 if _rag_hits:
@@ -6078,19 +6406,46 @@ def _view_single():
                     box,
                     action="report",
                 )
-                # 千问润色 (Plan B 双模型)
+                # ---- 千问润色（Plan B 双模型）+ 润色守卫 ----
+                #
+                # 【B06 / B10】润色结果**必须先过守卫**再落地成稿。
+                # 实测两类问题：
+                #   ① 润色把规则判断线"白酒业 ROE 11% 即显落后"改写成
+                #      "显著优于白酒行业约 11% 的平均水平" —— 凭空造出一个
+                #      未经本轮数据支持的行业均值（B06）；
+                #   ② 成稿正文前混入"以下是……专业润色与一致性校验版本"
+                #      "润色原则如下"等加工前言，正文里还残留不成对的 `**`
+                #      被原样显示成 `**–4.53%`（B10）。
+                # 守卫做的四件事：
+                #   ① 去掉加工前言，正文一律从正式标题开始；
+                #   ② 修掉落单的 ** 标记；
+                #   ③ 方向写反的句子按数值改回来（B07）；
+                #   ④ 只要新增了初稿里没有的数值或统计口径 → **退回初稿**。
                 if use_dual_model and lq is not None and lq.is_available():
                     _refined = lq.refine_answer(
                         report,
                         rag.format_citations(_rag_hits) if _rag_hits else None,
                     )
                     if _refined:
-                        report = _refined
+                        st.session_state.pop("polish_guard", None)
+                        if fc is not None:
+                            _final, _pstat, _pissues = fc.polish_guard(report, _refined)
+                        else:
+                            _final, _pstat, _pissues = _refined, "pass", []
+                        report = _final
                         st.session_state["dual_model_refined"] = True
+                        if _pstat != "pass" or _pissues:
+                            st.session_state["polish_guard"] = {
+                                "status": _pstat,
+                                "issues": _pissues[:8],
+                            }
                     else:
                         st.session_state["dual_model_refined"] = False
                 else:
                     st.session_state["dual_model_refined"] = False
+                # 无论有没有润色，成稿都要清一遍加工前言与落单的 **（B10）
+                if fc is not None:
+                    report = fc.fix_markdown(fc.strip_polish_preface(report))
                 st.session_state["report"] = report
                 # 关键：清掉流式初稿占位区，交给下方统一渲染【最终稿】。
                 # 否则这次点击里页面显示的是润色前初稿，而下载按钮给的是润色后终稿，
@@ -6128,6 +6483,20 @@ def _view_single():
                 + (f" · 覆盖 {_rstatus.get('pages', 0)} 页" if _rstatus.get("pages") else "")
                 + " · 研报中的年报内容均来自全文检索并标注页码"
             )
+        # 【B06/B10】润色守卫记录：让"润色不改事实"这件事可被核查
+        _pgd = st.session_state.get("polish_guard") or {}
+        if _pgd.get("issues"):
+            with st.expander("🛡️ 润色守卫记录（自动生成 · 保证润色阶段不改事实）",
+                             expanded=False):
+                if _pgd.get("status") == "keep_draft":
+                    st.caption(
+                        "⚠️ 本轮润色稿引入了初稿中不存在的数值或统计口径，"
+                        "**已自动退回 DeepSeek 初稿**（润色失败的代价不能由读者承担）。"
+                    )
+                else:
+                    st.caption("✅ 润色稿已通过守卫检查，仅调整表达。")
+                for _i in _pgd["issues"][:8]:
+                    st.markdown(f"- {_i}")
         st.markdown(report)
         st.download_button(
             "⬇️ 下载研报（Markdown）",
@@ -6246,6 +6615,19 @@ def _view_single():
                 box = st.empty()
                 with st.spinner("正在分析……"):
                     answer = llm_stream(msgs, box, action="followup")
+                # 【B07】数值方向由**程序**兜底校验后再呈现：
+                # 模型写出"净利率由 50.53% 降至 50.75%"，而 50.75 > 50.53，
+                # 方向写反了（实测）。方向由数字决定，不由模型的表述决定 ——
+                # 这里按数值直接改回来，并把改动如实告诉用户。
+                if fc is not None:
+                    _fx_a, _a_fixes = fc.fix_direction(answer)
+                    if _a_fixes:
+                        answer = _fx_a
+                        box.markdown(answer)
+                        st.caption(
+                            "🧭 已由程序校验修正：" + "；".join(_a_fixes[:3])
+                            + "（数值变化方向按程序计算，不依赖模型表述）"
+                        )
                 # 【v10 · 第 5 条】回答下方直接挂辅助图表，答案不再只有干巴巴的文字
                 _viz_kind = _chat_viz_kind_for(question)
                 _viz_png = _chat_viz_png(_viz_kind)
@@ -6260,7 +6642,15 @@ def _view_single():
             st.error(f"调用失败：{e}")
 
     # 【智能推荐提问】根据当前公司名称/行业/最新评分结果实时生成，点击即问
-    _company = online_name or st.session_state.get("current_target", "")
+    #
+    # 【B02】推荐问题里的公司名只能来自**当前分析上下文**。
+    # 旧实现 `online_name or current_target`：手动模式下前者为空、后者还留着
+    # 上一次在线公司的名字，于是出现"贵州茅台的『盈利能力』得分最高（1.7 分）"，
+    # 而那个 1.7 分其实属于虚构的 QA测试公司。
+    _company = (
+        (_ctx_now.get("name") or "") if actx is not None
+        else (online_name or st.session_state.get("current_target", ""))
+    )
     _suggestions: list = []
     if _company:
         _suggestions.append(f"{_company}近三年营收与净利润的增长趋势如何？主要驱动因素是什么？")
