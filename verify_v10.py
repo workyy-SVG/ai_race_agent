@@ -9,6 +9,16 @@ APP_DIR = r"C:/Users/admin/ai_race_agent"
 os.chdir(APP_DIR)
 sys.path.insert(0, APP_DIR)
 
+# 【v11 修】持久化缓存必须在 import app **之前**重定向到临时目录：
+#   ① 沙箱/CI 环境可能拦 .streamlit/ 目录写入 → _hist_save 静默失败 →
+#      "写入后能读回" 这组断言假阴性（v11 回归真实踩过）；
+#   ② 真实浏览器会话留下的缓存文件也会污染
+#      "过期条目被过滤（当前仅 1 条测试记录）" 这条断言 —— 它要求干净环境。
+# app.py 读 ANALYSIS_HISTORY_CACHE 环境变量决定缓存路径，这里指向 tempfile。
+import tempfile
+_TF = tempfile.mkdtemp(prefix="hist_v10_")
+os.environ["ANALYSIS_HISTORY_CACHE"] = os.path.join(_TF, "_hist_cache.json")
+
 from streamlit.testing.v1 import AppTest
 
 FAIL = []

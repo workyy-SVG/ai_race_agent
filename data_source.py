@@ -529,7 +529,8 @@ def download_pdf(url: str, max_mb: int = 40) -> Optional[bytes]:
 def get_quote(code: str) -> Optional[Dict[str, Any]]:
     """
     实时行情。返回 dict 或 None。
-    兜底链：东方财富实时接口 → 东财日 K → 新浪财经 hq 接口（v10 接入）。
+    兜底链：东方财富实时接口 → 东财日 K → 新浪财经 hq 接口（v10 接入）
+    → 腾讯财经 qt.gtimg.cn（v11 接入，用户阶段三第 ③ 条）。
     若全部不可用，则返回 None（行情缺失不阻断财务分析）。
     """
     fields = "f43,f44,f45,f46,f47,f48,f57,f58,f60,f107,f116,f117,f162,f167,f168,f169,f170,f171"
@@ -542,14 +543,14 @@ def get_quote(code: str) -> Optional[Dict[str, Any]]:
         )
         if r is None:
             q = _quote_from_kline(code)
-            return q or sina_quote(code)
+            return q or sina_quote(code) or tencent_quote(code)
         try:
             d = (r.json() or {}).get("data")
         except Exception:
             d = None
         if not d:
             q = _quote_from_kline(code)
-            return q or sina_quote(code)
+            return q or sina_quote(code) or tencent_quote(code)
         q = {
             "code": d.get("f57"),
             "name": d.get("f58"),
@@ -570,10 +571,59 @@ def get_quote(code: str) -> Optional[Dict[str, Any]]:
         }
         if q.get("price") is None:
             q = _quote_from_kline(code)
-            return q or sina_quote(code)
+            return q or sina_quote(code) or tencent_quote(code)
         return q
 
     return _cached(f"quote:{code}", _run)
+
+
+# ============================================================
+# 六（c）、腾讯财经兜底源（v11 接入 · 用户阶段三第 ③ 条）
+# ============================================================
+# qt.gtimg.cn 是腾讯自选股的公开行情接口，多年稳定、无需鉴权；
+# 返回 GBK 文本，字段以 ~ 分隔（38=换手率 39=PE-TTM 46=PB 45=总市值）。
+# 作为行情兜底链的第四条腿：东财 → 东财K线 → 新浪 → 腾讯。
+TENCENT_HQ = "https://qt.gtimg.cn/q={pfx}{code}"
+
+
+def tencent_quote(code: str) -> Optional[Dict[str, Any]]:
+    """腾讯财经实时行情（GBK 解码；失败返回 None，绝不抛异常）。"""
+    try:
+        pfx = "sh" if str(code).startswith(("6", "9")) else (
+            "bj" if str(code).startswith(("4", "8")) else "sz")
+        url = TENCENT_HQ.format(pfx=pfx, code=code)
+        r = _session().get(url, headers={"Referer": "https://gu.qq.com/",
+                                         "User-Agent": "Mozilla/5.0"}, timeout=10)
+        if r.status_code != 200 or not r.content:
+            return None
+        txt = r.content.decode("gbk", errors="ignore")
+        # 形如 v_sh600519="1~贵州茅台~600519~1688.00~...";
+        seg = txt.split('"')
+        if len(seg) < 2 or "~" not in seg[1]:
+            return None
+        f = seg[1].split("~")
+        if len(f) < 47 or not f[3]:
+            return None
+        return {
+            "code": code,
+            "name": f[1],
+            "price": _num(f[3]),
+            "change_pct": _num(f[32]),
+            "high": _num(f[33]),
+            "low": _num(f[34]),
+            "open": _num(f[5]),
+            "prev_close": _num(f[4]),
+            "volume": _num(f[36]),            # 手
+            "amount": None,
+            "turnover_rate": _num(f[38]),
+            "pe_ttm": _num(f[39]),
+            "pb": _num(f[46]),
+            "total_mktcap": _num(f[45]),      # 亿元
+            "float_mktcap": _num(f[44]),
+            "source": "腾讯行情",
+        }
+    except Exception:
+        return None
 
 
 # ============================================================

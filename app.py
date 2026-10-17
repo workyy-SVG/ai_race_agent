@@ -1341,6 +1341,29 @@ CUSTOM_CSS = """
     color: #DCE8FB !important;
     font-size: 15px !important;
   }
+
+  /* 4) v11（用户阶段三第 ② 条）：历史按钮**悬停**时出现的说明浮层
+        （Streamlit 的 help tooltip）默认是主题蓝字，压在深蓝侧栏上看不清；
+        按钮本身 hover 时文字也会被主题染成蓝紫。统一改白 + 加粗。 */
+  /* 历史记录按钮未悬停时也提亮一档（默认 secondary 按钮字偏灰）。
+     ⚠️ 必须写在 hover 规则**之前**：两条特异性相同，后者胜 ——
+     顺序反了 hover 的纯白会被这条 #EAF2FF 盖掉。 */
+  [data-testid="stSidebar"] [class*="st-key-khist-scroll"] button p {
+    color: #EAF2FF !important;
+    font-weight: 600;
+  }
+  [data-testid="stSidebar"] button:hover p,
+  [data-testid="stSidebar"] button:focus p {
+    color: #FFFFFF !important;
+    font-weight: 700;
+  }
+  [data-testid="stSidebar"] [data-testid="stTooltipContent"],
+  [data-testid="stSidebar"] [data-testid="stTooltipContent"] *,
+  [data-testid="stSidebar"] [data-testid="stTooltip"] * {
+    color: #FFFFFF !important;
+    font-size: 14.5px !important;
+    font-weight: 600;
+  }
 </style>
 """
 
@@ -1501,14 +1524,33 @@ LOGIN_CSS = """
     letter-spacing: .5px;
   }
 
-  /* 输入框：半透明白底 + 青色描边；框内是「小号英文」提示 */
+  /* 输入框：**深色实底** + 亮描边；框内是「小号英文」提示。
+     v11（用户阶段三第 ① 条）：原来是 rgba(255,255,255,.07) 半透明白底，
+     压在浅色极光/玻璃卡上等于一片白 —— 白字打上去"全是白色的根本看不清"，
+     尤其点击输入（focus）后浏览器还会把底色提亮一档。改成深墨蓝实底：
+     白字压深底对比度 12:1 以上，聚焦、输入中、选中文本全都清楚。 */
   [data-testid="stForm"] input {
-    background: rgba(255, 255, 255, 0.07) !important;
-    border: 1px solid rgba(150, 190, 240, 0.34) !important;
+    background: #06142E !important;
+    border: 1px solid rgba(150, 190, 240, 0.45) !important;
     border-radius: 10px !important;
-    color: #EAF2FF !important;
+    color: #FFFFFF !important;
     font-size: 18.5px !important;
     padding: 13px 17px !important;
+    caret-color: #67E8F9 !important;   /* 光标也换亮青色，白色光标在深底上才看得见 */
+  }
+  /* Chrome/Edge 的账号密码自动填充会强制白底黄字 —— 用 inset 阴影盖回深底白字 */
+  [data-testid="stForm"] input:-webkit-autofill,
+  [data-testid="stForm"] input:-webkit-autofill:hover,
+  [data-testid="stForm"] input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px #06142E inset !important;
+    -webkit-text-fill-color: #FFFFFF !important;
+    caret-color: #67E8F9 !important;
+    transition: background-color 99999s;
+  }
+  /* 选中文本高亮：默认浅蓝底+白字几乎看不见，改成青底深字 */
+  [data-testid="stForm"] input::selection {
+    background: rgba(34, 211, 238, 0.55) !important;
+    color: #04101F !important;
   }
   [data-testid="stForm"] input:focus {
     border-color: #22D3EE !important;
@@ -2965,6 +3007,64 @@ def fig_compare_scale_n(mets: list, names: list) -> bytes | None:
     return _fig_to_png_bytes(fig)
 
 
+def fig_compare_years_n(rows_map: dict, names: list, pipeline,
+                        mkey: str, mlabel: str) -> bytes | None:
+    """N 家公司**逐年年报对比**分组柱状（v11 新增 · 用户第 12/13/⑧ 条）。
+
+    之前对比只有"单一基准年份"一张快照，用户明确要"每一年的都想看看"。
+    这张图 X 轴 = 各家披露过的年报年份并集（升序），每个年份下并排 n 家；
+    某家某年没披露 → 柱顶标 N/A，**绝不画 0**（缺数据不能伪装成零营收）。
+    年份跨度大时柱会很密：柱宽与画布宽度都按 年份数×家数 自适应。
+    """
+    n = len(names)
+    if n < 2 or pipeline is None:
+        return None
+    years = sorted({pipeline.year_of(r)
+                    for rows in rows_map.values() for r in (rows or [])
+                    if pipeline.year_of(r)})
+    if not years:
+        return None
+    x = np.arange(len(years))
+    total_w = 0.82
+    w = total_w / n
+    fig, ax = plt.subplots(figsize=(max(6.2, 0.62 * len(years) * n + 3.2), 3.3),
+                           facecolor=_PAL["card"])
+    ax.set_facecolor(_PAL["card"])
+    _any = False
+    for i, _nm in enumerate(names):
+        rows = rows_map.get(i) or []
+        by_year = {pipeline.year_of(r): r for r in rows if pipeline.year_of(r)}
+        offs = x - total_w / 2 + w * (i + 0.5)
+        raws = []
+        for y in years:
+            r = by_year.get(y)
+            v = r.get(mkey) if isinstance(r, dict) and isinstance(r.get(mkey), (int, float)) else None
+            raws.append(v)
+            if v is not None:
+                _any = True
+        bars = ax.bar(offs, [0.0 if v is None else float(v) for v in raws],
+                      w * 0.9, label=_nm, color=_cmp_series_color(i))
+        for b, raw in zip(bars, raws):
+            ax.annotate("N/A" if raw is None else f"{raw:,.1f}",
+                        (b.get_x() + b.get_width() / 2, b.get_height()),
+                        ha="center", va="bottom", fontsize=6.5, color=_PAL["text"],
+                        xytext=(0, 2), textcoords="offset points", rotation=0)
+    if not _any:
+        plt.close(fig)
+        return None
+    ax.set_xticks(x)
+    ax.set_xticklabels(years, color=_PAL["text"], fontsize=9)
+    ax.grid(axis="y", color="#E2E8F0", linewidth=0.6, alpha=0.8)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.tick_params(axis="y", labelcolor=_PAL["text"], labelsize=9)
+    ax.legend(frameon=False, labelcolor=_PAL["text"], fontsize=8,
+              ncol=min(n, 3), loc="upper right")
+    ax.set_title(f"{mlabel} · 逐年年报对比（缺披露年份标 N/A）",
+                 color=_PAL["title"], fontsize=12, fontweight="bold", pad=10)
+    return _fig_to_png_bytes(fig)
+
+
 # ============ 追问区的图表辅助 / 自动对比取数（v10 · 用户第 5、13 条反馈） ============
 def _chat_viz_png(kind: str):
     """按 kind 生成追问回答的辅助图表（bytes 或 None）。
@@ -3488,7 +3588,12 @@ def render_year_metric_chart(rows: list, key: str, label: str, unit: str) -> byt
     fig, ax = plt.subplots(figsize=(6.6, 3.0), facecolor=_PAL["card"])
     ax.set_facecolor(_PAL["card"])
     colors = [_PAL["purple"] if v >= 0 else _PAL["neutral"] for v in vals]
-    bars = ax.bar(labels, vals, color=colors, width=0.55)
+    # v11（用户阶段三第 11 条）：年份范围只选 1~2 年时，柱子按默认宽度 0.55
+    # 会把整幅图撑满，看着"像把全部都遮住了"。柱宽随柱数自适应：
+    # 1 根 0.26（约一半）、2 根 0.40、3 根及以上 0.55 —— 多年对比时依旧饱满。
+    _nbar = max(len(labels), 1)
+    _bw = 0.26 if _nbar == 1 else (0.40 if _nbar == 2 else 0.55)
+    bars = ax.bar(labels, vals, color=colors, width=_bw)
     for b, v in zip(bars, vals):
         _off = 0.02 * (max(abs(v) for v in vals) or 1)
         ax.annotate(f"{v:g}", (b.get_x() + b.get_width() / 2, v + (v >= 0 and _off or -_off)),
@@ -3804,51 +3909,157 @@ def _build_online_digest() -> str:
 # 挑选原则：沪深 A 股、流动性好、财报披露规范、六个行业各有 6~8 家代表公司。
 POPULAR_STOCKS = [
     ("— 手动输入 —", "", ""),
-    # ---- 消费 ----
+    # ---- 消费（白酒/食品/家电/农牧 · 28 家）----
     ("贵州茅台 (600519)", "600519", "消费"),
     ("五粮液 (000858)", "000858", "消费"),
     ("泸州老窖 (000568)", "000568", "消费"),
     ("山西汾酒 (600809)", "600809", "消费"),
+    ("洋河股份 (002304)", "002304", "消费"),
+    ("古井贡酒 (000596)", "000596", "消费"),
+    ("迎驾贡酒 (603198)", "603198", "消费"),
+    ("今世缘 (603369)", "603369", "消费"),
     ("伊利股份 (600887)", "600887", "消费"),
     ("海天味业 (603288)", "603288", "消费"),
     ("中国中免 (601888)", "601888", "消费"),
     ("东鹏饮料 (605499)", "605499", "消费"),
-    # ---- 金融 ----
+    ("青岛啤酒 (600600)", "600600", "消费"),
+    ("双汇发展 (000895)", "000895", "消费"),
+    ("金龙鱼 (300998)", "300998", "消费"),
+    ("安井食品 (603345)", "603345", "消费"),
+    ("绝味食品 (603517)", "603517", "消费"),
+    ("涪陵榨菜 (002507)", "002507", "消费"),
+    ("安琪酵母 (600298)", "600298", "消费"),
+    ("格力电器 (000651)", "000651", "消费"),
+    ("美的集团 (000333)", "000333", "消费"),
+    ("海尔智家 (600690)", "600690", "消费"),
+    ("苏泊尔 (002032)", "002032", "消费"),
+    ("老板电器 (002508)", "002508", "消费"),
+    ("牧原股份 (002714)", "002714", "消费"),
+    ("温氏股份 (300498)", "300498", "消费"),
+    ("新希望 (000876)", "000876", "消费"),
+    ("百润股份 (002568)", "002568", "消费"),
+    # ---- 金融（银行/券商/保险 · 24 家）----
     ("招商银行 (600036)", "600036", "金融"),
     ("工商银行 (601398)", "601398", "金融"),
+    ("建设银行 (601939)", "601939", "金融"),
+    ("农业银行 (601288)", "601288", "金融"),
+    ("中国银行 (601988)", "601988", "金融"),
+    ("交通银行 (601328)", "601328", "金融"),
+    ("邮储银行 (601658)", "601658", "金融"),
     ("平安银行 (000001)", "000001", "金融"),
     ("兴业银行 (601166)", "601166", "金融"),
     ("江苏银行 (600919)", "600919", "金融"),
+    ("宁波银行 (002142)", "002142", "金融"),
+    ("杭州银行 (600926)", "600926", "金融"),
+    ("成都银行 (601838)", "601838", "金融"),
+    ("南京银行 (601009)", "601009", "金融"),
     ("中信证券 (600030)", "600030", "金融"),
+    ("华泰证券 (601688)", "601688", "金融"),
+    ("国泰君安 (601211)", "601211", "金融"),
+    ("东方财富 (300059)", "300059", "金融"),
     ("中国平安 (601318)", "601318", "金融"),
     ("中国人寿 (601628)", "601628", "金融"),
-    ("东方财富 (300059)", "300059", "金融"),
-    # ---- 新能源 ----
+    ("新华保险 (601336)", "601336", "金融"),
+    ("中国人保 (601319)", "601319", "金融"),
+    ("中国太保 (601601)", "601601", "金融"),
+    ("同花顺 (300033)", "300033", "金融"),
+    # ---- 新能源（锂电/光伏/风电/核电/水电 · 22 家）----
     ("宁德时代 (300750)", "300750", "新能源"),
     ("比亚迪 (002594)", "002594", "新能源"),
     ("隆基绿能 (601012)", "601012", "新能源"),
     ("阳光电源 (300274)", "300274", "新能源"),
     ("通威股份 (600438)", "600438", "新能源"),
     ("亿纬锂能 (300014)", "300014", "新能源"),
+    ("国轩高科 (002074)", "002074", "新能源"),
+    ("欣旺达 (300207)", "300207", "新能源"),
+    ("德方纳米 (300769)", "300769", "新能源"),
+    ("天合光能 (688599)", "688599", "新能源"),
+    ("晶澳科技 (002459)", "002459", "新能源"),
+    ("福斯特 (603806)", "603806", "新能源"),
+    ("福莱特 (601865)", "601865", "新能源"),
+    ("恩捷股份 (002812)", "002812", "新能源"),
+    ("璞泰来 (603659)", "603659", "新能源"),
+    ("格林美 (002340)", "002340", "新能源"),
+    ("金风科技 (002202)", "002202", "新能源"),
+    ("明阳智能 (601615)", "601615", "新能源"),
+    ("中国核电 (601985)", "601985", "新能源"),
+    ("三峡能源 (600905)", "600905", "新能源"),
     ("长江电力 (600900)", "600900", "新能源"),
-    # ---- 医药 ----
+    ("华能水电 (600025)", "600025", "新能源"),
+    # ---- 医药（创新药/器械/中药/CXO · 22 家）----
     ("恒瑞医药 (600276)", "600276", "医药"),
     ("迈瑞医疗 (300760)", "300760", "医药"),
     ("药明康德 (603259)", "603259", "医药"),
     ("爱尔眼科 (300015)", "300015", "医药"),
     ("片仔癀 (600436)", "600436", "医药"),
     ("长春高新 (000661)", "000661", "医药"),
-    # ---- 互联网 / 科技 ----
+    ("智飞生物 (300122)", "300122", "医药"),
+    ("沃森生物 (300142)", "300142", "医药"),
+    ("康泰生物 (300601)", "300601", "医药"),
+    ("华东医药 (000963)", "000963", "医药"),
+    ("通化东宝 (600867)", "600867", "医药"),
+    ("云南白药 (000538)", "000538", "医药"),
+    ("白云山 (600332)", "600332", "医药"),
+    ("复星医药 (600196)", "600196", "医药"),
+    ("百济神州 (688235)", "688235", "医药"),
+    ("君实生物 (688180)", "688180", "医药"),
+    ("联影医疗 (688271)", "688271", "医药"),
+    ("惠泰医疗 (688617)", "688617", "医药"),
+    ("奕瑞科技 (688301)", "688301", "医药"),
+    ("华大智造 (688114)", "688114", "医药"),
+    ("凯莱英 (002821)", "002821", "医药"),
+    ("泰格医药 (300347)", "300347", "医药"),
+    # ---- 互联网 / 科技（AI/半导体/消费电子 · 26 家）----
     ("海康威视 (002415)", "002415", "互联网"),
     ("科大讯飞 (002230)", "002230", "互联网"),
     ("金山办公 (688111)", "688111", "互联网"),
     ("中际旭创 (300308)", "300308", "互联网"),
+    ("新易盛 (300502)", "300502", "互联网"),
+    ("天孚通信 (300394)", "300394", "互联网"),
     ("立讯精密 (002475)", "002475", "互联网"),
     ("京东方A (000725)", "000725", "互联网"),
-    # ---- 通用（能源 / 制造等暂未单列行业的大盘蓝筹） ----
+    ("中兴通讯 (000063)", "000063", "互联网"),
+    ("紫光股份 (000938)", "000938", "互联网"),
+    ("浪潮信息 (000977)", "000977", "互联网"),
+    ("中科曙光 (603019)", "603019", "互联网"),
+    ("韦尔股份 (603501)", "603501", "互联网"),
+    ("兆易创新 (603986)", "603986", "互联网"),
+    ("北方华创 (002371)", "002371", "互联网"),
+    ("中微公司 (688012)", "688012", "互联网"),
+    ("澜起科技 (688008)", "688008", "互联网"),
+    ("圣邦股份 (300661)", "300661", "互联网"),
+    ("卓胜微 (300782)", "300782", "互联网"),
+    ("深南电路 (002916)", "002916", "互联网"),
+    ("生益科技 (600183)", "600183", "互联网"),
+    ("歌尔股份 (002241)", "002241", "互联网"),
+    ("蓝思科技 (300433)", "300433", "互联网"),
+    ("工业富联 (601138)", "601138", "互联网"),
+    ("汇川技术 (300124)", "300124", "互联网"),
+    ("大华股份 (002236)", "002236", "互联网"),
+    # ---- 通用（能源/化工/基建/交运/装备 · 24 家）----
     ("中国神华 (601088)", "601088", "通用"),
     ("陕西煤业 (601225)", "601225", "通用"),
+    ("兖矿能源 (600188)", "600188", "通用"),
+    ("中国石油 (601857)", "601857", "通用"),
+    ("中国石化 (600028)", "600028", "通用"),
+    ("中国海油 (600938)", "600938", "通用"),
+    ("万华化学 (600309)", "600309", "通用"),
+    ("宝丰能源 (600989)", "600989", "通用"),
+    ("华鲁恒升 (600426)", "600426", "通用"),
     ("三一重工 (600031)", "600031", "通用"),
+    ("恒立液压 (601100)", "601100", "通用"),
+    ("中国中车 (601766)", "601766", "通用"),
+    ("中国建筑 (601668)", "601668", "通用"),
+    ("中国中铁 (601390)", "601390", "通用"),
+    ("福耀玻璃 (600660)", "600660", "通用"),
+    ("潍柴动力 (000338)", "000338", "通用"),
+    ("顺丰控股 (002352)", "002352", "通用"),
+    ("中远海控 (601919)", "601919", "通用"),
+    ("上海机场 (600009)", "600009", "通用"),
+    ("大秦铁路 (601006)", "601006", "通用"),
+    ("京沪高铁 (601816)", "601816", "通用"),
+    ("宁沪高速 (600377)", "600377", "通用"),
+    ("宝钢股份 (600019)", "600019", "通用"),
 ]
 
 
@@ -3909,12 +4120,22 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
             _pop_opts = _pop_opts + [_pop_prev]
         _POPULAR_STOCKS = POPULAR_STOCKS
         # 1. 热门股票下拉框
+        # v11（用户阶段三第 ⑩b 条）：选中热门股票后**立即自动取数**，不再要求
+        # 用户"先选下拉 → 再点获取"两步走 —— 用户原话"这两个地方多此一举"。
+        # 手动输入框保留（用于股票池外的公司），但热门公司一次点击直接出数据。
+        # 多公司对比页受全局开关 cmp_auto_fetch 控制（用户第 ⑤ 条：选一家自动拉一家）。
+        def _on_pick():
+            _auto_all = key_prefix.startswith("cmp") and not bool(
+                st.session_state.get("cmp_auto_fetch"))
+            if not _auto_all:
+                st.session_state[f"{key_prefix}_auto_fetch"] = True
         _choice = st.selectbox(
             "📋 热门股票（点选无需查代码）",
             options=_pop_opts,
             index=0,
             key=f"{key_prefix}_pickle",
-            help="选中后代码只填入一次；之后输入框可自由编辑，不会被下拉框覆盖。"
+            on_change=_on_pick,
+            help="选中后立即自动获取数据；股票池外的公司用下方输入框手动输入。"
                  + (f"当前已按行业「{_pop_ind}」过滤。" if _pop_filtered else ""),
         )
         if _pop_filtered:
@@ -3938,16 +4159,17 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
     periods = 3
     if not compact:
         with c2:
-            # 选项改为 1~8 连续：旧实现写死 [1, 2, 3, 4, 6, 8]，用户看到列表里缺 5 和 7，
-            # 会误以为功能有缺陷（实际只是当时随手挑了几个值）。
+            # v11（用户阶段三第 14 条）：原来最多 8 期 ≈ 只能看到 2 个年度年报，
+            # 用户反馈"报告期数只有 8 期太少了，想自己选"。东财接口的 pageSize
+            # 本身没有上限 → 放开到 1~24 期（年报口径约 6 个年度）。
             periods = st.selectbox(
                 "报告期数",
-                list(range(1, 9)),
+                list(range(1, 25)),
                 index=2,
                 key=f"{key_prefix}_periods",
                 help="向东方财富拉取「最近 N 个报告期」的财务数据（含一季报/中报/三季报/年报）。"
-                     "它只决定可取用的报告期数量与趋势图范围：N 越大可选期数越多、耗时略增。"
-                     "四维评分、柱状图、圆环图一律固定按「最近一个年报」口径计算，与 N 无关。",
+                     "N=24 时年报口径约可覆盖最近 6 个年度。四维评分、柱状图、圆环图"
+                     "一律固定按「最近一个年报」口径计算，与 N 无关。",
             )
     with c3:
         st.write("")
@@ -3959,35 +4181,49 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
             "**评分与图表固定按「最近一个年报」口径**计算 —— 换 N 不会让分数漂移。"
         )
 
+    # ---- 取数主流程（手动按钮与热门下拉自动触发共用，v11 抽成函数）----
+    def _fetch_by_kw(kw_val: str, p: int) -> None:
+        """【证券解析】把输入变成一个**确定**的目标公司。
+        巨潮搜索是模糊/前缀匹配，直接取第一条会把用户没输入过的公司当成分析对象
+        （实测：'00000' → 平安银行；'abc' → 一只 REIT）。resolve_stock 的原则是
+        「代码必须精确命中；名称多义交用户确认；绝不猜」。"""
+        with st.spinner("正在核验证券代码……"):
+            _res = ds.resolve_stock(kw_val)
+        if _res.get("ok"):
+            _panel_clear(key_prefix)   # 取数成功前先清旧结果，绝不让新旧混显
+            with st.spinner("正在联网获取数据……"):
+                _ok, _err = _panel_store(
+                    key_prefix, _res["code"], _res["name"], _res.get("orgId", ""), p
+                )
+            if not _ok:
+                _panel_clear(key_prefix)
+                st.error(_err)
+        elif _res.get("ambiguous"):
+            # 多义名称 → 记下候选，交给下方"候选确认"区，绝不自动采用首项
+            _panel_clear(key_prefix)
+            st.session_state[f"{key_prefix}_cands"] = _res["candidates"]
+            st.warning(f"⚠️ {_res.get('error')} 请在下方候选中确认。")
+        else:
+            # 失败 → 清空该面板全部旧数据，杜绝"查询失败却仍显示上一家公司"
+            _panel_clear(key_prefix)
+            st.error(f"❌ {_res.get('error')}")
+
+    _auto_fetch = st.session_state.pop(f"{key_prefix}_auto_fetch", False)
+    if _auto_fetch and not do_fetch:
+        # v11（⑩b/⑤）：热门下拉选中 → 自动取数。优先用下拉对应的精确代码，
+        # 下拉没命中（手动输入 —）时退回输入框内容。
+        _auto_kw = _code or (kw or "").strip()
+        if _auto_kw:
+            _fetch_by_kw(_auto_kw, periods)
+        else:
+            st.warning("请先在热门股票里选一家，或在输入框填写 6 位代码。")
+
     if do_fetch:
         _kw = (kw or "").strip()
         if not _kw:
             st.error("请先输入 6 位股票代码或公司名称，再点击「获取数据」。")
         else:
-            # 【证券解析】把输入变成一个**确定**的目标公司。
-            # 巨潮搜索是模糊/前缀匹配，直接取第一条会把用户没输入过的公司当成分析对象
-            # （实测：'00000' → 平安银行；'abc' → 一只 REIT）。resolve_stock 的原则是
-            # 「代码必须精确命中；名称多义交用户确认；绝不猜」。
-            with st.spinner("正在核验证券代码……"):
-                _res = ds.resolve_stock(_kw)
-            if _res.get("ok"):
-                _panel_clear(key_prefix)   # 取数成功前先清旧结果，绝不让新旧混显
-                with st.spinner("正在联网获取数据……"):
-                    _ok, _err = _panel_store(
-                        key_prefix, _res["code"], _res["name"], _res.get("orgId", ""), periods
-                    )
-                if not _ok:
-                    _panel_clear(key_prefix)
-                    st.error(_err)
-            elif _res.get("ambiguous"):
-                # 多义名称 → 记下候选，交给下方"候选确认"区，绝不自动采用首项
-                _panel_clear(key_prefix)
-                st.session_state[f"{key_prefix}_cands"] = _res["candidates"]
-                st.warning(f"⚠️ {_res.get('error')} 请在下方候选中确认。")
-            else:
-                # 失败 → 清空该面板全部旧数据，杜绝"查询失败却仍显示上一家公司"
-                _panel_clear(key_prefix)
-                st.error(f"❌ {_res.get('error')}")
+            _fetch_by_kw(_kw, periods)
 
     # ---- 名称多义时的用户确认（对应验收标准「名称存在多个结果」）----
     _cands = st.session_state.get(f"{key_prefix}_cands") or []
@@ -4197,7 +4433,18 @@ _tb_obj = (
 )
 _tb_ragst = st.session_state.get("single_rag_status") or {}
 _tb_rag_ok = bool(isinstance(_tb_ragst, dict) and _tb_ragst.get("ok"))
-_tb_rag_txt = "📚 年报索引已就绪" if _tb_rag_ok else "📚 未建年报索引"
+# v11（用户阶段三第 ⑨ 条）：右上角"未建年报索引"让用户困惑"这是什么问题"。
+# ① 文案改成人话：它不是报错，只是"还没有解析过年报 PDF，所以没有页码引用"；
+# ② 悬停出完整解释（HTML title），把"影响什么、怎么启用"一次说清。
+_tb_rag_txt = "📚 页码引用已启用" if _tb_rag_ok else "📚 页码引用未启用（非报错）"
+_tb_rag_tip = (
+    "年报向量索引已建立：分析/研报/追问会检索年报原文，结论标注「见年报第X页」。"
+    if _tb_rag_ok else
+    "这是什么：还没有解析过年报 PDF，所以无法给出「见年报第X页」式页码引用 —— "
+    "不是报错，分析照常可用（基于在线取数的财务文本）。"
+    "想启用：在单公司「🌐 在线取数」面板里点「📄 一键获取并解析年报 PDF」"
+    "（约 40-80 秒），建好后这个徽章会自动变化。"
+)
 _tb_who = "🎤 演示模式" if st.session_state.get("demo_mode") else "🔒 已登录"
 st.markdown(
     '<div class="topbar">'
@@ -4206,7 +4453,7 @@ st.markdown(
     '<span class="tb-gap"></span>'
     f'<span class="tb-obj">{_tb_obj}</span>'
     f'<span class="tb-chip">{_tb_who}</span>'
-    f'<span class="tb-chip{" warn" if not _tb_rag_ok else ""}">{_tb_rag_txt}</span>'
+    f'<span class="tb-chip{" warn" if not _tb_rag_ok else ""}" title="{_tb_rag_tip}">{_tb_rag_txt}</span>'
     "</div>",
     unsafe_allow_html=True,
 )
@@ -4323,8 +4570,12 @@ def _render_history_list() -> None:
     if not _hist:
         st.caption("还没有分析记录。完成一次「🚀 开始结构化分析」后，这里会留下一条，可点回查看。")
         st.markdown(
-            '<div style="color:#FF9D9D !important;font-size:14.5px;font-weight:700;'
-            'line-height:1.7;">⚠️ 记录保留 2 小时：刷新页面不丢；超过 2 小时自动清除。</div>',
+            # v11（用户阶段三第 ⑩ 条）：深蓝侧栏上红字 #FF9D9D 实测看不清，
+            # 用户点名"换成加粗加厚的白色或黄色" → 琥珀黄 15.5px/800 + 深色文字底片。
+            '<div style="background:rgba(67,44,6,.55);border-left:4px solid #FFC53D;'
+            'border-radius:10px;padding:9px 12px;margin:6px 0;">'
+            '<div style="color:#FFE066 !important;font-size:15.5px;font-weight:800;'
+            'line-height:1.7;">⚠️ 记录保留 2 小时：刷新页面不丢；超过 2 小时自动清除。</div></div>',
             unsafe_allow_html=True,
         )
         return
@@ -4341,10 +4592,28 @@ def _render_history_list() -> None:
             if st.button(
                 f"{_mark}{_h.get('name') or '—'} · {_h.get('code') or '—'}",
                 key=f"hist_btn_{_i}",
-                help="回看这条分析结果",
+                help="回看这条分析结果（一键还原当时的取数数据、评分、研报与追问对话，无需重新分析）",
                 use_container_width=True,
             ):
+                # v11（用户阶段三第 ④ 条）：回看 = 整页恢复到当时的状态。
+                # 关键是把 data_sig 置 None：主区的"数据版本变化清空"逻辑见到
+                # _sig_old 为 None 会直接跳过 —— 否则恢复宁德时代的取数文本后，
+                # 指纹与当前（比亚迪）不一致，刚恢复的 analysis 会被立刻清掉。
+                _snap = _h.get("snapshot") or {}
                 st.session_state["analysis"] = _h.get("analysis")
+                if _snap:
+                    st.session_state["single_src"] = "🌐 在线自动取数（推荐）"
+                    st.session_state["single_online"] = _snap.get("online", "")
+                    st.session_state["single_online_code"] = _snap.get("code", "")
+                    st.session_state["single_online_name"] = _snap.get("name", "")
+                    st.session_state["single_online_org"] = _snap.get("org", "")
+                    st.session_state["single_periods"] = _snap.get("periods", 3)
+                    st.session_state["data_sig"] = None       # 见上：跳过当轮清空
+                    st.session_state["messages"] = _snap.get("messages") or []
+                    if _snap.get("report"):
+                        st.session_state["report"] = _snap["report"]
+                    else:
+                        st.session_state.pop("report", None)
                 st.session_state["hist_active"] = _h.get("id")
                 st.rerun()
             st.caption(
@@ -5099,6 +5368,11 @@ def _view_single():
                 # 存的是 analysis 的**引用**：回看时直接把它放回 session_state，
                 # 侧栏那条记录就能把当时的评分、图表、证据一起还原出来。
                 # v10：追加写本地缓存（_hist_save），刷新页面 / 重开会话可恢复。
+                # v11（用户阶段三第 ④ 条）：升级为**完整状态快照** —— 用户实测
+                # "测完宁德时代再测比亚迪，回看宁德时代时数据都在，却要重新点
+                # 「运行分析」"。原因：旧快照只存 analysis，不存当时的取数文本，
+                # 回看后数据指纹对不上、上下文还是另一家公司的。现在把取数文本、
+                # 公司三要素、报告期、研报、追问对话一起存进去，回看=整页时光倒流。
                 import time as _time_hist
                 _hist = st.session_state.get("analysis_history") or []
                 _hid = f"{st.session_state.get('single_online_code') or 'x'}-" \
@@ -5114,6 +5388,15 @@ def _view_single():
                         "ts": datetime.datetime.now().strftime("%H:%M:%S"),
                         "_ts": _time_hist.time(),
                         "analysis": analysis,
+                        "snapshot": {
+                            "online": (raw_data or "")[:60000],
+                            "code": st.session_state.get("single_online_code", ""),
+                            "name": st.session_state.get("single_online_name", ""),
+                            "org": st.session_state.get("single_online_org", ""),
+                            "periods": st.session_state.get("single_periods", 3),
+                            "report": (st.session_state.get("report") or "")[:60000],
+                            "messages": (st.session_state.get("messages") or [])[-12:],
+                        },
                     }
                 )
                 st.session_state["analysis_history"] = _hist[-20:]
@@ -5871,12 +6154,20 @@ def _view_compare():
 
     _n_cmp = int(st.session_state["cmp_n"])
 
+    # ⚠️ 控件定义顺序：toggle / 期数选择器必须放在「一键取数」按钮**之前** ——
+    # button 点击分支同轮就会用到 _cmp_periods，定义放后面直接 NameError。
+    _cmp_periods = int(st.session_state.get("cmp_periods", 8) or 8)
+    _cmp_auto_on = bool(st.session_state.get("cmp_auto_fetch", True))
+
     # ---- ⚡ 一键批量取数（v10 · 用户第 3 条反馈）----
     # 原来 2~5 家公司要逐家点「🔍 获取数据」，一次点 5 下、每下还各自转圈。
     # 现在填好各家的代码/名称后，这里一次取完全部：内部仍然逐家调用
     # resolve_stock + _panel_store（与单家点按钮**同一条链路**，轨迹、清空、
     # 校验逻辑一行没改），只是把"点 N 次"折叠成"点 1 次"。
-    _bf1, _bf2 = st.columns([1, 3])
+    # v11（用户第 ⑤ 条）：再加「自动合并取数」开关 —— 打开后在任意一家的
+    # 热门下拉里选公司，**这一家立即自动取数**，先选 A 再选 B 也一样，
+    # 全程不用碰「获取数据」按钮；开关关闭则退回手动点按钮。
+    _bf1, _bf2, _bf3 = st.columns([1, 1, 2])
     with _bf1:
         if st.button("⚡ 一键获取全部公司数据", key="cmp_batch_fetch",
                      use_container_width=True):
@@ -5894,7 +6185,7 @@ def _view_compare():
                         continue
                     _bok, _berr = _panel_store(
                         f"cmp{_bi}", _bres["code"], _bres["name"],
-                        _bres.get("orgId", ""), 3,
+                        _bres.get("orgId", ""), _cmp_periods,
                     )
                     _bf_results.append((chr(65 + _bi),
                                         f'{_bres["name"]}（{_bres["code"]}）', _bok, _berr))
@@ -5902,16 +6193,32 @@ def _view_compare():
             _bf_bad = [r for r in _bf_results if not r[2]]
             if _bf_ok:
                 get_tracer().hit("批量取数", "一键获取全部对比公司",
-                                 inp=f"{_n_cmp} 家", out=f"成功 {len(_bf_ok)} 家")
+                                 inp=f"{_n_cmp} 家 · {_cmp_periods} 期",
+                                 out=f"成功 {len(_bf_ok)} 家")
                 st.success("✅ 已获取：" + "、".join(r[1] for r in _bf_ok))
             for r in _bf_bad:
                 st.warning(f"公司 {r[0]}：{r[3]}")
             if _bf_ok:
                 st.rerun()
     with _bf2:
+        st.toggle(
+            "🚀 自动合并取数", key="cmp_auto_fetch", value=True,
+            help="开启后：在任意公司的「热门股票」下拉里选一家，这一家**立即自动取数**"
+                 "（先选公司A、再选公司B也一样，一次点击出一次数据，不用再点「获取数据」）。"
+                 "关闭后恢复手动点按钮取数。",
+        )
+    with _bf3:
+        # 真正的控件渲染；取值已在上方提前读入 _cmp_periods（按钮分支要用）
+        st.selectbox(
+            "报告期数（作用于全部对比公司）",
+            [3, 4, 6, 8, 12, 16, 20, 24],
+            index=3, key="cmp_periods",
+            help="每家公司向东方财富拉取「最近 N 个报告期」。N 越大，可参与对比的"
+                 "年报年份越多（N=24 时年报口径约 6 个年度）——想比 2023 / 2024 年就调大它。",
+        )
         st.caption(
-            "填好每家公司的代码 / 名称后点这里，**一次性取完全部公司数据**，"
-            "不用再一家一家点「🔍 获取数据」。名称多义的公司仍会进入候选确认流程，绝不乱猜。"
+            "填好每家公司的代码 / 名称后点「⚡ 一键获取」，**一次性取完全部**；"
+            "或开着「🚀 自动合并取数」逐家选公司，**选一家自动拉一家**。"
         )
 
     _cmp_tags = ["🅰️", "🅱️", "🅲", "🅳", "🅴"]
@@ -5995,16 +6302,21 @@ def _view_compare():
                     "请重新点击「⚖️ 开始对比分析」。")
     st.session_state["cmp_sig"] = _csig_now
 
-    # ---- 共同年报年份对齐（P1-03）----
+    # ---- 共同年报年份对齐（P1-03）+ 对比口径选择（v11 · 用户第 12/13 条）----
     # 「默认选共同年报年份」+「不同年度不混比」：
     #   先各自取回全部年报行，求年份交集；交集非空 → 用一个选择器统一基准年份，
     #   所有公司都取这一年；交集为空 → 明确报错而不是硬凑一张跨年份的表。
+    # v11：期数跟随「报告期数」选择器（默认 8 → 最大 24，年报口径约 6 个年度），
+    # 之前写死 8 期 ≈ 只有 2 个年报，用户"只有 2025 年可比"的根因就在这。
+    # 同时新增「各自最新年报」口径：两家公司年报年份对不齐时，也允许各家用
+    # 自己的最新年报比（期别分别标注，不再一刀切拒绝）。
     _annual_rows = {}
     for _s in _cmp_side:
         _rows = []
         if _s["online"] and _s["code"] and _pipeline is not None:
             try:
-                _rows = _pipeline.all_annual_rows(_s["code"], periods=8)
+                _rows = _pipeline.all_annual_rows(
+                    _s["code"], periods=max(_cmp_periods, 8))
             except Exception:
                 _rows = []
         _annual_rows[_s["i"]] = _rows
@@ -6020,8 +6332,21 @@ def _view_compare():
         _sets = [_years_of(_s["i"]) for _s in _cmp_side]
         _common_years = sorted([y for y in set.intersection(*_sets) if y], reverse=True)
 
+    _MODE_SAME = "📅 同年份对比（默认 · 不同年度不混比）"
+    _MODE_OWN = "🆚 各自最新年报（每家用自己的最新年报，期别分别标注）"
     _base_year = ""
+    _year_mode = _MODE_SAME
     if _all_online and _pipeline is not None:
+        _year_mode = st.radio(
+            "对比口径（年份怎么对齐）",
+            [_MODE_SAME, _MODE_OWN],
+            key="cmp_year_mode",
+            help="同年份对比：所有公司都取同一年年报，绝对可比；"
+                 "各自最新年报：两家公司年报披露节奏不同（如一家只有 2025、另一家最新是 2024）"
+                 "时，各家用各自的最新年报对比 —— 数值仍可横向看强弱，但**期别不同**，"
+                 "页面会在对照表里分别标注每家公司用的是哪一年。",
+        )
+    if _all_online and _pipeline is not None and _year_mode == _MODE_SAME:
         if _common_years:
             _base_year = st.selectbox(
                 "对比基准年份（年报口径）",
@@ -6040,11 +6365,11 @@ def _view_compare():
                 f"{_s['name']}：{'、'.join(sorted(_years_of(_s['i']), reverse=True)) or '无年报数据'}"
                 for _s in _cmp_side
             )
-            st.error(
-                "❌ **无共同年报年份，无法做同年份对比**（这正是「不同年度不混比」的要求，"
-                "硬凑一张跨年份的表会得出错误的强弱结论）。"
+            st.warning(
+                "⚠️ **两家公司没有共同披露的年报年份**，同年份对比做不了 ——"
                 f"各公司可用年报年份：{_avail}。"
-                "请更换其中一家公司，或把某一家改为「手动粘贴」模式按文本口径对比。"
+                "可改用上方「🆚 各自最新年报」口径继续对比（期别分别标注），"
+                "或把报告期数调大到 16~24 期后再试（年报年份覆盖更多）。"
             )
 
     def _cmp_side_metrics(side):
@@ -6063,7 +6388,8 @@ def _view_compare():
                 per = str(_row.get("report_name") or "")
             else:
                 try:
-                    met, per = _pipeline.annual_metrics(side["code"], periods=8)
+                    met, per = _pipeline.annual_metrics(
+                        side["code"], periods=max(_cmp_periods, 8))
                 except Exception:
                     met, per = {}, ""
         if not met and scoring is not None and (side["data"] or "").strip():
@@ -6101,13 +6427,23 @@ def _view_compare():
         if _empty:
             st.warning("⚠️ 以下公司的**输入未完成**（没有可分析的数据）：" + "、".join(_empty) + "。")
             _block = True
-        if _all_online and not _common_years:
+        if _all_online and not _common_years and _year_mode == _MODE_SAME:
+            # 同年份口径下没有共同年报年 → 阻断；各自最新口径放行（期别分别标注）
             _block = True
         if not _block:
-            st.caption(
-                f"✅ 已就绪：{_n_cmp} 家公司"
-                + (f" · 对比基准年份 **{_base_year}**（年报口径，不同年度不混比）" if _base_year else "")
-            )
+            if _all_online and _year_mode == _MODE_OWN:
+                st.caption(
+                    "✅ 已就绪（**各自最新年报口径**）："
+                    + "、".join(
+                        f"{_s['name']} → "
+                        + (sorted(_years_of(_s['i']), reverse=True) or ['无'])[0]
+                        for _s in _cmp_side)
+                    + "。每家公司用自己的最新年报，期别已在对照表中标注。")
+            else:
+                st.caption(
+                    f"✅ 已就绪：{_n_cmp} 家公司"
+                    + (f" · 对比基准年份 **{_base_year}**（年报口径，不同年度不混比）" if _base_year else "")
+                )
 
         cmp_btn = st.button(
             "⚖️ 开始对比分析",
@@ -6131,6 +6467,9 @@ def _view_compare():
                             # 原始标准指标一起存：对比可视化必须与评分表来自**同一份取值**，
                             # 否则可能出现"表说 A 高、图说 B 高"
                             "raw": dict(_m or {}),
+                            # v11：多年年报行快照 —— 「逐年年报对比」图的数据源
+                            # （与评分同一批取数，不二次请求接口）
+                            "annual": list(_annual_rows.get(_s["i"]) or []),
                         })
                     _inds_all = {it["industry"] for it in _items}
                     st.session_state["cmp_scores"] = {
@@ -6269,6 +6608,38 @@ def _view_compare():
         if _png:
             show_png(_png, "cmp-scale")
 
+        # ---- v11 新增两张（用户第 ⑧/12/13 条）----
+        # ① 逐年年报对比：想看哪一年就看哪一年，不再只有"单一基准年份"一张快照
+        _rows_map = {_idx: (it.get("annual") or []) for _idx, it in enumerate(_items)}
+        _yg1, _yg2 = st.columns(2)
+        with _yg1:
+            _png = fig_compare_years_n(_rows_map, _names, _pipeline,
+                                       "revenue", "营业收入（亿元）")
+            if not show_png(_png, "cmp-years-rev"):
+                st.caption("各公司均未取到多年年报营收数据，暂不绘制。")
+        with _yg2:
+            _png = fig_compare_years_n(_rows_map, _names, _pipeline,
+                                       "net_profit", "归母净利润（亿元）")
+            if not show_png(_png, "cmp-years-np"):
+                st.caption("各公司均未取到多年年报净利润数据，暂不绘制。")
+        # ② 估值对比（PE-TTM / PB）：行情走四级兜底链（东财→K线→新浪→腾讯），
+        #    ds.get_quote 自带本地缓存，同一家公司一轮只打一次接口。
+        _val_mets = []
+        for _it in _items:
+            _q = None
+            try:
+                _q = ds.get_quote(_it.get("code") or "") if _it.get("code") else None
+            except Exception:
+                _q = None
+            _val_mets.append({"pe_ttm": (_q or {}).get("pe_ttm"),
+                              "pb": (_q or {}).get("pb")})
+        _png = fig_compare_group_n(
+            _val_mets, _names,
+            [("pe_ttm", "市盈率 PE-TTM"), ("pb", "市净率 PB")],
+            "估值对比（PE / PB · 实时行情）")
+        if _png:
+            show_png(_png, "cmp-valuation")
+
         st.caption(
             "评分基准期："
             + "；".join(f"{it['name']} = {it['period'] or '未获取'}" for it in _items)
@@ -6320,6 +6691,100 @@ def _view_compare():
             mime="text/markdown",
             use_container_width=True,
         )
+
+    # ---- 💬 对比追问（v11 · 用户第 ⑥/13 条）----
+    # 之前「继续追问」只在单公司页有：对比完想追问"哪家更值得投"，
+    # 只能切回单公司页 —— 上下文也跟着丢。这里在对比结果下方直接给一个追问区：
+    # 上下文自动携带**全部对比公司**的指标与评分，推荐问题按当前对比公司动态生成。
+    _cs_chat = st.session_state.get("cmp_scores")
+    if _cs_chat and (_cs_chat.get("items") or []):
+        _citems = _cs_chat["items"]
+        _cnames = [it["name"] for it in _citems]
+        st.markdown("##### 💬 对比追问（基于上方全部对比公司的数据继续提问）")
+
+        def _cmp_context() -> str:
+            """把每家公司的指标与评分压成一段可引用的上下文（与评分表同一份取值）。"""
+            _parts = []
+            for it in _citems:
+                _rows = [f"{k}={v}" for k, v in (it.get("raw") or {}).items()
+                         if isinstance(v, (int, float))]
+                _sc = it.get("scores") or {}
+                _parts.append(
+                    f"【{it['name']}（{it.get('code') or '—'}）· {it.get('industry') or '—'} · "
+                    f"基准期 {it.get('period') or '—'} · 综合评分 {_sc.get('total_score', '—')}】\n"
+                    + "；".join(_rows[:24]))
+            return "\n\n".join(_parts)
+
+        if "cmp_messages" not in st.session_state:
+            st.session_state["cmp_messages"] = []
+
+        # 1) 历史消息（问在上）
+        for _m in st.session_state["cmp_messages"]:
+            with st.chat_message(_m["role"]):
+                st.markdown(_m["content"])
+
+        # 2) 本轮回答（答在中）
+        _cmp_pending = st.session_state.pop("_cmp_answer_pending", None)
+        if _cmp_pending:
+            with st.chat_message("assistant"):
+                box = st.empty()
+                with st.spinner("正在结合全部对比公司数据分析……"):
+                    try:
+                        _sys = system_prompt_with_kb(_citems[0].get("industry") or industry)
+                        _prompt = (
+                            "以下是本次对比的全部公司数据（系统联网取数 + 规则评分，可直接引用）：\n\n"
+                            + _cmp_context()
+                            + "\n\n请基于以上数据回答用户问题。涉及公司间比较时，"
+                              "注明每家公司使用的报告期与行业口径；数据中没有的不要编造。"
+                        )
+                        _msgs = [{"role": "system", "content": _sys},
+                                 {"role": "user", "content": _prompt},
+                                 {"role": "assistant", "content": "好的，我已掌握全部对比公司数据，请提问。"}]
+                        _msgs.extend(st.session_state["cmp_messages"][:-1][-6:])
+                        _msgs.append({"role": "user", "content": _cmp_pending})
+                        _ans = llm_stream(_msgs, box, temperature=0.3, action="compare")
+                    except Exception as e:
+                        box.empty()
+                        st.error(f"调用失败：{e}")
+                        _ans = ""
+                if _ans:
+                    st.session_state["cmp_messages"].append(
+                        {"role": "assistant", "content": _ans})
+
+        # 3) 推荐问题（按当前对比公司自动生成）
+        _cmp_sugs = []
+        if len(_cnames) >= 2:
+            _na, _nb = _cnames[0], _cnames[1]
+            _cmp_sugs = [
+                f"{_na} 和 {_nb} 哪家更值得投资？请从盈利、成长、偿债、营运四个维度比较后给出结论。",
+                f"对比 {_na} 与 {_nb} 的营收与净利润，谁的增长质量更高？",
+                f"{_na} 与 {_nb} 目前的估值（PE/PB）谁更便宜？结合基本面说明是否合理。",
+                f"如果只能投资一家，你选 {_na} 还是 {_nb}？请给出理由与主要风险。",
+                f"{_na} 相对 {_nb} 的主要优势与劣势分别是什么？",
+                f"两家公司对比，哪个财务指标差异最大？这个差异说明什么？",
+            ]
+        if _cmp_sugs:
+            with st.expander("🎯 推荐问题（按当前对比公司自动生成，点击即问；也可手动输入）",
+                             expanded=not st.session_state["cmp_messages"]):
+                _qc = st.columns(2)
+                for _i, _sq in enumerate(_cmp_sugs[:6]):
+                    with _qc[_i % 2]:
+                        if st.button(_sq, key=f"cmp_suggest_{_i}", use_container_width=True):
+                            # 与输入框同一条入队逻辑：先 append 再 rerun（见单公司页注释）
+                            st.session_state["cmp_messages"].append({"role": "user", "content": _sq})
+                            st.session_state["_cmp_answer_pending"] = _sq
+                            st.rerun()
+
+        # 4) 输入框（最下）
+        _cmp_q = st.chat_input("例如：这几家公司哪一家更值得投资？", key="cmp_chat_q")
+        _cmp_new = (_cmp_q or "").strip()
+        if _cmp_new:
+            if not DEEPSEEK_API_KEY:
+                st.error("未配置 DEEPSEEK_API_KEY，请联系管理员。")
+            else:
+                st.session_state["cmp_messages"].append({"role": "user", "content": _cmp_new})
+                st.session_state["_cmp_answer_pending"] = _cmp_new
+            st.rerun()
 
 # ---------------------------------------------------------------
 # 视图 3：使用说明
@@ -6429,6 +6894,83 @@ def _view_help():
         st.caption(
             "橙色 = 可选步骤；绿色 = 出结果的步骤；紫色 = 多公司支线；虚线 = 对比支线汇入研报导出。"
             "左侧导航切换「🏢 单公司 / ⚖️ 多公司 / 📖 使用说明」。"
+        )
+
+    # 【v11 · 第 ⑦ 条】用户觉得线性流程图"太单调" → 补一张**分层架构图**：
+    # 数据层（四级免费数据源）→ 引擎层（解析/管道/评分/RAG/双模型/轨迹）→ 展示层。
+    # 每层一个带左侧色条的圆角容器，层间大箭头标数据流；仍是零依赖内联 SVG。
+    with card("help-arch", "", "🏛️ 系统架构图", "三层数据流：免费数据源 → 分析引擎 → 工作台展示"):
+
+        def _arch_layer(y: int, h: int, name: str, accent: str, bg: str, note: str) -> str:
+            return (
+                f'<rect x="16" y="{y}" width="1208" height="{h}" rx="14" '
+                f'fill="{bg}" stroke="{accent}" stroke-opacity="0.30" stroke-width="1.2"/>'
+                f'<rect x="16" y="{y}" width="6" height="{h}" rx="3" fill="{accent}"/>'
+                f'<text x="36" y="{y + 27}" font-size="15" font-weight="700" fill="{accent}">{name}</text>'
+                f'<text x="1216" y="{y + 27}" text-anchor="end" font-size="11.5" fill="#64748B">{note}</text>'
+            )
+
+        def _arch_box(x: int, y: int, w: int, h: int, icon: str, title: str,
+                      sub: str, accent: str) -> str:
+            return (
+                f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="9" fill="#FFFFFF" '
+                f'stroke="{accent}" stroke-opacity="0.55" stroke-width="1.2"/>'
+                f'<text x="{x + 12}" y="{y + 24}" font-size="13" font-weight="700" fill="#0B1F3A">'
+                f'{icon} {title}</text>'
+                f'<text x="{x + 12}" y="{y + 44}" font-size="10.5" fill="#5B6B82">{sub}</text>'
+            )
+
+        def _arch_flow(y1: int, y2: int, label: str) -> str:
+            _cx = 620
+            return (
+                f'<line x1="{_cx}" y1="{y1}" x2="{_cx}" y2="{y2 - 8}" stroke="#94A3B8" stroke-width="2"/>'
+                f'<path d="M{_cx - 6} {y2 - 9} L{_cx} {y2} L{_cx + 6} {y2 - 9} Z" fill="#94A3B8"/>'
+                f'<text x="{_cx - 12}" y="{(y1 + y2) / 2 + 4}" text-anchor="end" '
+                f'font-size="11.5" fill="#64748B">{label}</text>'
+            )
+
+        _A = ""   # 拼接器
+        # —— 数据层 ——
+        _A += _arch_layer(14, 112, "① 数据层 · 四级免费公开数据源", "#2563EB", "#F0F6FF",
+                          "全部无需密钥 · 逐级兜底")
+        _dsrc = [("🏛️", "巨潮资讯网", "公告检索 · 年报 PDF 下载"),
+                 ("📈", "东方财富", "实时行情 · 多期财务指标"),
+                 ("🐦", "新浪财经", "行情 / 指标兜底 ③"),
+                 ("🐧", "腾讯财经", "行情兜底 ④（v11 新增）")]
+        for _i, (_ic, _tt, _ss) in enumerate(_dsrc):
+            _A += _arch_box(40 + _i * 294, 52, 274, 62, _ic, _tt, _ss, "#2563EB")
+        _A += _arch_flow(130, 172, "取数 · REST（失败自动换下一级）")
+        # —— 引擎层 ——
+        _A += _arch_layer(176, 112, "② 引擎层 · 取数管道与规则评分", "#7C3AED", "#F7F2FE",
+                          "确定性优先 · 大模型只解读不打分")
+        _eng = [("🎯", "证券解析", "代码精确命中 · 多义交确认"),
+                ("⚙️", "取数管道", "指标标准化 · 亿元口径"),
+                ("📐", "规则评分引擎", "固定阈值 · 同数同分"),
+                ("📚", "RAG 年报检索", "按页切片 · 页码引用"),
+                ("🤖", "双模型协同", "DeepSeek+千问"),
+                ("🧾", "Agent 轨迹", "每步工具调用台账")]
+        for _i, (_ic, _tt, _ss) in enumerate(_eng):
+            _A += _arch_box(40 + _i * 199, 214, 187, 62, _ic, _tt, _ss, "#7C3AED")
+        _A += _arch_flow(292, 334, "评分 + 解读 · 结构化结果")
+        # —— 展示层 ——
+        _A += _arch_layer(338, 112, "③ 展示层 · 投研工作台", "#16A34A", "#F0FBF4",
+                          "问在上 · 答在中 · 输入框在最下")
+        _ui = [("🏢", "单公司五页签", "概览/时间轴/评分/研报/轨迹"),
+               ("🗓️", "年度时间轴", "缺年不补零 · pp 口径"),
+               ("⚖️", "多公司对比", "对照表/雷达/规模/逐年/估值"),
+               ("💬", "追问对话", "推荐问题 · 图表辅助"),
+               ("📝", "研报导出", "Markdown · CSV")]
+        for _i, (_ic, _tt, _ss) in enumerate(_ui):
+            _A += _arch_box(40 + _i * 238, 376, 226, 62, _ic, _tt, _ss, "#16A34A")
+        st.markdown(
+            '<svg viewBox="0 0 1240 470" width="100%" style="min-width:760px;" '
+            'xmlns="http://www.w3.org/2000/svg" role="img" aria-label="系统架构图">'
+            + _A + "</svg>",
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "蓝 = 免费数据源（任一接口被限流自动换下一级）；紫 = 确定性引擎（评分由固定规则计算，可复现）；"
+            "绿 = 工作台展示。评分只发生在引擎层，展示层从不自行算分 —— 同一份数据在任何页面分数一致。"
         )
 
     with card("help-quick", "", "🚀 快速上手（4 步）", "从零到一份可下载的研报"):

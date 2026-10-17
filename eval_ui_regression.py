@@ -268,7 +268,17 @@ _check("app.py 不再静默吞掉 pipeline 的加载异常（防回归）",
 _check("app.py 渲染证据卡（正向定位页码/原文）", "证据卡" in SRC)
 _check("app.py 有年度时间轴区块", "render_year_timeline(" in SRC)
 _check("app.py 有 N 公司对比图函数调用", "fig_compare_group_n(" in SRC)
-_check("app.py 有「无共同年报年份」明确提示", "无共同年报年份" in SRC)
+_check("app.py 有「没有共同披露的年报年份」明确提示（v11 起降级为 warning：可切各自最新口径）",
+       "没有共同披露的年报年份" in SRC)
+# v11（阶段三第 ① 条）：半透明白底压浅极光 = "点击输入全是白色看不清"
+# → 改深墨蓝实底 + 白字 + 亮青光标 + autofill 修复 + 选中态高亮
+_check("登录输入框改深色实底白字（聚焦/输入中/autofill 全程可读），光标亮青色",
+       "background: #06142E !important" in SRC
+       and "color: #FFFFFF !important" in SRC
+       and "caret-color: #67E8F9" in SRC
+       and "input:-webkit-autofill" in SRC
+       and "-webkit-text-fill-color: #FFFFFF" in SRC
+       and "input::selection" in SRC)
 _check("evidence_map 正向定位可用", callable(getattr(_av, "evidence_map", None)))
 _res = _pl.analyze_core(
     {"metrics": [{"item": "2025年报营业收入", "value": 60.59}],
@@ -598,9 +608,10 @@ _check("登录按钮 = 青色渐变 + 深蓝字（模板「安全登录」的形
        '[data-testid="stFormSubmitButton"] button' in SRC
        and "linear-gradient(90deg, #22D3EE 0%, #38BDF8 100%) !important" in SRC
        and "color: #052438 !important" in SRC)
-_check("输入框在深底上不再是白底深字（改半透明底 + 浅字 + 浅占位符）",
-       "background: rgba(255, 255, 255, 0.07) !important" in SRC
-       and "color: #A9C0E6 !important" in SRC)
+# v11（阶段三第 ① 条）：半透明白底在浅色极光上"点击输入全是白色看不清"
+# → 深墨蓝实底。旧断言（半透明白底）已由上面的"深色实底"断言取代。
+_check("输入框占位符仍是浅色小字（深底上看得见但不抢正文）",
+       "color: #A9C0E6 !important" in SRC)
 _check("卡内报错提示在深色卡上可见（否则红字压深底看不见）",
        '[data-testid="stForm"] [data-testid="stAlert"]' in SRC)
 _check("账号/密码标签**外置**，框内放小号英文占位符（v10 起带 key，避免控件状态串台）",
@@ -885,6 +896,66 @@ _check("进入工作台后不再注入登录页样式（不会重复叠加）",
 _check("进入工作台后侧边栏导航出现（3 个入口）",
        len([b for b in at7.sidebar.get("button")
             if (b.key or "").startswith(("nav_on_", "nav_off_"))]) == 3)
+
+# =====================================================================
+# v11：阶段三 15 条反馈（①~15）静态断言
+# =====================================================================
+# ① 已在上面"深色实底"断言覆盖；②⑩a 侧栏文字颜色：
+_check("侧栏历史按钮悬停改纯白 + help 浮层白字（用户第 ② 条：蓝色字看不清）",
+       '[data-testid="stSidebar"] button:hover p' in SRC
+       and "color: #FFFFFF !important;" in SRC
+       and '[data-testid="stSidebar"] [data-testid="stTooltipContent"]' in SRC)
+_check("2 小时警告改琥珀黄加粗 + 深色文字底片（用户第 ⑩ 条：红字看不清）",
+       "#FFE066" in SRC and "border-left:4px solid #FFC53D" in SRC
+       # 只查渲染字符串里的 color:#FF9D9D（源码注释里的旧色值不算）
+       and "color:#FF9D9D" not in SRC)
+# ③ 股票池 + 腾讯接口（接口在 data_source.py，单独读源）：
+_DS_SRC = open("data_source.py", encoding="utf-8").read()
+_STK_N = SRC.count('", "消费"),') + SRC.count('", "金融"),') + SRC.count('", "新能源"),') \
+    + SRC.count('", "医药"),') + SRC.count('", "互联网"),') + SRC.count('", "通用"),')
+_check("股票池扩容到 100 家以上（用户第 ③ 条：公司太少）",
+       _STK_N >= 100, f"stocks={_STK_N}")
+_check("接入腾讯免费行情接口（第四级兜底：东财→K线→新浪→腾讯）",
+       "def tencent_quote" in _DS_SRC and "qt.gtimg.cn" in _DS_SRC
+       and _DS_SRC.count("or tencent_quote(code)") >= 3)
+# ④ 回看免重跑：
+_check("历史记录升级为完整状态快照（回看=整页恢复，不再要求重新点运行分析）",
+       '"snapshot": {' in SRC and '"online": (raw_data or "")[:60000]' in SRC
+       and 'st.session_state["data_sig"] = None' in SRC)
+# ⑤ 自动合并取数：
+_check("多公司「自动合并取数」开关（选一家自动拉一家）",
+       'key="cmp_auto_fetch"' in SRC and "_on_pick" in SRC
+       and 'f"{key_prefix}_auto_fetch"' in SRC)
+# ⑥/13b 多公司追问：
+_check("多公司对比新增追问区（上下文携带全部对比公司 + 推荐问题 + 输入框）",
+       'key="cmp_chat_q"' in SRC and "_cmp_answer_pending" in SRC
+       and "🎯 推荐问题（按当前对比公司自动生成" in SRC)
+# ⑦ 架构图：
+_check("帮助页新增三层架构图（数据层/引擎层/展示层）",
+       "🏛️ 系统架构图" in SRC and "_arch_layer" in SRC and "_arch_box" in SRC
+       and "腾讯财经" in SRC and "逐级兜底" in SRC)
+# ⑧/12/13 多年对比与估值图：
+_check("对比新增「逐年年报对比」图（想看哪一年就看哪一年）",
+       "def fig_compare_years_n" in SRC and "cmp-years-rev" in SRC
+       and "cmp-years-np" in SRC and '"annual": list(_annual_rows' in SRC)
+_check("对比新增「估值对比」图（PE/PB，行情走四级兜底）",
+       "cmp-valuation" in SRC and "市盈率 PE-TTM" in SRC)
+_check("对比口径可选：同年份对比 / 各自最新年报（无共同年份也能比）",
+       "cmp_year_mode" in SRC and "_MODE_OWN" in SRC
+       and "各自最新年报" in SRC)
+# ⑨ 索引徽章：
+_check("顶栏索引徽章改人话 + 悬停完整解释（不再是神秘的「未建年报索引」）",
+       "页码引用未启用（非报错）" in SRC and "_tb_rag_tip" in SRC
+       # 只查徽章字符串本身（源码注释/内部台账里的旧文案不算）
+       and '"📚 未建年报索引"' not in SRC)
+# 11 柱宽自适应：
+_check("年度柱状图柱宽随柱数自适应（单柱 0.26 ≈ 减半，不再撑满全图）",
+       "_bw = 0.26 if _nbar == 1" in SRC and "width=_bw" in SRC)
+# 14/15 期数自选：
+_check("单公司报告期数放开到 24 期（原来最多 8 期 ≈ 只有 2 个年报）",
+       "list(range(1, 25))" in SRC)
+_check("多公司对比新增全局报告期数选择器（3~24 期，作用全部公司）",
+       'key="cmp_periods"' in SRC and "max(_cmp_periods, 8)" in SRC)
 
 print()
 if FAILS:
