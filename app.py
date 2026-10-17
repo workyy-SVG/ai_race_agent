@@ -691,6 +691,33 @@ CUSTOM_CSS = """
   /* ===== 卡片内小标题（紧凑取数面板等窄容器里用）===== */
   .mini-head { font-size: 15px; font-weight: 800; color: #0B1F3A !important; margin: 2px 0 9px 0; }
 
+  /* ===== 取数成功状态块（v10-2 · 用户第 8a 条）=====
+     多公司对比页每家公司挤在 1/5 宽的窄卡里，原来的 st.success 小字会折成
+     3~4 行、字号被容器压到几乎看不清（"贵州茅台下面那行字看不清"）。
+     改成自定义块：公司名单独一行 17.5px 深墨字，状态另起一行 14.5px 深绿字，
+     白底浅绿 + 左侧绿色竖条，对比度 8:1 以上，窄卡里也不塌。 */
+  .cmp-ok {
+    background: linear-gradient(96deg, #E6F8EF 0%, #F3FBFF 100%);
+    border: 1px solid #A7E3C4; border-left: 4px solid #16A34A;
+    border-radius: 12px; padding: 10px 13px 11px 13px; margin: 8px 0 6px 0;
+  }
+  .cmp-ok-name {
+    font-size: 17.5px; font-weight: 800; color: #0F2419 !important;
+    line-height: 1.45; letter-spacing: .3px; word-break: break-all;
+  }
+  .cmp-ok-sub {
+    font-size: 14.5px; font-weight: 600; color: #1F5138 !important;
+    margin-top: 5px; line-height: 1.55;
+  }
+  /* 尚未取数时的占位块：同样用大字号，避免"一行浅灰小字贴在卡底没人看见" */
+  .cmp-wait {
+    background: #F4F7FB; border: 1px dashed #B9C7DC; border-radius: 12px;
+    padding: 10px 13px; margin: 8px 0 6px 0;
+  }
+  .cmp-wait-t {
+    font-size: 15.5px; font-weight: 700; color: #33455F !important; line-height: 1.5;
+  }
+
   /* ===== 统一分区标题（卡片内表头）=====
      编号方块 + 深色短标题 + 灰色小字说明；无色块、只留一条分隔线。
      标题用 #0B1F3A（16.5:1）、说明用 #3B4A5F（9.0:1），
@@ -1253,14 +1280,21 @@ CUSTOM_CSS = """
     border-radius: 10px;
     padding: 11px 15px;
     margin: 6px 0 12px 0;
-    font-size: 13.5px;
-    line-height: 1.85;
+    font-size: 14.5px;
+    line-height: 1.9;
     color: #334155;
   }
-  .quad-note .q-star { color: #DC2626; font-weight: 700; }
-  .quad-note .q-cash { color: #B45309; font-weight: 700; }
-  .quad-note .q-quest { color: #1D4ED8; font-weight: 700; }
-  .quad-note .q-dog { color: #475569; font-weight: 700; }
+  /* v10-2（用户第 6 条）：象限名中英文并列 —— 只写「■ 明星」时，
+     评审不知道 ■ 是什么、明星又对应图里哪个象限。*/
+  .quad-note .q-star,
+  .quad-note .q-cash,
+  .quad-note .q-quest,
+  .quad-note .q-dog { font-weight: 800; font-size: 15px; }
+  .quad-note .q-star { color: #DC2626; }
+  .quad-note .q-cash { color: #B45309; }
+  .quad-note .q-quest { color: #1D4ED8; }
+  .quad-note .q-dog { color: #475569; }
+  .quad-note .q-en { font-size: 12.5px; font-weight: 600; color: #475569 !important; }
 
   /* ===== 同业对标基准条（行业选择器下方） =====
      说明: 只用类选择器, 不用通配符 + !important
@@ -1280,6 +1314,33 @@ CUSTOM_CSS = """
   .base-bar b { color: #0B1F3A; }
   .base-bar .bb-num { color: #B45309; font-weight: 700; }
   .base-bar .bb-note { color: #3B4A5F; }
+
+  /* ===== v10 全局补丁 ===== */
+
+  /* 1) 页头那排纯图形按钮（Share / 星标 / 链接 / 白方块）是 Streamlit 自带工具栏，
+        没有文字说明、颜色和深蓝背景融在一起，用户看不懂也不需要。
+        参赛作品用不上"分享/部署"入口，整排隐藏最干净。 */
+  header[data-testid="stHeader"] [data-testid="stToolbar"],
+  header[data-testid="stHeader"] [data-testid="stStatusWidget"],
+  header[data-testid="stHeader"] [data-testid="stLogo"],
+  header[data-testid="stHeader"] [data-testid="stDecorationContainer"] {
+    display: none !important;
+  }
+
+  /* 2) 表单输入框右下的 "Press Enter to submit form" 是英文系统提示，
+        登录页出现了两次，用户明确要求去掉。 */
+  [data-testid="InputInstructions"] { display: none !important; }
+
+  /* 3) 侧边栏「分析记录」：时间 / 行业 / 评分这些 caption 在深蓝底上
+        默认是暗灰字，实测几乎看不清（用户截图点名）。统一提亮 + 加大。 */
+  [data-testid="stSidebar"] [data-testid="stCaptionContainer"] p {
+    color: #C9DAF6 !important;
+    font-size: 14.5px !important;
+  }
+  .st-key-khist-scroll [data-testid="stCaptionContainer"] p {
+    color: #DCE8FB !important;
+    font-size: 15px !important;
+  }
 </style>
 """
 
@@ -1610,19 +1671,39 @@ LOGIN_CSS = """
                 inset 0 1px 0 rgba(255, 255, 255, 0.07);
     backdrop-filter: blur(8px);
   }
+  /* v10-2（用户第 6 条）：原 lp-head 是 #7FE9FF 青字压在半透明深蓝玻璃上，
+     背景极光一动，青字和青色光晕直接融成一片（"字体颜色与背景融为一体"）。
+     现在：纯白 22px/800 字重 + 深色文字底片 + 左侧青色竖条 + 投影，
+     任何背景亮度下都读得清；右侧再挂一行英文小字，图形看不懂也能靠文字认。 */
   .lb-panel .lp-head {
-    font-size: 20px; font-weight: 800; letter-spacing: 1.4px;
-    color: #7FE9FF !important; margin-bottom: 12px;
+    font-size: 22px; font-weight: 800; letter-spacing: 1.1px;
+    color: #FFFFFF !important; margin-bottom: 13px;
+    display: block; padding: 6px 12px;
+    border-radius: 10px;
+    background: rgba(5, 15, 34, 0.62);
+    border-left: 4px solid #67E8F9;
+    text-shadow: 0 1px 3px rgba(1, 6, 16, 0.6);
+  }
+  .lb-panel .lp-head .lp-en {
+    font-size: 12.5px; font-weight: 700; letter-spacing: .7px;
+    color: #9FE6FF !important; margin-left: 9px;
+    text-shadow: none;
   }
   .lb-panel .lp-row {
     display: flex; justify-content: space-between; gap: 12px;
-    font-size: 18px; color: #DCEBFF !important; line-height: 2.0;
+    font-size: 18.5px; color: #EAF4FF !important; line-height: 1.95;
+  }
+  /* 图形说明文字（图下面那行"这图画的是什么"） */
+  .lb-panel .lp-cap {
+    font-size: 13px; font-weight: 600; color: #A9D8F5 !important;
+    line-height: 1.6; margin-top: 9px;
+    text-shadow: 0 1px 2px rgba(1, 6, 16, 0.5);
   }
   /* ⚠️ 必须**显式**给 span 上色：全站有一条 `p, li, span, div { color: #334155 }`，
      它是直接规则，会盖掉从 .lp-row 继承下来的浅色 → 深灰字压深蓝底，
      用户看到的就是"指标名那一列看不清"（v8 实际事故：面板里标签列几乎隐形）。 */
-  .lb-panel .lp-row span { color: #DCEBFF !important; }
-  .lb-panel .lp-row b { color: #FFFFFF !important; font-size: 19px; }
+  .lb-panel .lp-row span { color: #EFF6FF !important; font-size: 17px; }
+  .lb-panel .lp-row b { color: #FFFFFF !important; font-size: 21px; font-weight: 800; }
   .lb-panel .lp-bar {
     height: 13px; border-radius: 999px; margin-top: 12px;
     background: linear-gradient(90deg, #22D3EE, #3B82F6);
@@ -1641,6 +1722,186 @@ LOGIN_CSS = """
     }
   }
   @media (max-width: 900px) { .lb-ring, .lb-scan { display: none; } }
+
+  /* ==========================================================
+     v10 登录页四连修（用户第 1/4/7/11 条反馈）：
+       ① 隐藏 "Press Enter to submit form"（全局补丁里已做，这里兜底再写一条）
+       ② 密码输入后看不清 → 输入文字改纯白、加大、加字距（密码圆点更醒目）
+       ③ 「安全登录」按钮字和青色底融在一起 → 换深蓝渐变底 + 纯白粗体字，
+          对比度一步拉满
+       ④ 背景要"动态" → 三团极光色块缓慢漂移（纯 CSS keyframes，
+          pointer-events:none 压在最底层，不挡任何点击）
+     ========================================================== */
+  [data-testid="stForm"] [data-testid="InputInstructions"] { display: none !important; }
+
+  /* ---------- ① 大字体（用户第 4 条：登录界面字体较小） ----------
+     账号框 22px、密码框 26px：密码框单独再大一档，因为圆点「•」本身字形小，
+     跟账号同字号时视觉上会小一半，看起来就像没输进去。 */
+  [data-testid="stForm"] input,
+  [data-testid="stForm"] input[type="password"] {
+    color: #FFFFFF !important;
+    font-size: 22px !important;
+    font-weight: 600 !important;
+    letter-spacing: 1.5px;
+    padding: 16px 18px !important;
+  }
+  /* 密码：字距再拉开到 6px，圆点一颗一颗分得开，位数一眼能数清 */
+  [data-testid="stForm"] input[type="password"] {
+    font-size: 26px !important;
+    letter-spacing: 6px;
+    /* 右padding留位置给眼睛按钮，否则末位圆点会被眼睛图标压住 */
+    padding-right: 52px !important;
+  }
+  [data-testid="stForm"] [data-testid="stWidgetLabel"] p,
+  [data-testid="stForm"] label[data-testid="stWidgetLabel"] p {
+    font-size: 20px !important;
+    font-weight: 700 !important;
+    color: #EAF2FF !important;
+  }
+  [data-testid="stForm"] input::placeholder { font-size: 16.5px !important; }
+
+  /* ---------- ② 密码可见（任务1 新增；用户第 11 条「输入密码后看不清」） ----------
+     Streamlit 的密码框自带右侧「眼睛」按钮，但默认图标是 #A9C0E6 淡蓝、
+     18px，压在半透明输入框里几乎看不见 —— 用户根本不知道能点。
+     这里把图标提到近白 + 放大到 24px + hover 提亮，让它第一眼就被看见。 */
+  [data-testid="stForm"] [data-testid="stTextInputRootElement"] button svg {
+    fill: #EAF2FF !important; color: #EAF2FF !important;
+    width: 24px; height: 24px;
+  }
+  [data-testid="stForm"] [data-testid="stTextInputRootElement"] button:hover svg {
+    fill: #FFFFFF !important; color: #FFFFFF !important;
+  }
+  /* 明文态（点了眼睛之后 input 变 type=text）：同样保证白字大号 */
+  [data-testid="stForm"] input[type="text"] { letter-spacing: 2px; }
+  /* 密码框下方那行「可以点眼睛看明文」的说明。
+     ⚠️ 必须写在 [data-testid="stForm"] p/li/small 统一样式**之后**，
+        否则会被那条 color:#CBDCF6 直接盖掉（同特异性、后者胜）。 */
+  [data-testid="stForm"] .login-pw-tip,
+  [data-testid="stForm"] .login-pw-tip * {
+    color: #9FB8DC !important;
+    font-size: 14px !important;
+    font-weight: 600 !important;
+    letter-spacing: .2px;
+    margin: -4px 0 2px 2px;
+  }
+  [data-testid="stForm"] .login-pw-tip b { color: #CFE3FF !important; }
+
+  [data-testid="stFormSubmitButton"] button {
+    background: linear-gradient(92deg, #1D4ED8 0%, #2563EB 55%, #0EA5E9 100%) !important;
+    color: #FFFFFF !important;
+    font-size: 24px !important;
+    font-weight: 900 !important;
+    letter-spacing: 3.5px;
+    padding: 18px 22px !important;
+    border: 1px solid rgba(255, 255, 255, 0.35) !important;
+    box-shadow: 0 10px 26px rgba(29, 78, 216, 0.45) !important;
+    text-shadow: 0 1px 3px rgba(1, 12, 34, 0.45);
+  }
+  [data-testid="stFormSubmitButton"] button:hover {
+    background: linear-gradient(92deg, #2563EB 0%, #3B82F6 55%, #38BDF8 100%) !important;
+    color: #FFFFFF !important;
+  }
+
+  /* 动态极光背景：三团色块各自漂移 + 呼吸，动得慢、不刺眼 */
+  @keyframes lbAurora1 {
+    0%   { transform: translate(-8%, -4%) scale(1); opacity: .55; }
+    50%  { transform: translate(10%, 6%) scale(1.18); opacity: .8; }
+    100% { transform: translate(-8%, -4%) scale(1); opacity: .55; }
+  }
+  @keyframes lbAurora2 {
+    0%   { transform: translate(6%, 10%) scale(1.1); opacity: .4; }
+    50%  { transform: translate(-10%, -6%) scale(0.92); opacity: .65; }
+    100% { transform: translate(6%, 10%) scale(1.1); opacity: .4; }
+  }
+  @keyframes lbAurora3 {
+    0%   { transform: translate(0%, 6%) scale(0.95) rotate(0deg); opacity: .35; }
+    50%  { transform: translate(-4%, -8%) scale(1.15) rotate(8deg); opacity: .6; }
+    100% { transform: translate(0%, 6%) scale(0.95) rotate(0deg); opacity: .35; }
+  }
+  .lb-aurora { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+  .lb-aurora i {
+    position: absolute; display: block; border-radius: 50%;
+    filter: blur(90px); mix-blend-mode: screen; will-change: transform, opacity;
+  }
+  .lb-aurora i:nth-child(1) {
+    width: 46vw; height: 46vw; left: -8vw; top: -10vw;
+    background: radial-gradient(circle, rgba(34,211,238,.34) 0%, rgba(34,211,238,0) 68%);
+    animation: lbAurora1 17s ease-in-out infinite;
+  }
+  .lb-aurora i:nth-child(2) {
+    width: 52vw; height: 52vw; right: -12vw; top: 22vh;
+    background: radial-gradient(circle, rgba(59,130,246,.32) 0%, rgba(59,130,246,0) 68%);
+    animation: lbAurora2 21s ease-in-out infinite;
+  }
+  .lb-aurora i:nth-child(3) {
+    width: 40vw; height: 40vw; left: 28vw; bottom: -16vw;
+    background: radial-gradient(circle, rgba(14,165,233,.28) 0%, rgba(14,165,233,0) 70%);
+    animation: lbAurora3 25s ease-in-out infinite;
+  }
+  /* ---------- ③ 图也要动（用户第 4 条：背景 /**图** 做成动态的） ----------
+     背景有极光了，但六块面板里的图全是"死图"：走势线不会走、柱子不长、
+     环形不转、网络连线不动 —— 一屏科技感的东西全是静止的，看着像截图。
+     这里给每张图补一条 CSS 动画，周期 2.2~6s（跟极光同频），慢到不晃眼。 */
+  /* 走势主线：dash 描线，线自己"画"出来 */
+  @keyframes lbDraw { 0% { stroke-dashoffset: 320; } 60%, 100% { stroke-dashoffset: 0; } }
+  .lb-panel .tr-main { stroke-dasharray: 320; animation: lbDraw 4.2s ease-in-out infinite; }
+  /* 均线：轻微明暗呼吸，作底不抢戏 */
+  @keyframes lbFade { 0%, 100% { opacity: .35; } 50% { opacity: .8; } }
+  .lb-panel .tr-sub { animation: lbFade 3.4s ease-in-out infinite; }
+  /* 最新价光点：缩放脉冲 */
+  @keyframes lbPulse {
+    0%, 100% { opacity: .45; transform: scale(.85); }
+    50%      { opacity: 1;   transform: scale(1.3); }
+  }
+  .lb-panel .tr-dot {
+    transform-box: fill-box; transform-origin: center;
+    animation: lbPulse 2.2s ease-in-out infinite;
+  }
+  /* 财务指标那条进度条：宽度微微涨落，像实时刷新 */
+  @keyframes lbBarW { 0%, 100% { width: 74%; } 50% { width: 83%; } }
+  .lb-panel .lp-bar { animation: lbBarW 3.6s ease-in-out infinite; }
+  /* 关系网络：连线上跑流动虚线，节点逐个亮 */
+  @keyframes lbFlow { to { stroke-dashoffset: -24; } }
+  .lb-panel .nw-link { stroke-dasharray: 5 7; animation: lbFlow 1.8s linear infinite; }
+  @keyframes lbNode { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+  .lb-panel .nw-node { animation: lbNode 2.4s ease-in-out infinite; }
+  .lb-panel .nw-node:nth-of-type(2) { animation-delay: .4s; }
+  .lb-panel .nw-node:nth-of-type(3) { animation-delay: .8s; }
+  .lb-panel .nw-node:nth-of-type(4) { animation-delay: 1.2s; }
+  .lb-panel .nw-node:nth-of-type(5) { animation-delay: 1.6s; }
+  /* 四维评分柱：从下往上长，逐根错开（transform-origin 必须是底边） */
+  @keyframes lbGrow {
+    0%, 100% { transform: scaleY(.55); }
+    50%      { transform: scaleY(1); }
+  }
+  .lb-panel .sc-bar {
+    transform-box: fill-box; transform-origin: bottom;
+    animation: lbGrow 2.8s ease-in-out infinite;
+  }
+  .lb-panel .sc-bar:nth-of-type(2) { animation-delay: .35s; }
+  .lb-panel .sc-bar:nth-of-type(3) { animation-delay: .7s; }
+  .lb-panel .sc-bar:nth-of-type(4) { animation-delay: 1.05s; }
+  /* 风险环：前景弧线匀速绕圈，像雷达扫描（分数本身不变，只是扫描感） */
+  /* ⚠️ 弧线本身靠 transform="rotate(-90 cx cy)" 把起点摆到 12 点钟；
+     CSS 的 transform 会**覆盖** SVG 的 transform 属性（presentation attribute
+     优先级低于 CSS），所以 -90° 这个起始角必须写进 keyframes，否则弧线会
+     瞬间跳回 3 点钟方向再开始转。 */
+  @keyframes lbRingSpin {
+    from { transform: rotate(-90deg); }
+    to   { transform: rotate(270deg); }
+  }
+  .lb-panel .rk-arc {
+    transform-box: fill-box; transform-origin: center;
+    animation: lbRingSpin 5.5s linear infinite;
+  }
+  .lb-panel .rk-arc-b { animation-duration: 7s; }
+  /* 无障碍：系统开了"减少动态效果"就全部静止 */
+  @media (prefers-reduced-motion: reduce) {
+    .lb-aurora i,
+    .lb-panel .tr-main, .lb-panel .tr-sub, .lb-panel .tr-dot,
+    .lb-panel .lp-bar, .lb-panel .nw-link, .lb-panel .nw-node,
+    .lb-panel .sc-bar, .lb-panel .rk-arc { animation: none !important; }
+  }
 </style>
 """
 
@@ -1661,52 +1922,70 @@ LOGIN_CSS = """
 #     于是它们能跟着布局一起变大，也不会再和登录卡抢位置。
 # ============================================================================
 LOGIN_DECO = (
+    '<div class="lb-aurora" aria-hidden="true"><i></i><i></i><i></i></div>'
     '<div class="lb-deco" aria-hidden="true">'
     '<div class="lb-halo"></div>'
     '<div class="lb-ring"></div><div class="lb-scan"></div><div class="lb-grid"></div>'
     '</div>'
 )
 
+# v10-2（用户第 6 条）：面板表头原来一律是「■ + 中文」，■ 是纯装饰字符、
+# 图里也没有任何文字 → 评委看不出这几块画的是什么。现在：
+#   ① 去掉 ■，表头改成「中文 + 英文」双行式（中英文都看得懂）；
+#   ② 每张图下面补一行 .lp-cap 说明（这图画的是什么）；
+#   ③ 图里关键节点直接打中文标签（供应商 / 核心企业 / 客户 …），
+#      不再是"几个彩色圆点连几根线"。
 LOGIN_PANELS_L = (
     '<div class="lb-side-col">'
     '<div class="lb-panel">'
-    '<div class="lp-head">■ 走势曲线 · K 线结构</div>'
-    '<svg width="272" height="74" viewBox="0 0 212 58" fill="none" '
+    '<div class="lp-head">走势曲线 · K 线结构<span class="lp-en">Price Trend / K-Line</span></div>'
+    '<svg width="272" height="92" viewBox="0 0 212 76" fill="none" '
     'xmlns="http://www.w3.org/2000/svg">'
     '<line x1="0" y1="46" x2="212" y2="46" stroke="rgba(103,232,249,.16)"/>'
     '<line x1="0" y1="26" x2="212" y2="26" stroke="rgba(103,232,249,.16)"/>'
-    '<polyline points="2,44 28,30 54,37 80,18 106,27 132,12 158,23 184,7 210,17" '
+    '<polyline class="tr-main" points="2,44 28,30 54,37 80,18 106,27 132,12 158,23 184,7 210,17" '
     'stroke="#22D3EE" stroke-width="2" fill="none" '
     'stroke-linejoin="round" stroke-linecap="round"/>'
-    '<polyline points="2,50 28,42 54,46 80,34 106,40 132,30 158,36 184,24 210,31" '
+    '<polyline class="tr-sub" points="2,50 28,42 54,46 80,34 106,40 132,30 158,36 184,24 210,31" '
     'stroke="rgba(56,189,248,.55)" stroke-width="1.6" fill="none" '
     'stroke-linejoin="round" stroke-linecap="round"/>'
-    '<circle cx="184" cy="7" r="3" fill="#7FE9FF"/>'
+    '<circle class="tr-dot" cx="184" cy="7" r="3" fill="#7FE9FF"/>'
+    '<text x="0" y="9" fill="#EAF6FF" font-size="10" font-weight="700">股价 Price</text>'
+    '<text x="146" y="62" fill="rgba(207,233,255,.85)" font-size="9">日线 · 60 日</text>'
+    '<text x="0" y="73" fill="rgba(207,233,255,.70)" font-size="9">均线 MA</text>'
     '</svg>'
-    '<div class="lp-row"><span>区间振幅</span><b>+18.6%</b></div>'
+    '<div class="lp-row"><span>区间振幅 Range</span><b>+18.6%</b></div>'
+    '<div class="lp-cap">折线＝股价走势，浅色线＝均线 MA；用于判断趋势与波动幅度。</div>'
     '</div>'
     '<div class="lb-panel">'
-    '<div class="lp-head">■ 财务指标</div>'
-    '<div class="lp-row"><span>营业收入</span><b>1,742.6 亿</b></div>'
-    '<div class="lp-row"><span>净利润</span><b>862.3 亿</b></div>'
-    '<div class="lp-row"><span>ROE</span><b>34.2%</b></div>'
+    '<div class="lp-head">财务指标<span class="lp-en">Financial Indicators</span></div>'
+    '<div class="lp-row"><span>营业收入 Revenue</span><b>1,742.6 亿</b></div>'
+    '<div class="lp-row"><span>净利润 Net Profit</span><b>862.3 亿</b></div>'
+    '<div class="lp-row"><span>净资产收益率 ROE</span><b>34.2%</b></div>'
     '<div class="lp-bar" style="width:78%;"></div>'
+    '<div class="lp-cap">进度条＝ROE 在同行业中的相对位置（78% 分位）。</div>'
     '</div>'
     '<div class="lb-panel">'
-    '<div class="lp-head">■ 公司关系网络</div>'
-    '<svg width="272" height="98" viewBox="0 0 212 76" fill="none" '
+    '<div class="lp-head">公司关系网络<span class="lp-en">Supply Chain Network</span></div>'
+    '<svg width="272" height="122" viewBox="0 0 212 96" fill="none" '
     'xmlns="http://www.w3.org/2000/svg">'
-    '<line x1="34" y1="22" x2="106" y2="42" stroke="rgba(103,232,249,.35)"/>'
-    '<line x1="34" y1="58" x2="106" y2="42" stroke="rgba(103,232,249,.35)"/>'
-    '<line x1="106" y1="42" x2="178" y2="20" stroke="rgba(103,232,249,.35)"/>'
-    '<line x1="106" y1="42" x2="178" y2="60" stroke="rgba(103,232,249,.35)"/>'
-    '<line x1="34" y1="22" x2="178" y2="20" stroke="rgba(56,189,248,.20)"/>'
-    '<circle cx="34" cy="22" r="5" fill="#22D3EE"/>'
-    '<circle cx="34" cy="58" r="5" fill="#3B82F6"/>'
-    '<circle cx="106" cy="42" r="7" fill="#7FE9FF"/>'
-    '<circle cx="178" cy="20" r="5" fill="#3B82F6"/>'
-    '<circle cx="178" cy="60" r="5" fill="#22D3EE"/>'
+    '<line class="nw-link" x1="34" y1="24" x2="106" y2="44" stroke="rgba(103,232,249,.35)"/>'
+    '<line class="nw-link" x1="34" y1="62" x2="106" y2="44" stroke="rgba(103,232,249,.35)"/>'
+    '<line class="nw-link" x1="106" y1="44" x2="178" y2="24" stroke="rgba(103,232,249,.35)"/>'
+    '<line class="nw-link" x1="106" y1="44" x2="178" y2="62" stroke="rgba(103,232,249,.35)"/>'
+    '<line class="nw-link" x1="34" y1="24" x2="178" y2="24" stroke="rgba(56,189,248,.20)"/>'
+    '<circle class="nw-node" cx="34" cy="24" r="5" fill="#22D3EE"/>'
+    '<circle class="nw-node" cx="34" cy="62" r="5" fill="#3B82F6"/>'
+    '<circle class="nw-node" cx="106" cy="44" r="7" fill="#7FE9FF"/>'
+    '<circle class="nw-node" cx="178" cy="24" r="5" fill="#3B82F6"/>'
+    '<circle class="nw-node" cx="178" cy="62" r="5" fill="#22D3EE"/>'
+    '<text x="34" y="14" text-anchor="middle" fill="#EAF6FF" font-size="9.5" font-weight="700">供应商</text>'
+    '<text x="34" y="80" text-anchor="middle" fill="#EAF6FF" font-size="9.5" font-weight="700">供应商B</text>'
+    '<text x="106" y="64" text-anchor="middle" fill="#FFFFFF" font-size="10" font-weight="800">核心企业</text>'
+    '<text x="178" y="14" text-anchor="middle" fill="#EAF6FF" font-size="9.5" font-weight="700">客户</text>'
+    '<text x="178" y="80" text-anchor="middle" fill="#EAF6FF" font-size="9.5" font-weight="700">经销商</text>'
     '</svg>'
+    '<div class="lp-cap">上游供应商 → 核心企业 → 下游客户／经销商的产业链图谱。</div>'
     '</div>'
     '</div>'
 )
@@ -1714,46 +1993,57 @@ LOGIN_PANELS_L = (
 LOGIN_PANELS_R = (
     '<div class="lb-side-col">'
     '<div class="lb-panel">'
-    '<div class="lp-head">■ 指标摘要</div>'
-    '<div class="lp-row"><span>市盈率 TTM</span><b>21.4</b></div>'
-    '<div class="lp-row"><span>市净率</span><b>5.86</b></div>'
-    '<div class="lp-row"><span>毛利率</span><b>91.3%</b></div>'
-    '<div class="lp-row"><span>资产负债率</span><b>16.8%</b></div>'
+    '<div class="lp-head">指标摘要<span class="lp-en">Key Metrics</span></div>'
+    '<div class="lp-row"><span>市盈率 PE-TTM</span><b>21.4</b></div>'
+    '<div class="lp-row"><span>市净率 PB</span><b>5.86</b></div>'
+    '<div class="lp-row"><span>毛利率 Gross Margin</span><b>91.3%</b></div>'
+    '<div class="lp-row"><span>资产负债率 Debt Ratio</span><b>16.8%</b></div>'
+    '<div class="lp-cap">估值（PE / PB）＋ 盈利质量（毛利率）＋ 负债水平，四项核心指标。</div>'
     '</div>'
     '<div class="lb-panel">'
-    '<div class="lp-head">■ 财务评分 · 四维</div>'
-    '<svg width="272" height="80" viewBox="0 0 212 62" fill="none" '
+    '<div class="lp-head">财务评分 · 四维<span class="lp-en">4-Dimension Score</span></div>'
+    '<svg width="272" height="112" viewBox="0 0 212 92" fill="none" '
     'xmlns="http://www.w3.org/2000/svg">'
-    '<rect x="6"   y="22" width="18" height="34" rx="3" fill="#22D3EE"/>'
-    '<rect x="32"  y="12" width="18" height="44" rx="3" fill="#38BDF8"/>'
-    '<rect x="58"  y="30" width="18" height="26" rx="3" fill="#3B82F6"/>'
-    '<rect x="84"  y="18" width="18" height="38" rx="3" fill="#22D3EE"/>'
-    '<rect x="110" y="34" width="18" height="22" rx="3" fill="#3B82F6"/>'
-    '<rect x="136" y="8"  width="18" height="48" rx="3" fill="#7FE9FF"/>'
-    '<rect x="162" y="26" width="18" height="30" rx="3" fill="#38BDF8"/>'
-    '<line x1="0" y1="58" x2="212" y2="58" stroke="rgba(103,232,249,.30)"/>'
+    '<rect class="sc-bar" x="16"  y="30" width="34" height="34" rx="4" fill="#22D3EE"/>'
+    '<rect class="sc-bar" x="66"  y="14" width="34" height="50" rx="4" fill="#38BDF8"/>'
+    '<rect class="sc-bar" x="116" y="38" width="34" height="26" rx="4" fill="#3B82F6"/>'
+    '<rect class="sc-bar" x="166" y="22" width="34" height="42" rx="4" fill="#7FE9FF"/>'
+    '<line x1="0" y1="68" x2="212" y2="68" stroke="rgba(103,232,249,.30)"/>'
+    '<text x="33" y="20" text-anchor="middle" fill="#EAF6FF" font-size="10" font-weight="700">8.5</text>'
+    '<text x="83" y="10" text-anchor="middle" fill="#EAF6FF" font-size="10" font-weight="700">9.2</text>'
+    '<text x="133" y="32" text-anchor="middle" fill="#EAF6FF" font-size="10" font-weight="700">6.8</text>'
+    '<text x="183" y="16" text-anchor="middle" fill="#EAF6FF" font-size="10" font-weight="700">8.0</text>'
+    '<text x="33" y="82" text-anchor="middle" fill="#EAF6FF" font-size="10.5" font-weight="700">盈利</text>'
+    '<text x="83" y="82" text-anchor="middle" fill="#EAF6FF" font-size="10.5" font-weight="700">成长</text>'
+    '<text x="133" y="82" text-anchor="middle" fill="#EAF6FF" font-size="10.5" font-weight="700">偿债</text>'
+    '<text x="183" y="82" text-anchor="middle" fill="#EAF6FF" font-size="10.5" font-weight="700">营运</text>'
     '</svg>'
+    '<div class="lp-cap">四维各 10 分：盈利能力 / 成长能力 / 偿债能力 / 营运能力。</div>'
     '</div>'
     '<div class="lb-panel">'
-    '<div class="lp-head">■ 风险评分</div>'
-    '<svg width="272" height="90" viewBox="0 0 212 70" fill="none" '
+    '<div class="lp-head">风险评分<span class="lp-en">Risk Score</span></div>'
+    '<svg width="272" height="112" viewBox="0 0 212 98" fill="none" '
     'xmlns="http://www.w3.org/2000/svg">'
-    '<circle cx="35" cy="35" r="24" stroke="rgba(103,232,249,.22)" '
-    'stroke-width="7" fill="none"/>'
-    '<circle cx="35" cy="35" r="24" stroke="#22D3EE" stroke-width="7" '
-    'fill="none" stroke-dasharray="106 151" stroke-linecap="round" '
-    'transform="rotate(-90 35 35)"/>'
-    '<text x="35" y="41" text-anchor="middle" fill="#EAF2FF" '
-    'font-size="18" font-weight="700">4.2</text>'
-    '<circle cx="130" cy="35" r="24" stroke="rgba(103,232,249,.22)" '
-    'stroke-width="7" fill="none"/>'
-    '<circle cx="130" cy="35" r="24" stroke="#7FE9FF" stroke-width="7" '
-    'fill="none" stroke-dasharray="132 151" stroke-linecap="round" '
-    'transform="rotate(-90 130 35)"/>'
-    '<text x="130" y="41" text-anchor="middle" fill="#EAF2FF" '
-    'font-size="18" font-weight="700">7.8</text>'
+    '<circle cx="56" cy="42" r="26" stroke="rgba(103,232,249,.22)" '
+    'stroke-width="8" fill="none"/>'
+    '<circle class="rk-arc" cx="56" cy="42" r="26" stroke="#22D3EE" stroke-width="8" '
+    'fill="none" stroke-dasharray="82 164" stroke-linecap="round" '
+    'transform="rotate(-90 56 42)"/>'
+    '<text x="56" y="49" text-anchor="middle" fill="#EAF2FF" '
+    'font-size="19" font-weight="700">4.2</text>'
+    '<text x="56" y="88" text-anchor="middle" fill="#EAF6FF" '
+    'font-size="11" font-weight="700">财务风险（越低越好）</text>'
+    '<circle cx="156" cy="42" r="26" stroke="rgba(103,232,249,.22)" '
+    'stroke-width="8" fill="none"/>'
+    '<circle class="rk-arc rk-arc-b" cx="156" cy="42" r="26" stroke="#7FE9FF" stroke-width="8" '
+    'fill="none" stroke-dasharray="131 164" stroke-linecap="round" '
+    'transform="rotate(-90 156 42)"/>'
+    '<text x="156" y="49" text-anchor="middle" fill="#EAF2FF" '
+    'font-size="19" font-weight="700">7.8</text>'
+    '<text x="156" y="88" text-anchor="middle" fill="#EAF6FF" '
+    'font-size="11" font-weight="700">经营稳健（越高越好）</text>'
     '</svg>'
-    '<div class="lp-row"><span>低风险 / 高稳健</span><b>同业对标</b></div>'
+    '<div class="lp-cap">圆环＝得分 / 10：左侧财务风险越低越好，右侧经营稳健度越高越好。</div>'
     '</div>'
     '</div>'
 )
@@ -1812,17 +2102,26 @@ def check_login():
         with st.form("login_form", clear_on_submit=False):
             st.markdown(
                 '<div style="text-align:center;margin:0 0 22px 0;">'
-                '<div style="font-size:27px;font-weight:800;color:#FFFFFF !important;'
-                'letter-spacing:.8px;">账号登录</div>'
-                '<div style="font-size:17.5px;color:#A9C0E6 !important;margin-top:8px;'
+                '<div style="font-size:30px;font-weight:800;color:#FFFFFF !important;'
+                'letter-spacing:1px;">账号登录</div>'
+                '<div style="font-size:19px;color:#A9C0E6 !important;margin-top:8px;'
                 'letter-spacing:.3px;">'
                 '输入账号与密码进入投研工作台</div>'
                 "</div>",
                 unsafe_allow_html=True,
             )
             # 标签外置（账号 / 密码），框内只放小号英文占位符
-            user = st.text_input("账号", placeholder="Account")
-            pw = st.text_input("密码", type="password", placeholder="Password")
+            # ⚠️ 必须带 key（v10）：无 key 控件在登录后会被 Streamlit 清理状态，
+            #    而 AppTest 回归的旧树里仍残留这两个节点 → get_widget_states 直接
+            #    KeyError；带 key 后值挂在 user key 上，状态生命周期由我们掌控。
+            user = st.text_input("账号", key="login_user", placeholder="Account")
+            pw = st.text_input("密码", type="password", key="login_pw", placeholder="Password")
+            # 任务1「密码可见」：光有眼睛图标没用 —— 图标太淡时用户根本不知道能点。
+            # 这行说明把"可以明文核对"这件事说出来；明文态的字体由 LOGIN_CSS 统一放大。
+            st.markdown(
+                '<div class="login-pw-tip">👁 点右侧 <b>眼睛图标</b> 可切换明文，核对后再登录</div>',
+                unsafe_allow_html=True,
+            )
             submitted = st.form_submit_button("安全登录", use_container_width=True, type="primary")
             if submitted:
                 if user == APP_USER and pw == APP_PASSWORD:
@@ -1830,17 +2129,9 @@ def check_login():
                     st.rerun()
                 else:
                     st.error("账号或密码错误，请检查后重试（区分大小写）。")
-            st.markdown(
-                '<div style="margin-top:20px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.16);'
-                'font-size:17.5px;color:#CBDCF6 !important;line-height:2.1;letter-spacing:.2px;">'
-                '<b style="color:#FFFFFF !important;">① 单公司深度分析</b>　联网取数 → 规则引擎四维评分 → 图表与风险提示<br>'
-                '<b style="color:#FFFFFF !important;">② 多公司横向对比</b>　2~5 家各按本行业基准评分，对照表 / 差额 / CSV 导出<br>'
-                '<b style="color:#FFFFFF !important;">③ 年报原文引用</b>　解析年报 PDF 后按页建库，结论标注「见年报第 X 页」<br>'
-                '<b style="color:#FFFFFF !important;">④ 同业对标基准</b>　消费 / 金融 / 新能源 / 医药 / 互联网 财务基准差异化<br>'
-                '<span style="color:#A9C0E6 !important;">演示路径：取数 → 结构化分析 → 年度时间轴 → 生成研报 → 多公司对比</span>'
-                "</div>",
-                unsafe_allow_html=True,
-            )
+            # v10：删除了原来的「① 单公司深度分析…④ 同业对标基准 + 演示路径」四条简介。
+            # 用户明确要求登录页只留登录本身 —— 功能介绍在使用说明页里都有，
+            # 登录卡塞满文字反而挤占输入区、拉低首屏质感。
         st.markdown(
             '<p class="login-foot">🔒 本作品仅供大赛评审访问 · 分析结果仅供参考，不构成投资建议</p>',
             unsafe_allow_html=True,
@@ -2039,6 +2330,17 @@ def read_upload(up):
         return txt, None
     return up.getvalue().decode("utf-8", errors="ignore"), None
 
+
+
+def _htm(s) -> str:
+    """把外部文本（公司名 / 代码 / 行业）插进 unsafe_allow_html 片段前先转义。
+
+    公司名来自接口返回，理论上可控，但万一某家简称里带 `<` 或 `&`，
+    整块 HTML 会被截断（v10-2 加，用于对比页的取数状态块）。
+    """
+    return (str(s if s is not None else "")
+            .replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
 
 
 def render_score_card(label, value):
@@ -2562,6 +2864,184 @@ def fig_compare_dims_n(score_list: list, names: list) -> bytes | None:
     ax.set_title("四维评分对比（同行业可比；跨行业仅看分布，不作排名依据）",
                  color=_PAL["title"], fontsize=12, fontweight="bold", pad=10)
     return _fig_to_png_bytes(fig)
+
+
+def fig_compare_radar(score_list: list, names: list) -> bytes | None:
+    """N 家公司四维评分**雷达对比图**（v10 新增 · 用户第 3 条反馈）。
+
+    柱状图擅长逐维度比高低，雷达图擅长一眼看出"谁强在哪些维度、短板在哪"，
+    两种视图互补。维度取各家评分键的并集（与柱状图同一并集逻辑），
+    缺失维度不连点（画 0 会把"缺数据"伪装成"得 0 分"）。
+    """
+    n = len(names)
+    if n < 2 or len(score_list) != n:
+        return None
+    dims = []
+    for s in score_list:
+        for d in (s or {}).keys():
+            if d not in dims:
+                dims.append(d)
+    if len(dims) < 3:
+        return None   # 雷达至少要 3 个维度，否则画出来是没意义的三角形
+
+    N = len(dims)
+    angles = np.linspace(0, 2 * np.pi, N, endpoint=False).tolist()
+    angles += angles[:1]
+    fig = plt.figure(figsize=(5.6, 4.6), facecolor=_PAL["card"])
+    ax = fig.add_subplot(111, polar=True)
+    ax.set_facecolor(_PAL["card"])
+    for i, s in enumerate(score_list):
+        vals = [(s or {}).get(d) for d in dims]
+        nums = [float(v) if isinstance(v, (int, float)) else None for v in vals]
+        xs, ys = [], []
+        for a, v in zip(angles[:-1], nums):
+            if v is not None:
+                xs.append(a)
+                ys.append(v)
+        # 首尾闭合：只有全部维度都有值才闭合，否则只画散点
+        if len(xs) == N:
+            xs.append(xs[0])
+            ys.append(ys[0])
+        if xs:
+            if len(xs) == N + 1:
+                ax.plot(xs, ys, linewidth=1.8, label=names[i], color=_cmp_series_color(i))
+                ax.fill(xs, ys, alpha=0.10, color=_cmp_series_color(i))
+            ax.scatter(xs, ys, s=16, color=_cmp_series_color(i), zorder=3)
+    ax.set_xticks(angles[:-1])
+    ax.set_xticklabels(dims, color=_PAL["text"], fontsize=9)
+    ax.set_ylim(0, 10)
+    ax.set_yticks([2, 4, 6, 8, 10])
+    ax.tick_params(axis="y", labelcolor=_PAL["text"], labelsize=7.5)
+    ax.grid(color="#E2E8F0", alpha=0.8)
+    ax.set_title("四维评分雷达对比（0-10 分）", color=_PAL["title"],
+                 fontsize=12, fontweight="bold", pad=16)
+    ax.legend(frameon=False, labelcolor=_PAL["text"], fontsize=8,
+              loc="upper right", bbox_to_anchor=(1.28, 1.10))
+    fig.tight_layout()
+    return _fig_to_png_bytes(fig)
+
+
+def fig_compare_scale_n(mets: list, names: list) -> bytes | None:
+    """N 家公司**规模对比**（营收 / 归母净利润，绝对额亿元；v10 新增）。
+
+    盈利/风险两张图都是百分比口径，缺一张"公司体量"的绝对值视角：
+    30 亿营收净利率 20% 与 3000 亿营收净利率 15%，只看百分比会误判强弱。
+    """
+    n = len(names)
+    if n < 2 or len(mets) != n:
+        return None
+    rows = []
+    for k, lbl in (("revenue", "营业收入（亿元）"), ("net_profit", "归母净利润（亿元）")):
+        vals = [m.get(k) if isinstance((m or {}).get(k), (int, float)) else None for m in mets]
+        if any(v is not None for v in vals):
+            rows.append((lbl, vals))
+    if not rows:
+        return None
+    labels = [r[0] for r in rows]
+    x = np.arange(len(rows))
+    total_w = 0.5
+    w = total_w / n
+    fig, ax = plt.subplots(figsize=(max(6.2, 1.5 * n + 4.0), 3.3), facecolor=_PAL["card"])
+    ax.set_facecolor(_PAL["card"])
+    for i in range(n):
+        offs = x - total_w / 2 + w * (i + 0.5)
+        vals = [0.0 if rows[j][1][i] is None else float(rows[j][1][i]) for j in range(len(rows))]
+        bars = ax.bar(offs, vals, w * 0.9, label=names[i], color=_cmp_series_color(i))
+        for b, raw in zip(bars, [rows[j][1][i] for j in range(len(rows))]):
+            ax.annotate("N/A" if raw is None else f"{raw:,.1f}",
+                        (b.get_x() + b.get_width() / 2, b.get_height()),
+                        ha="center", va="bottom", fontsize=7.5, color=_PAL["text"],
+                        xytext=(0, 2), textcoords="offset points")
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, color=_PAL["text"], fontsize=9)
+    ax.grid(axis="y", color="#E2E8F0", linewidth=0.6, alpha=0.8)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.tick_params(axis="y", labelcolor=_PAL["text"], labelsize=9)
+    ax.legend(frameon=False, labelcolor=_PAL["text"], fontsize=8,
+              ncol=min(n, 3), loc="upper right")
+    ax.set_title("公司规模对比（绝对额 · 缺失写 N/A，不画 0）",
+                 color=_PAL["title"], fontsize=12, fontweight="bold", pad=10)
+    return _fig_to_png_bytes(fig)
+
+
+# ============ 追问区的图表辅助 / 自动对比取数（v10 · 用户第 5、13 条反馈） ============
+def _chat_viz_png(kind: str):
+    """按 kind 生成追问回答的辅助图表（bytes 或 None）。
+
+    为什么只做两种图：追问场景下用户问的是"营收趋势/哪个维度强"这类
+    已有数据能直接回答的问题 —— 趋势图（营收+净利润双轴）和雷达图
+    （四维评分形状）覆盖了绝大多数追问；为每轮回答临时编新图反而慢。
+    数据一律取自 session 里**已生成的分析结果**，与页面显示同源。
+    """
+    _a = st.session_state.get("analysis")
+    if not isinstance(_a, dict):
+        return None
+    if kind == "radar":
+        _sc = _a.get("scores")
+        if isinstance(_sc, dict) and _sc:
+            return render_score_radar(_sc, _a.get("total_score"))
+        return None
+    _trend = _a.get("trend")
+    if isinstance(_trend, list) and _trend:
+        return render_trend_dual_axis(_trend_chrono(_trend))
+    return None
+
+
+def _chat_viz_kind_for(question: str) -> str:
+    q = question or ""
+    if re.search(r"评分|得分|雷达|哪项|优势|短板|强在哪|弱在哪|强项|劣势", q):
+        return "radar"
+    return "trend"
+
+
+def _chat_auto_compare(question: str):
+    """追问里出现"和 XX 对比"时，**自动联网取 XX 的财务数据**注入上下文。
+
+    原来的行为：用户在追问框问"它和万科比怎么样"，模型只能答"我拿不到
+    对方数据，请你自己先取"—— 一次很扫兴的拒答（用户第 13 条反馈原话）。
+    现在：Agent 自己识别对比意图 → 解析出对方公司 → 联网取数 → 注入上下文，
+    仍是"会自己动手的 Agent"，而不是把活儿推回给用户。
+
+    识别方式（宁可少抓、不可错抓）：
+      · 必须出现 对比/比较/相比/比一比/PK/vs 等意图词；
+      · 对方公司 = 问题里的 6 位代码，或股票池里完整出现的公司名（≥3 字）；
+      · 排除当前正在分析的公司本身；单轮最多注入 2 家，防止上下文爆炸。
+    返回 (数据块列表, 已获取的公司名列表)。
+    """
+    q = question or ""
+    if not re.search(r"对比|比较|相比|比一比|PK|pk|\bvs\b|VS", q):
+        return [], []
+    _cache = st.session_state.setdefault("chat_cmp_cache", {})
+    _cur = st.session_state.get("single_online_code", "")
+    _blocks, _got = [], []
+
+    _cands = []   # [(代码, 名称)]
+    for _c in dict.fromkeys(re.findall(r"(?<!\d)[0369]\d{5}(?!\d)", q)):
+        if _c != _cur:
+            _cands.append((_c, ""))
+    for s in POPULAR_STOCKS:
+        _nm = s[0].split(" (")[0]
+        if s[2] and s[1] != _cur and len(_nm) >= 3 and _nm in q:
+            _cands.append((s[1], _nm))
+
+    for _cd, _nm in _cands[:2]:
+        if _cd in _cache:
+            _blocks.append(_cache[_cd])
+            _got.append(_nm or _cd)
+            continue
+        _res = ds.resolve_stock(_cd)
+        if not _res.get("ok"):
+            continue
+        with get_tracer().span("在线取数", "追问自动取对比公司数据",
+                               inp=f"{_res['name']}（{_cd}）") as _s:
+            _t = ds.build_summary_text(_cd, name=_res["name"], periods=3)
+            if _t:
+                _s.out = f"取到 {len(_t)} 字符摘要"
+                _cache[_cd] = _t
+                _blocks.append(_t)
+                _got.append(_res["name"])
+    return _blocks, _got
 
 
 def _drop_subtotals(chart_data: list) -> list:
@@ -3317,6 +3797,79 @@ def _build_online_digest() -> str:
     return "\n".join(lines).strip()
 
 
+# ============ 热门股票池（模块级 · v10 扩充并带行业标签） ============
+# 三元组：(显示名, 代码, 行业)。行业必须取自 INDUSTRY_KB 的 key
+#（通用/消费/金融/新能源/医药/互联网），这样「按行业过滤热门股票」才有依据：
+# 用户点了「消费」，下拉框里就不该再出现招商银行 —— 这是第 14 条反馈的原话。
+# 挑选原则：沪深 A 股、流动性好、财报披露规范、六个行业各有 6~8 家代表公司。
+POPULAR_STOCKS = [
+    ("— 手动输入 —", "", ""),
+    # ---- 消费 ----
+    ("贵州茅台 (600519)", "600519", "消费"),
+    ("五粮液 (000858)", "000858", "消费"),
+    ("泸州老窖 (000568)", "000568", "消费"),
+    ("山西汾酒 (600809)", "600809", "消费"),
+    ("伊利股份 (600887)", "600887", "消费"),
+    ("海天味业 (603288)", "603288", "消费"),
+    ("中国中免 (601888)", "601888", "消费"),
+    ("东鹏饮料 (605499)", "605499", "消费"),
+    # ---- 金融 ----
+    ("招商银行 (600036)", "600036", "金融"),
+    ("工商银行 (601398)", "601398", "金融"),
+    ("平安银行 (000001)", "000001", "金融"),
+    ("兴业银行 (601166)", "601166", "金融"),
+    ("江苏银行 (600919)", "600919", "金融"),
+    ("中信证券 (600030)", "600030", "金融"),
+    ("中国平安 (601318)", "601318", "金融"),
+    ("中国人寿 (601628)", "601628", "金融"),
+    ("东方财富 (300059)", "300059", "金融"),
+    # ---- 新能源 ----
+    ("宁德时代 (300750)", "300750", "新能源"),
+    ("比亚迪 (002594)", "002594", "新能源"),
+    ("隆基绿能 (601012)", "601012", "新能源"),
+    ("阳光电源 (300274)", "300274", "新能源"),
+    ("通威股份 (600438)", "600438", "新能源"),
+    ("亿纬锂能 (300014)", "300014", "新能源"),
+    ("长江电力 (600900)", "600900", "新能源"),
+    # ---- 医药 ----
+    ("恒瑞医药 (600276)", "600276", "医药"),
+    ("迈瑞医疗 (300760)", "300760", "医药"),
+    ("药明康德 (603259)", "603259", "医药"),
+    ("爱尔眼科 (300015)", "300015", "医药"),
+    ("片仔癀 (600436)", "600436", "医药"),
+    ("长春高新 (000661)", "000661", "医药"),
+    # ---- 互联网 / 科技 ----
+    ("海康威视 (002415)", "002415", "互联网"),
+    ("科大讯飞 (002230)", "002230", "互联网"),
+    ("金山办公 (688111)", "688111", "互联网"),
+    ("中际旭创 (300308)", "300308", "互联网"),
+    ("立讯精密 (002475)", "002475", "互联网"),
+    ("京东方A (000725)", "000725", "互联网"),
+    # ---- 通用（能源 / 制造等暂未单列行业的大盘蓝筹） ----
+    ("中国神华 (601088)", "601088", "通用"),
+    ("陕西煤业 (601225)", "601225", "通用"),
+    ("三一重工 (600031)", "600031", "通用"),
+]
+
+
+def _popular_options_for(ind_name: str) -> tuple:
+    """按行业上下文过滤热门股票下拉选项。
+
+    返回 (options 列表, 是否真的过滤了)。规则：
+      · 行业 = 通用 / 未识别 → 全量展示（不过滤）
+      · 行业命中 → 只展示「— 手动输入 —」+ 该行业公司
+      · 会话里已选中的旧选项若被过滤掉，**追加回列表末尾**：
+        selectbox 有 key 时，session 值不在 options 里会直接抛异常，
+        兜底追加既保住过滤语义又保证控件不崩。
+    """
+    _all = [s[0] for s in POPULAR_STOCKS]
+    if not ind_name or ind_name not in INDUSTRY_KB or ind_name == "通用":
+        return _all, False
+    _picked = [s[0] for s in POPULAR_STOCKS if s[2] == ind_name]
+    _opts = ["— 手动输入 —"] + _picked
+    return _opts, True
+
+
 def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = False):
     """
     渲染「在线取数」面板，返回 (summary_text, company_name, extra_info)。
@@ -3341,44 +3894,31 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
         c1, c2, c3 = st.columns([2, 1, 1])
     with c1:
         # 热门股票下拉框：不用记代码，直接选；也支持手动输入
-        _POPULAR_STOCKS = [
-            ("— 手动输入 —", ""),
-            # 消费
-            ("贵州茅台 (600519)", "600519"),
-            ("五粮液 (000858)", "000858"),
-            ("伊利股份 (600887)", "600887"),
-            ("中国中免 (601888)", "601888"),
-            ("海天味业 (603288)", "603288"),
-            # 金融
-            ("招商银行 (600036)", "600036"),
-            ("兴业银行 (601166)", "601166"),
-            ("平安银行 (000001)", "000001"),
-            ("工商银行 (601398)", "601398"),
-            ("中国人寿 (601628)", "601628"),
-            ("中国平安 (601318)", "601318"),
-            # 科技 / 医药
-            ("宁德时代 (300750)", "300750"),
-            ("比亚迪 (002594)", "002594"),
-            ("立讯精密 (002475)", "002475"),
-            ("海康威视 (002415)", "002415"),
-            ("京东方A (000725)", "000725"),
-            ("恒瑞医药 (600276)", "600276"),
-            ("迈瑞医疗 (300760)", "300760"),
-            # 制造 / 能源
-            ("中国神华 (601088)", "601088"),
-            ("陕西煤业 (601225)", "601225"),
-            ("三一重工 (600031)", "600031"),
-            ("隆基绿能 (601012)", "601012"),
-            ("长江电力 (600900)", "600900"),
-        ]
+        # v10：改为「按行业上下文过滤」—— 顶部行业选了「消费」，
+        # 下拉框里就只出消费类公司，不再混着招商银行（第 14 条反馈）。
+        # 行业上下文：单公司页 = 模块级 industry；对比页 = 每家面板自己的 cmp*_ind。
+        _pop_ind = ""
+        if key_prefix.startswith("cmp"):
+            _pop_ind = str(st.session_state.get(f"{key_prefix}_ind", "") or "")
+        else:
+            _pop_ind = str(globals().get("industry", "") or "")
+        _pop_opts, _pop_filtered = _popular_options_for(_pop_ind)
+        # 旧选中项被过滤掉 → 兜底追加，保证 selectbox 不因值不在 options 里而报错
+        _pop_prev = st.session_state.get(f"{key_prefix}_pickle")
+        if _pop_prev and _pop_prev not in _pop_opts:
+            _pop_opts = _pop_opts + [_pop_prev]
+        _POPULAR_STOCKS = POPULAR_STOCKS
         # 1. 热门股票下拉框
         _choice = st.selectbox(
             "📋 热门股票（点选无需查代码）",
-            options=[s[0] for s in _POPULAR_STOCKS],
+            options=_pop_opts,
             index=0,
             key=f"{key_prefix}_pickle",
-            help="选中后代码只填入一次；之后输入框可自由编辑，不会被下拉框覆盖。",
+            help="选中后代码只填入一次；之后输入框可自由编辑，不会被下拉框覆盖。"
+                 + (f"当前已按行业「{_pop_ind}」过滤。" if _pop_filtered else ""),
         )
+        if _pop_filtered:
+            st.caption(f"🔎 已按行业「**{_pop_ind}**」过滤股票池；要选其他行业的公司，直接在下方输入代码/名称即可。")
         _code = next((s[1] for s in _POPULAR_STOCKS if s[0] == _choice), "")
         # 2. 手动输入框
         # ⚠️ 只在「下拉选择真的发生变化」时才写回输入框（原实现每次渲染都无条件覆盖）。
@@ -3492,16 +4032,34 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
 
     if text:
         auto_ind = st.session_state.get(f"{key_prefix}_auto_industry")
-        tip = f"✅ 已获取 **{name}（{code}）** 数据，共 {len(text)} 字"
-        if auto_ind:
-            tip += f" · 建议行业：**{auto_ind}**"
-        st.success(tip)
+        if compact:
+            # v10-2（用户第 8a 条）：对比页 2~5 家公司各自挤在 1/5 宽的窄卡里，
+            # 原来那行 st.success 小字在窄容器里会折成 3~4 行、字号被压到几乎看不清
+            # （"贵州茅台下面那行字看不清"）。这里换成自定义高对比块：
+            # 公司名单独一行 17.5px 深墨字，状态信息另起一行 14.5px 深绿字，
+            # 字号不随容器变窄而缩水，白底浅绿 + 左侧绿条，对比度 8:1 以上。
+            _sub = f"财务数据 {len(text)} 字已取到"
+            if auto_ind:
+                _sub += f" · 建议行业：{auto_ind}"
+            st.markdown(
+                '<div class="cmp-ok">'
+                f'<div class="cmp-ok-name">✅ {_htm(name)}（{_htm(code)}）</div>'
+                f'<div class="cmp-ok-sub">{_htm(_sub)}</div>'
+                '</div>',
+                unsafe_allow_html=True,
+            )
+        else:
+            tip = f"✅ 已获取 **{name}（{code}）** 数据，共 {len(text)} 字"
+            if auto_ind:
+                tip += f" · 建议行业：**{auto_ind}**"
+            st.success(tip)
         # 数据来源完整性：若发生过 https→http 降级，如实说明（评审 7.3）
+        # 紧凑模式下不显示：窄卡里再塞一行小字，等于又造一个"看不清"。
         try:
             _insec = ds.insecure_fallbacks()
         except Exception:
             _insec = []
-        if _insec:
+        if _insec and not compact:
             st.caption(
                 f"⚠️ 本次取数中有 {len(_insec)} 个接口由 HTTPS 降级为 HTTP（明文连接），"
                 "数据来自公开接口，仅供参考；如长期出现请检查网络是否拦截了 HTTPS。"
@@ -3509,6 +4067,15 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
         if compact:
             # 紧凑模式到此为止：不铺开原始数据、不提供年报解析面板（对比页只需指标）
             return text, name, ""
+    elif compact:
+        # 没取到数据时也要有"进度"：不然卡片下半截是空的，
+        # 用户不知道这家到底取没取（v10-2 · 用户第 8a 条）。
+        st.markdown(
+            '<div class="cmp-wait"><div class="cmp-wait-t">'
+            '⏳ 尚未取数 —— 选好上方股票，再点「⚡ 一键获取全部公司数据」'
+            '</div></div>',
+            unsafe_allow_html=True,
+        )
         with st.expander("查看获取到的原始数据", expanded=False):
             st.markdown(text)
 
@@ -3664,6 +4231,52 @@ _NAV_ITEMS = [
 ]
 
 
+# ---- 分析记录本地持久化（v10 · 用户第 8 条反馈：刷新就被清空） ----
+# 方案：写本地 JSON + 2 小时 TTL。
+#   · 刷新页面 / 重开浏览器 → session_state 丢了，但文件还在 → 下次渲染时自动恢复；
+#   · 2 小时后过期 → 不会无限堆积，也不会把"三天前的旧分数"当最新结果展示；
+#   · 只存分析结果 dict（数字/字符串），不存财报原文，文件体量在几十 KB 量级；
+#   · 任何读写失败都静默降级回"仅会话内存"模式，绝不让侧栏崩掉。
+_HIST_TTL_SEC = 2 * 3600
+# 路径可用环境变量 ANALYSIS_HISTORY_CACHE 覆盖（回归测试用它指向临时文件，
+# 避免测试数据与真实记录互相污染；部署环境不设即用默认路径）
+_HIST_FILE = Path(_os.environ.get("ANALYSIS_HISTORY_CACHE")
+                  or ".streamlit/_analysis_history_cache.json")
+
+
+def _hist_load() -> list:
+    try:
+        if not _HIST_FILE.exists():
+            return []
+        data = json.loads(_HIST_FILE.read_text(encoding="utf-8"))
+        if not isinstance(data, list):
+            return []
+        import time as _time
+        _now = _time.time()
+        return [h for h in data
+                if isinstance(h, dict)
+                and isinstance(h.get("_ts"), (int, float))
+                and _now - h["_ts"] <= _HIST_TTL_SEC]
+    except Exception:
+        return []
+
+
+def _hist_save(lst: list) -> None:
+    try:
+        import time as _time
+        _now = _time.time()
+        _keep = [h for h in lst
+                 if isinstance(h, dict)
+                 and isinstance(h.get("_ts"), (int, float))
+                 and _now - h["_ts"] <= _HIST_TTL_SEC][-20:]
+        _HIST_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _HIST_FILE.write_text(
+            json.dumps(_keep, ensure_ascii=False, default=str), encoding="utf-8"
+        )
+    except Exception:
+        pass
+
+
 def _render_icon_menu() -> None:
     """侧边栏导航菜单（图标 + 文字）。点击切换右侧工作台视图。
 
@@ -3694,20 +4307,28 @@ def _render_icon_menu() -> None:
 
 
 def _render_history_list() -> None:
-    """侧边栏：本次会话的分析记录。
+    """侧边栏：分析记录（v10 起**本地持久化 2 小时**）。
 
-    ⚠️ 明确边界：**只存 session_state，不做持久化**。
-    Streamlit Cloud 的文件系统是临时的，刷新页面即丢；
-    真要做"历史可恢复"必须外接存储（Supabase / Sheets / Redis），
-    那属于二期工程，这里先把位置与交互留出来。
+    ⚠️ v10 之前只存 session_state，刷新页面即丢 —— 用户反馈"刷新就没了"。
+    现在写入本地 JSON 缓存（`.streamlit/_analysis_history_cache.json`），
+    带 2 小时 TTL：刷新 / 重开会话都能恢复；超过 2 小时自动过期，
+    不会无限堆积旧数据，也不依赖任何外部存储（Streamlit Cloud 同样可用）。
     """
     st.markdown('<div class="hist-head">🕘 分析记录</div>', unsafe_allow_html=True)
-    _hist = st.session_state.get("analysis_history") or []
+    _hist = st.session_state.get("analysis_history")
+    if not _hist:
+        _hist = _hist_load()
+        if _hist:
+            st.session_state["analysis_history"] = _hist
     if not _hist:
         st.caption("还没有分析记录。完成一次「🚀 开始结构化分析」后，这里会留下一条，可点回查看。")
-        st.caption("⚠️ 记录仅存于当前会话内存，刷新页面即清空（暂不做持久化）。")
+        st.markdown(
+            '<div style="color:#FF9D9D !important;font-size:14.5px;font-weight:700;'
+            'line-height:1.7;">⚠️ 记录保留 2 小时：刷新页面不丢；超过 2 小时自动清除。</div>',
+            unsafe_allow_html=True,
+        )
         return
-    st.caption(f"共 {len(_hist)} 条 · 仅本次会话有效")
+    st.caption(f"共 {len(_hist)} 条 · 本地保留 2 小时（刷新不丢）")
     # 定高容器 → 记录多了这一段自己滚动，不把侧边栏撑得老长。
     # v6 加了 key：侧栏改深蓝后，这个凹槽要单独刷成"深底半透明槽 + 浅色描边"
     # （没有 key 就没有 `st-key-*` 类名可挂钩，样式只能靠猜 testid —— 而 1.57 已经没有
@@ -3869,23 +4490,33 @@ _single_code = st.session_state.get("single_online_code", "")
 #   三栏版的实际读序是 左列(①②) / 中列(③④) / 右列(⑤) —— 编号确实是从左到右，
 #   但每列卡片张数与高度都不一样，第 ④ 张卡会"掉到 ⑤ 的左边偏下"，
 #   眼睛扫过去就是"忽高忽低、不知道下一张在哪"。
-#   改成两行后读序是唯一的"Z 字"：① ② ③ / ④ ⑤，与截图模板一致的规整网格。
-#     · 第 1 行 `st.columns([1, 1, 1.15])`：① 行业基准 ｜ ② 数据来源 ｜ ③ 数据获取
-#     · 第 2 行 `st.columns([2, 1])`      ：④ 补充材料 ｜ ⑤ 运行分析
-#   ⚠️ 第 2 行必须在**第 1 行的 ③ 之后**才创建：创建 columns 的顺序 = 视觉先后，
-#      提前创建会让第 2 行跑到第 1 行上边去。见 _view_single 里 `_single_grid_r2`。
-# ⚠️ 追问区（st.chat_input）**不进网格**：一旦进了列，父容器就从"页面根层"
-#    变成"列"，Streamlit 会把它从"钉视口底部"降级成内联渲染（见 chat.py 判定）。
+# v10 为什么从"两行网格"改成"一行一个"（用户："直接一横一横来，
+#      不要从左到右再从左到右"）：
+#   两行网格的读序是 ① ② ③ / ④ ⑤，但每列卡片高度不同、内部又各自分栏，
+#   视线要"横跳 + 换行"才能读完；用户要的是最朴素的纵向流：
+#   ① → ② → ③ → ④ → ⑤，每张卡占满整行，从上到下一口气读完。
+#   实现：把 st.columns 换成三个**顺序创建的纵向容器**——Streamlit 按
+#   创建顺序排版，卡片挂进哪个容器就落在哪一行（原 columns 的视觉先后
+#   语义不变，只是从"横排"变"竖排"，所以 card(col=...) 的调用点一行都不用动）。
+# ⚠️ 第 2 行的两个容器仍然必须在 ③ 渲染完之后创建（在 _view_single 里），
+#    否则会插到 ③ 上边去。见 _view_single 里 `_single_grid_r2`。
+# ⚠️ 追问区（st.chat_input）**不进这些容器**：一旦进了容器，父容器就从
+#    "页面根层"变成嵌套层，Streamlit 会把它从"钉视口底部"降级成内联渲染
+#    （见 chat.py 判定）。
 # ---------------------------------------------------------------
-_single_grid = None        # 第 1 行：① ② ③
-_single_grid_r2 = None     # 第 2 行：④ ⑤（在 _view_single 里、③ 渲染完之后创建）
+_single_grid = None        # ① ② ③（模块级建，纵向三连容器）
+_single_grid_r2 = None     # ④ ⑤（在 _view_single 里、③ 渲染完之后创建）
 if _cur_view == "🏢":
     page_head(
         "单公司深度分析",
         "输入一家上市公司 → 在线取数（行情 / 多期财务指标 / 年报原文）→ 规则引擎四维评分 → "
-        "年报按页引用 → 一键生成研报。下面按 ①②③ / ④⑤ 两行读一遍即可。",
+        "年报按页引用 → 一键生成研报。五个步骤自上而下逐行操作即可。",
     )
-    _single_grid = st.columns([1, 1, 1.15], gap="medium")
+    _single_grid = [
+        st.container(key="sg-r1"),
+        st.container(key="sg-r2"),
+        st.container(key="sg-r3"),
+    ]
 
 if _cur_view == "🏢":
     # 第 1 步：行业财务基准库（整块现在住在一张白卡里 —— 卡片表头就是原来的步骤条）
@@ -4026,11 +4657,11 @@ def _view_single():
             if upload_err:
                 st.warning(upload_err)
 
-    # ---- 第 2 行网格（④ 补充材料 ｜ ⑤ 运行分析）----
-    # ⚠️ 必须**在这里**创建：创建 columns 的顺序就是视觉先后。提前建会让
-    #    第 2 行跑到第 1 行 ③ 的上边去；而 ③ 又在 if/else 两个分支里，
-    #    所以这一行只能落在"两分支都结束之后"。
-    _single_grid_r2 = st.columns([2, 1], gap="medium")
+    # ---- ④ ⑤ 纵向容器（v10：一行一个板块）----
+    # ⚠️ 必须**在这里**创建：容器的创建顺序就是显示顺序。提前建会让
+    #    ④ ⑤ 跑到 ③ 的上边去；而 ③ 又在 if/else 两个分支里，
+    #    所以这两个容器只能落在"两分支都结束之后"。
+    _single_grid_r2 = [st.container(key="sg-r4"), st.container(key="sg-r5")]
 
     if src_mode.startswith("🌐"):
         # 【补充材料 · 三选一】原来这里直接摊开一块大输入框，看起来像"必须手填"。
@@ -4464,11 +5095,11 @@ def _view_single():
                 st.session_state["messages"] = []
                 st.session_state.pop("report", None)
 
-                # ---- 往「分析记录」列写一条（仅 session_state，不持久化）----
+                # ---- 往「分析记录」写一条（session_state + 本地文件，2 小时 TTL）----
                 # 存的是 analysis 的**引用**：回看时直接把它放回 session_state，
-                # 中列那条记录就能把当时的评分、图表、证据一起还原出来。
-                # ⚠️ 明确不做持久化：Streamlit Cloud 文件系统是临时的，刷新即丢；
-                #    真要跨会话恢复，必须外接存储，那是二期工程。
+                # 侧栏那条记录就能把当时的评分、图表、证据一起还原出来。
+                # v10：追加写本地缓存（_hist_save），刷新页面 / 重开会话可恢复。
+                import time as _time_hist
                 _hist = st.session_state.get("analysis_history") or []
                 _hid = f"{st.session_state.get('single_online_code') or 'x'}-" \
                        f"{len(_hist)}-{id(analysis)}"
@@ -4481,10 +5112,12 @@ def _view_single():
                         "industry": industry,
                         "total": analysis.get("total_score"),
                         "ts": datetime.datetime.now().strftime("%H:%M:%S"),
+                        "_ts": _time_hist.time(),
                         "analysis": analysis,
                     }
                 )
                 st.session_state["analysis_history"] = _hist[-20:]
+                _hist_save(_hist[-20:])
                 st.session_state["hist_active"] = _hid
             except Exception as e:
                 # 报错必须**自带病因**。旧版只写 f"{e}"，于是模块没加载时用户看到的
@@ -4841,10 +5474,14 @@ def _view_single():
                 st.markdown(
                     f'<div class="quad-note">'
                     f'🎯 <b>四象限速览</b>（当前行业「{industry}」基准：ROE {_rl:g}% · 增速 {_gl:g}%）<br>'
-                    f'<span class="q-star">■ 明星</span> ROE≥{_rl:g}% 且 增速≥{_gl:g}%<br>'
-                    f'<span class="q-cash">■ 现金牛</span> ROE≥{_rl:g}% 且 增速&lt;{_gl:g}%<br>'
-                    f'<span class="q-quest">■ 问题</span> ROE&lt;{_rl:g}% 且 增速≥{_gl:g}%<br>'
-                    f'<span class="q-dog">■ 瘦狗</span> ROE&lt;{_rl:g}% 且 增速&lt;{_gl:g}%<br>'
+                    f'<span class="q-star">■ 明星 <span class="q-en">Star</span></span>'
+                    f'　ROE≥{_rl:g}% 且 增速≥{_gl:g}%（高盈利 · 高成长）<br>'
+                    f'<span class="q-cash">■ 现金牛 <span class="q-en">Cash Cow</span></span>'
+                    f'　ROE≥{_rl:g}% 且 增速&lt;{_gl:g}%（高盈利 · 低成长）<br>'
+                    f'<span class="q-quest">■ 问题 <span class="q-en">Question</span></span>'
+                    f'　ROE&lt;{_rl:g}% 且 增速≥{_gl:g}%（低盈利 · 高成长）<br>'
+                    f'<span class="q-dog">■ 瘦狗 <span class="q-en">Dog</span></span>'
+                    f'　ROE&lt;{_rl:g}% 且 增速&lt;{_gl:g}%（低盈利 · 低成长）<br>'
                     f'<span style="color:#475569">切换行业财务基准库按钮，基准线会随之调整。</span>'
                     f'</div>',
                     unsafe_allow_html=True,
@@ -4903,7 +5540,12 @@ def _view_single():
                 st.markdown(render_rag_hits_panel(_last_rag), unsafe_allow_html=True)
 
     # ---- 完整研报生成 ----
-    if report_btn and raw_data and DEEPSEEK_API_KEY:
+    # 【v10】研报页签（_tab4）里也可以直接触发生成：点页签里的按钮 → 置位
+    # `_gen_report_from_tab` → rerun → 走到这里同一条生成链路。这样用户
+    # 在"研报"页签发现没研报时，不用再滚回上方「运行分析」卡里找按钮
+    # （用户第 12 条反馈：生成研报入口离查看入口太远）。
+    _gen_report_from_tab = st.session_state.pop("_gen_report_from_tab", False)
+    if (report_btn or _gen_report_from_tab) and raw_data and DEEPSEEK_API_KEY:
         # 【RAG 接通】索引已在"下载并解析该报告"时构建完成，
         # 这里按研报主题检索相关章节（含页码），注入 DeepSeek 上下文。
         # ⚠️ 检索【不再绑定】"双模型润色"开关：那个开关只控制千问润色（花钱的步骤），
@@ -4973,10 +5615,16 @@ def _view_single():
         """研报 · 完整投研报告正文 + 下载入口。"""
         report = st.session_state.get("report")
         if not report:
-            st.caption(
-                "还没有研报。点击工作台上方「📝 生成完整研报」，"
-                "生成完成后会显示在这里（可下载 Markdown）。"
-            )
+            # 【v10】生成入口搬到页签里：查看在哪里，生成就在哪里（用户第 12 条反馈）。
+            st.caption("还没有研报。点下方按钮**直接在这里生成**，完成后自动显示（可下载 Markdown）。")
+            if st.button("📝 生成完整研报并在此查看",
+                         disabled=not raw_data,
+                         use_container_width=True, type="primary",
+                         key="gen_report_in_tab"):
+                st.session_state["_gen_report_from_tab"] = True
+                st.rerun()
+            if not raw_data:
+                st.caption("（先完成「🌐 在线取数」或手动输入，才有内容可生成研报。）")
             return
         st.subheader("📝 完整投研报告")
         if st.session_state.get("dual_model_refined"):
@@ -5043,6 +5691,12 @@ def _view_single():
     for m in st.session_state["messages"]:
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
+            # 【v10 · 第 5 条】带 viz 标记的助手回答，重渲染时把辅助图一并还原
+            if m.get("role") == "assistant" and m.get("viz"):
+                _vz_png = _chat_viz_png(m["viz"])
+                if _vz_png:
+                    with st.expander("📈 图表辅助 · 一图看懂这轮回答", expanded=False):
+                        st.image(_vz_png)
 
     # 提交时的校验提示：上一轮暂存，这里渲染（否则会掉到输入框下方）
     _chat_notice = st.session_state.pop("_chat_notice", None)
@@ -5061,6 +5715,20 @@ def _view_single():
         base_context = f"【行业】{industry}\n\n【财务数据】\n{raw_data[:MAX_CHARS]}"
         if analysis:
             base_context += f"\n\n【已生成的结构化评分与结论】\n{json.dumps(analysis, ensure_ascii=False)[:2000]}"
+
+        # 【v10 · 第 13 条】追问里要和别家公司对比 → Agent 自动取对方数据注入上下文
+        _cmp_blocks, _cmp_got = _chat_auto_compare(question)
+        if _cmp_blocks:
+            base_context += (
+                "\n\n【对比公司财务数据 · 系统自动联网获取】\n"
+                + "\n\n".join(_cmp_blocks)
+                + "\n（以上为对方公司的公开财报数据，可直接用于对比分析；"
+                  "对比结论请标注双方口径与报告期。）"
+            )
+            st.caption(
+                "🔀 检测到对比意图，已自动获取 "
+                + "、".join(_cmp_got) + " 的财务数据并加入上下文，无需手动取数。"
+            )
 
         # 【RAG 接通】按用户问题实时检索年报相关章节（含页码）
         _q_hits = []
@@ -5089,7 +5757,16 @@ def _view_single():
                 box = st.empty()
                 with st.spinner("正在分析……"):
                     answer = llm_stream(msgs, box, action="followup")
-            st.session_state["messages"].append({"role": "assistant", "content": answer})
+                # 【v10 · 第 5 条】回答下方直接挂辅助图表，答案不再只有干巴巴的文字
+                _viz_kind = _chat_viz_kind_for(question)
+                _viz_png = _chat_viz_png(_viz_kind)
+                if _viz_png:
+                    with st.expander("📈 图表辅助 · 一图看懂这轮回答", expanded=True):
+                        st.image(_viz_png)
+            st.session_state["messages"].append(
+                {"role": "assistant", "content": answer,
+                 "viz": _viz_kind if _viz_png else ""}
+            )
         except Exception as e:
             st.error(f"调用失败：{e}")
 
@@ -5193,6 +5870,50 @@ def _view_compare():
         )
 
     _n_cmp = int(st.session_state["cmp_n"])
+
+    # ---- ⚡ 一键批量取数（v10 · 用户第 3 条反馈）----
+    # 原来 2~5 家公司要逐家点「🔍 获取数据」，一次点 5 下、每下还各自转圈。
+    # 现在填好各家的代码/名称后，这里一次取完全部：内部仍然逐家调用
+    # resolve_stock + _panel_store（与单家点按钮**同一条链路**，轨迹、清空、
+    # 校验逻辑一行没改），只是把"点 N 次"折叠成"点 1 次"。
+    _bf1, _bf2 = st.columns([1, 3])
+    with _bf1:
+        if st.button("⚡ 一键获取全部公司数据", key="cmp_batch_fetch",
+                     use_container_width=True):
+            _bf_results = []
+            with st.spinner("正在逐家联网取数（巨潮 + 东方财富）……"):
+                for _bi in range(_n_cmp):
+                    _bw = str(st.session_state.get(f"cmp{_bi}_kw", "") or "").strip()
+                    if not _bw:
+                        _bf_results.append((chr(65 + _bi), "", False, "未填写代码/名称，已跳过"))
+                        continue
+                    _bres = ds.resolve_stock(_bw)
+                    if not _bres.get("ok"):
+                        _bf_results.append((chr(65 + _bi), _bw, False,
+                                            _bres.get("error") or "证券解析失败"))
+                        continue
+                    _bok, _berr = _panel_store(
+                        f"cmp{_bi}", _bres["code"], _bres["name"],
+                        _bres.get("orgId", ""), 3,
+                    )
+                    _bf_results.append((chr(65 + _bi),
+                                        f'{_bres["name"]}（{_bres["code"]}）', _bok, _berr))
+            _bf_ok = [r for r in _bf_results if r[2]]
+            _bf_bad = [r for r in _bf_results if not r[2]]
+            if _bf_ok:
+                get_tracer().hit("批量取数", "一键获取全部对比公司",
+                                 inp=f"{_n_cmp} 家", out=f"成功 {len(_bf_ok)} 家")
+                st.success("✅ 已获取：" + "、".join(r[1] for r in _bf_ok))
+            for r in _bf_bad:
+                st.warning(f"公司 {r[0]}：{r[3]}")
+            if _bf_ok:
+                st.rerun()
+    with _bf2:
+        st.caption(
+            "填好每家公司的代码 / 名称后点这里，**一次性取完全部公司数据**，"
+            "不用再一家一家点「🔍 获取数据」。名称多义的公司仍会进入候选确认流程，绝不乱猜。"
+        )
+
     _cmp_tags = ["🅰️", "🅱️", "🅲", "🅳", "🅴"]
     _cmp_cols = st.columns(_n_cmp)
     _cmp_side = []          # 每家: dict(i, name, code, online, data, industry, text)
@@ -5523,6 +6244,10 @@ def _view_compare():
         st.dataframe(_cmp_df, use_container_width=True)
 
         # ---- 对比可视化（N 家；缺哪家就标 N/A，不画 0 误导）----
+        # v10：从"只有柱状图"扩成三种视角（用户第 3 条反馈）：
+        #   ① 分组柱状（百分比口径：盈利成长 / 风险偿债）
+        #   ② 雷达图（一眼看出各家强弱维度的形状差异）
+        #   ③ 规模柱状（绝对额：营收 / 净利润，百分比看不到"体量"）
         st.markdown("##### 📊 对比可视化")
         _mets = [it["raw"] for it in _items]
         _vg1, _vg2 = st.columns(2)
@@ -5537,6 +6262,12 @@ def _view_compare():
         _png = fig_compare_dims_n([it["scores"]["scores"] for it in _items], _names)
         if _png:
             show_png(_png, "cmp-dims")
+        _png = fig_compare_radar([it["scores"]["scores"] for it in _items], _names)
+        if _png:
+            show_png(_png, "cmp-radar")
+        _png = fig_compare_scale_n(_mets, _names)
+        if _png:
+            show_png(_png, "cmp-scale")
 
         st.caption(
             "评分基准期："
@@ -5601,13 +6332,112 @@ def _view_help():
     )
 
     # 使用说明页的卡片是"分类"而不是"步骤"，所以不编号，只用卡片表头 + 一条分隔线。
+    # 【v10 · 第 9 条】先给一张总流程图：全部文字说明太密，一张图先建立全局印象，
+    # 后面逐卡片的文字说明就有了"挂靠点"。
+    # 为什么是内联 SVG 而不是 st.graphviz_chart：graphviz 渲染依赖系统 dot 可执行文件
+    # （本地实测 ExecutableNotFound，Streamlit Cloud 容器同样不带），SVG 零依赖、
+    # 部署到哪都能渲染，且与本页其他科技风插图同一套画法。
+    with card("help-flow", "", "🗺️ 全流程一图看懂", "先看图，再往下读逐项说明"):
+
+        def _flow_node(x: int, y: int, w: int, h: int, title: str, sub: str = "",
+                       fill: str = "#EDF3FC", stroke: str = "#1E40AF") -> str:
+            """一个流程节点：圆角矩形 + 居中标题 + 可选小字副题。"""
+            _cx = x + w / 2
+            _lines = [title] + ([sub] if sub else [])
+            _tspans = ""
+            _base_y = y + (h / 2 - 6 if len(_lines) == 2 else h / 2 + 5)
+            for _i, _ln in enumerate(_lines):
+                _sz = 15 if _i == 0 else 11.5
+                _fill = "#0B1F3A" if _i == 0 else "#5B6B82"
+                _dy = 0 if _i == 0 else 20
+                _tspans += (f'<tspan x="{_cx}" y="{_base_y + _dy}" font-size="{_sz}" '
+                            f'fill="{_fill}" font-weight="{700 if _i == 0 else 400}">'
+                            f"{_ln}</tspan>")
+            return (
+                f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="10" '
+                f'fill="{fill}" stroke="{stroke}" stroke-width="1.3"/>'
+                f'<text text-anchor="middle">{_tspans}</text>'
+            )
+
+        def _arrow(x1: int, y: int, x2: int, dashed: bool = False,
+                   color: str = "#1E40AF") -> str:
+            _mid = (x1 + x2) / 2
+            return (
+                f'<line x1="{x1}" y1="{y}" x2="{_mid - 3}" y2="{y}" '
+                f'stroke="{color}" stroke-width="1.6"'
+                + (' stroke-dasharray="5 4"' if dashed else "")
+                + '/>'
+                f'<path d="M{_mid - 2} {y - 4} L{_mid + 5} {y} L{_mid - 2} {y + 4} Z" '
+                f'fill="{color}"/>'
+                f'<line x1="{_mid + 6}" y1="{y}" x2="{x2}" y2="{y}" '
+                f'stroke="{color}" stroke-width="1.6"'
+                + (' stroke-dasharray="5 4"' if dashed else "")
+                + '/>'
+            )
+
+        _NW, _NH, _GAP, _X0 = 142, 64, 36, 14
+        _Y1 = 52
+        # —— 单公司主线（7 节点）——
+        _s1 = [("① 选行业基准", "同业对标", "#EDF3FC", "#1E40AF"),
+               ("② 在线取数", "巨潮+东财+新浪兜底", "#EDF3FC", "#1E40AF"),
+               ("③ 解析年报 PDF", "按页建向量库（可选）", "#FFF7E6", "#B45309"),
+               ("④ 结构化分析", "规则引擎四维评分", "#E7F6EC", "#16A34A"),
+               ("⑤ 看结果", "概览/时间轴/评分/研报/轨迹", "#EDF3FC", "#1E40AF"),
+               ("⑥ 继续追问", "自动检索原文·自动取对比", "#FFF7E6", "#B45309"),
+               ("⑦ 生成研报", "Markdown 可下载", "#E7F6EC", "#16A34A")]
+        _svg_row1 = ""
+        for _i, (_tt, _ss, _ff, _cc) in enumerate(_s1):
+            _x = _X0 + _i * (_NW + _GAP)
+            _svg_row1 += _flow_node(_x, _Y1, _NW, _NH, _tt, _ss, _ff, _cc)
+            if _i < len(_s1) - 1:
+                _svg_row1 += _arrow(_x + _NW, _Y1 + _NH / 2, _x + _NW + _GAP)
+        # —— 多公司支线（3 节点，虚线汇入 ⑦）——
+        _Y2 = 178
+        _c1 = [("⚖️ 多公司对比", "填 2~5 家公司代码", "#F3E8FD", "#7C3AED"),
+               ("⚡ 一键批量取数", "或逐家获取", "#F3E8FD", "#7C3AED"),
+               ("开始对比分析", "对照表/雷达/规模图/CSV", "#E7F6EC", "#16A34A")]
+        _svg_row2 = ""
+        for _i, (_tt, _ss, _ff, _cc) in enumerate(_c1):
+            _x = _X0 + _i * (_NW + _GAP)
+            _svg_row2 += _flow_node(_x, _Y2, _NW, _NH, _tt, _ss, _ff, _cc)
+            if _i < len(_c1) - 1:
+                _svg_row2 += _arrow(_x + _NW, _Y2 + _NH / 2, _x + _NW + _GAP)
+        # 虚线：从「开始对比分析」右端 → 拐向右上 → 汇入 ⑦ 底边
+        _c3x = _X0 + 2 * (_NW + _GAP) + _NW
+        _s7x = _X0 + 6 * (_NW + _GAP) + _NW / 2
+        _svg_row2 += (
+            f'<path d="M{_c3x} {_Y2 + _NH / 2} H{_c3x + 26} V{_Y1 + _NH} '
+            f'H{_s7x}" fill="none" stroke="#94A3B8" stroke-width="1.4" '
+            'stroke-dasharray="5 4"/>'
+            f'<path d="M{_s7x - 5} {_Y1 + _NH - 6} L{_s7x} {_Y1 + _NH + 1} '
+            f'L{_s7x + 5} {_Y1 + _NH - 6} Z" fill="#94A3B8"/>'
+            f'<text x="{_c3x + 40}" y="{_Y1 + _NH + 22}" font-size="11" '
+            'fill="#64748B">对比报告同样可导出</text>'
+        )
+        st.markdown(
+            '<svg viewBox="0 0 1240 268" width="100%" style="min-width:720px;" '
+            'xmlns="http://www.w3.org/2000/svg" role="img" aria-label="使用流程图">'
+            '<text x="14" y="30" font-size="15" font-weight="700" fill="#0B1F3A">'
+            "🏢 单公司深度分析主线</text>"
+            + _svg_row1
+            + '<text x="14" y="164" font-size="15" font-weight="700" fill="#0B1F3A">'
+            "⚖️ 多公司对比支线</text>"
+            + _svg_row2
+            + "</svg>",
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "橙色 = 可选步骤；绿色 = 出结果的步骤；紫色 = 多公司支线；虚线 = 对比支线汇入研报导出。"
+            "左侧导航切换「🏢 单公司 / ⚖️ 多公司 / 📖 使用说明」。"
+        )
+
     with card("help-quick", "", "🚀 快速上手（4 步）", "从零到一份可下载的研报"):
         st.markdown(
             """
 1. 左侧边栏选「🏢 单公司深度分析」，先在**第 1 步**选好行业财务基准（同业对标）
 2. **第 2~3 步**输入股票代码（如 `600519`）或从热门股票里选，点「🔍 获取数据」自动取数
-3. **第 5 步**点「🚀 开始结构化分析」，结果分四个页签：📊 分析概览 / 🗓️ 年度时间轴 / 🧮 评分与依据 / 📝 研报
-4. 页面底部可直接**继续追问**；需要成稿就点「📝 生成完整研报」
+3. **第 5 步**点「🚀 开始结构化分析」，结果分五个页签：📊 分析概览 / 🗓️ 年度时间轴 / 🧮 评分与依据 / 📝 研报 / 🤖 Agent 轨迹
+4. 页面底部可直接**继续追问**；需要成稿就在「📝 研报」页签里一键生成
 """
         )
 
@@ -5616,14 +6446,14 @@ def _view_help():
             """
 | 功能 | 入口 | 说明 |
 |---|---|---|
-| 🌐 在线自动取数 | 「🏢 单公司深度分析」第 3 步 | 输入股票代码/名称，自动获取行情、多期财务指标、年报 PDF，无需自己找财报 |
+| 🌐 在线自动取数 | 「🏢 单公司深度分析」第 3 步 | 输入股票代码/名称，自动获取行情、多期财务指标、年报 PDF（东财为主，新浪财经兜底），无需自己找财报 |
 | 📄 年报 PDF 云端解析 + RAG | 取数面板内 | 一键下载年报 → 按页切片构建向量索引；分析与追问自动检索相关章节，结论标注「见年报第X页」 |
 | 📐 规则引擎评分 | 「🚀 开始结构化分析」 | 四维评分由固定阈值规则计算（同一数据必然同一分数），页面可展开查看每个分数的完整依据链 |
 | 🏢 单公司深度分析 | 左侧边栏 | 一键得到四维评分、指标图表、年报口径趋势、风险与亮点 |
-| 💬 多轮追问 | 「🏢 单公司深度分析」页底 | 基于数据与已有结论连续追问（问在上、答在中、**输入框在最下面**）；年报问题实时检索原文片段（带页码） |
-| ⚖️ 多公司对比 | 左侧边栏 | 2~5 家公司在线取数或手动输入，逐年对齐后生成对照表、差额、对比图与 CSV / 报告导出 |
-| 🕘 分析记录 | 左侧边栏 | 本次会话做过的分析各留一条，点一下即可回看当时的评分、图表与证据（仅本次会话有效，刷新页面即清空） |
-| 📝 研报导出 | 各页的下载按钮 | 分析结果可保存为 Markdown 报告（双模型润色） |
+| 💬 多轮追问 | 「🏢 单公司深度分析」页底 | 基于数据与已有结论连续追问（问在上、答在中、**输入框在最下面**）；年报问题实时检索原文片段（带页码），回答自动附图表；问"和 XX 对比"会**自动取对方数据** |
+| ⚖️ 多公司对比 | 左侧边栏 | 2~5 家公司，**一键批量取数**，逐年对齐后生成对照表、柱状/雷达/规模图与 CSV / 报告导出 |
+| 🕘 分析记录 | 左侧边栏 | 本地持久化 2 小时：刷新页面不丢，点一下即可回看当时的评分、图表与证据 |
+| 📝 研报导出 | 各页的下载按钮 | 分析结果可保存为 Markdown 报告（双模型润色）；「📝 研报」页签内可直接生成 |
 """
         )
 

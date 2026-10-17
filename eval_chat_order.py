@@ -239,9 +239,13 @@ if os.path.exists(_R):
 check("多栏网格建好后，根层仍是「MAIN + 无祖先 block」—— chat_input 仍会钉底",
       _probe.get("root") == 0 and _probe.get("ancestors") == [],
       f"probe={_probe} exceptions={[str(e.value)[:120] for e in _pat.exception]}")
-check("网格确实落在 app.py（单公司 1~5 步排成两行，不再竖排到底）",
-      '_single_grid = st.columns([1, 1, 1.15], gap="medium")' in SRC
-      and '_single_grid_r2 = st.columns([2, 1], gap="medium")' in SRC)
+# v10（用户第 2 条）：单公司 1~5 步改成**一行一个板块**，不再"从左到右再从左到右"。
+# 实现上从 st.columns 换成纵向 st.container —— 列会把卡片横向切开、窄屏被压成一条；
+# 容器则整块从上往下排，卡片宽度始终铺满。
+check("单公司 1~5 步改为纵向逐行容器（一行一个板块，不再横向分栏）",
+      '_single_grid = [' in SRC and 'st.container(key="sg-r1")' in SRC
+      and '_single_grid_r2 = [st.container(key="sg-r4"), st.container(key="sg-r5")]' in SRC
+      and 'st.columns([1, 1, 1.15], gap="medium")' not in SRC)
 # 追问区必须留在页面根层：不进卡片、也不进列
 _CHAT_SRC = SRC.split("# ---- 追问对话（多轮，上下文实时更新） ----", 1)[-1]
 _CHAT_HEAD = _CHAT_SRC.split("_typed = st.chat_input", 1)[0]

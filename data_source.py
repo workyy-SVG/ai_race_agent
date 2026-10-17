@@ -21,6 +21,7 @@
 
 from __future__ import annotations
 
+import datetime
 import re
 import time
 import json
@@ -528,7 +529,8 @@ def download_pdf(url: str, max_mb: int = 40) -> Optional[bytes]:
 def get_quote(code: str) -> Optional[Dict[str, Any]]:
     """
     实时行情。返回 dict 或 None。
-    若行情接口不可用，则用最近一根日 K 线兜底（价格/涨跌幅仍可用）。
+    兜底链：东方财富实时接口 → 东财日 K → 新浪财经 hq 接口（v10 接入）。
+    若全部不可用，则返回 None（行情缺失不阻断财务分析）。
     """
     fields = "f43,f44,f45,f46,f47,f48,f57,f58,f60,f107,f116,f117,f162,f167,f168,f169,f170,f171"
 
@@ -539,13 +541,15 @@ def get_quote(code: str) -> Optional[Dict[str, Any]]:
             referer="https://quote.eastmoney.com/",
         )
         if r is None:
-            return _quote_from_kline(code)
+            q = _quote_from_kline(code)
+            return q or sina_quote(code)
         try:
             d = (r.json() or {}).get("data")
         except Exception:
             d = None
         if not d:
-            return _quote_from_kline(code)
+            q = _quote_from_kline(code)
+            return q or sina_quote(code)
         q = {
             "code": d.get("f57"),
             "name": d.get("f58"),
@@ -565,10 +569,136 @@ def get_quote(code: str) -> Optional[Dict[str, Any]]:
             "source": "实时行情",
         }
         if q.get("price") is None:
-            return _quote_from_kline(code)
+            q = _quote_from_kline(code)
+            return q or sina_quote(code)
         return q
 
     return _cached(f"quote:{code}", _run)
+
+
+# ============================================================
+# 六（b）、新浪财经兜底源（v10 接入 · 免费公开接口）
+# ============================================================
+# 为什么接新浪：全站目前只有巨潮 + 东方财富两个源，任何一个被限流/改版，
+# 取数就直接失败。新浪财经的 hq 行情接口与 vFD_FinancialGuideLine 财务指标页
+# 都是多年稳定的公开接口，作为第三条腿成本极低。
+# ⚠️ hq.sinajs.cn 必须带 Referer，否则返回空串（新浪 2022 起的反爬策略）。
+SINA_HQ = "https://hq.sinajs.cn/list={pfx}{code}"
+SINA_GUIDELINE = ("https://vip.stock.finance.sina.com.cn/corp/go.php/"
+                  "vFD_FinancialGuideLine/stockid/{code}/ctrl/{year}/displaytype/4.phtml")
+_SINA_HEADERS = {
+    "Referer": "https://finance.sina.com.cn/",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+}
+
+
+def _sina_get(url: str) -> str:
+    """新浪页面统一取回（GBK 解码，失败返回空串；不抛异常）。"""
+    try:
+        r = _session().get(url, headers=_SINA_HEADERS, timeout=10)
+        if r.status_code != 200 or not r.content:
+            return ""
+        return r.content.decode("gbk", errors="ignore")
+    except Exception:
+        return ""
+
+
+def sina_quote(code: str) -> Optional[Dict[str, Any]]:
+    """新浪实时行情兜底。字段序（A 股）：名称,今开,昨收,现价,最高,最低,…,日期,时间。"""
+    pfx = "sh" if str(code).startswith(("6", "9", "5")) else "sz"
+    txt = _sina_get(SINA_HQ.format(pfx=pfx, code=code))
+    m = re.search(r'"(.*)"', txt)
+    if not m or "," not in m.group(1):
+        return None
+    f = m.group(1).split(",")
+    if len(f) < 32 or not f[3]:
+        return None
+    try:
+        price = float(f[3])
+        prev = float(f[2]) if f[2] else None
+        chg = round((price - prev) / prev * 100, 2) if prev else None
+        return {
+            "code": code, "name": f[0], "price": price, "change_pct": chg,
+            "open": _num(f[1]), "prev_close": prev,
+            "high": _num(f[4]), "low": _num(f[5]),
+            "source": "实时行情（新浪财经兜底）",
+        }
+    except Exception:
+        return None
+
+
+# 财务指标页里**直接可用**的行名 → 标准指标映射（只挑评分用得到的子集，
+# 整页几十行全塞给模型只会稀释重点）。
+_SINA_METRIC_MAP = [
+    ("摊薄每股收益(元)", "eps"),
+    ("每股净资产_调整前(元)", "bps"),
+    ("每股经营性现金流(元)", "ocf_per_share"),
+    ("净资产收益率(%)", "roe"),
+    ("加权净资产收益率(%)", "roe_weighted"),
+    ("销售净利率(%)", "net_margin"),
+    ("主营业务利润率(%)", "gross_margin"),
+    ("资产负债率(%)", "debt_ratio"),
+    ("流动比率", "current_ratio"),
+    ("主营业务收入增长率(%)", "revenue_yoy"),
+    ("净利润增长率(%)", "net_profit_yoy"),
+    ("总资产(元)", "total_assets"),
+]
+
+
+def _sina_parse_guideline(html: str) -> List[Dict[str, Any]]:
+    """解析 vFD_FinancialGuideLine 页：报告日期行 + 指标行 → 按报告期的 dict 列表。"""
+    rows = re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.S)
+    dates: List[str] = []
+    out: List[Dict[str, Any]] = []
+    for raw in rows:
+        cells = [re.sub(r"<[^>]+>", "", c).strip().replace("&nbsp;", "")
+                 for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", raw, re.S)]
+        cells = [c for c in cells if c != ""]
+        if not cells:
+            continue
+        if cells[0].startswith("报告日期"):
+            dates = [d for d in cells[1:] if re.match(r"20\d{2}-\d{2}-\d{2}", d)]
+            out = [{"report_date": d, "source": "新浪财经"} for d in dates]
+            continue
+        if not dates or len(cells) < 2:
+            continue
+        label = cells[0]
+        key = next((k for name, k in _SINA_METRIC_MAP if label.startswith(name)), None)
+        if key is None:
+            continue
+        for i, d in enumerate(dates):
+            if i + 1 < len(cells):
+                v = _num(cells[i + 1])
+                if v is not None:
+                    out[i][key] = v
+    return [o for o in out if len(o) > 2]
+
+
+def sina_financial_indicators(code: str, years: int = 2) -> List[Dict[str, Any]]:
+    """新浪财务指标兜底（东财 get_financial_indicators 失败时用）。
+
+    按年份抓 vFD_FinancialGuideLine（每页含该年 4 个报告期），返回最新在前。
+    ⚠️ 新浪没有「年报/中报」的显式标注，这里按报告日期后缀推断：
+       12-31 → 年报；06-30 → 半年报；03-31 → 一季报；09-30 → 三季报。
+    """
+    this_year = datetime.date.today().year
+    rows: List[Dict[str, Any]] = []
+    for y in (this_year - 1, this_year - 2, this_year)[:max(1, years)]:
+        html = _sina_get(SINA_GUIDELINE.format(code=code, year=y))
+        if html:
+            rows.extend(_sina_parse_guideline(html))
+    for r in rows:
+        d = str(r.get("report_date") or "")
+        r["report_name"] = f"{d[:4]}年报" if d.endswith("12-31") else d
+        if d.endswith("06-30"):
+            r["report_type"] = "半年报"
+        elif d.endswith("03-31"):
+            r["report_type"] = "一季报"
+        elif d.endswith("09-30"):
+            r["report_type"] = "三季报"
+        else:
+            r["report_type"] = "年报"
+    return rows
 
 
 def _quote_from_kline(code: str) -> Optional[Dict[str, Any]]:
@@ -801,12 +931,19 @@ def build_summary_text(code: str, name: str = "", periods: int = 4) -> str:
     lines: List[str] = []
     quote = get_quote(code)
     fina = get_financial_indicators(code, periods=periods)
+    _sina_fallback = False
+    if not fina:
+        # 【v10 第三数据源】东财财务接口拿不到时，改用新浪财经财务指标页兜底。
+        # 兜底来源必须显式标注，不能混在东财数据里假装同一个来源。
+        fina = sina_financial_indicators(code)
+        _sina_fallback = bool(fina)
 
     real_name = name or (quote or {}).get("name") or (fina[0].get("name") if fina else "") or code
 
     lines.append(f"# {real_name}（{code}）财务与市场数据摘要")
     lines.append("")
-    lines.append("> 数据来源：巨潮资讯网 / 东方财富公开接口自动获取")
+    lines.append("> 数据来源：巨潮资讯网 / 东方财富公开接口自动获取"
+                 + ("（财务指标由新浪财经兜底提供）" if _sina_fallback else ""))
     lines.append("")
 
     # —— 行情 ——

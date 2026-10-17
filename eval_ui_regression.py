@@ -322,6 +322,17 @@ _check("对比视图**不再**出现单公司行业选择器（v4 把这块收�
        str([r.key for r in at4.radio]))
 _check("对比视图也不再出现单公司同业对标基准条",
        "同业对标基准（" not in _md(at4))
+# v10-2（用户第 8a 条）：每家卡片必须有"取数进度/状态"块，且字体要大到窄卡里也看得清。
+_wait_n = _md(at4).count('class="cmp-wait"')
+_check("对比页每家卡片都有取数状态块（未取数时显示「尚未取数」占位，不再是一行浅灰小字）",
+       _wait_n == 2, f"wait={_wait_n}")
+_check("取数状态块：公司名 17.5px 深墨字 + 状态 14.5px 深绿字，白底浅绿 8:1 对比度",
+       ".cmp-ok {" in SRC and "font-size: 17.5px; font-weight: 800" in SRC
+       and "color: #0F2419 !important" in SRC
+       and ".cmp-ok-sub {" in SRC and "color: #1F5138 !important" in SRC)
+_check("紧凑模式用自定义状态块（不再用窄卡里会缩水的 st.success 小字），并做 HTML 转义",
+       'if compact:' in SRC and 'class="cmp-ok-name"' in SRC
+       and "_htm(name)" in SRC and "def _htm(" in SRC)
 
 # 3) 切到使用说明：原侧边栏「快速上手」4 步并入这里，内容不丢
 at4.session_state["main_view"] = "📖"
@@ -334,10 +345,19 @@ _check("使用说明页同样不出现单公司取数/行业选择器",
 _check("「使用说明」记录了侧边栏导航入口", "左侧边栏" in _md(at4))
 
 # 4) 侧边栏分析记录：空态 + 有记录
+# v10 起记录会写本地缓存（2 小时 TTL）：把缓存路径指到临时文件，
+# 既不污染真实记录，也不被上一轮的真实记录污染空态断言
+import tempfile as _tf
+_HIST_TMP = os.path.join(_tf.gettempdir(), "_hist_ui_regression.json")
+os.environ["ANALYSIS_HISTORY_CACHE"] = _HIST_TMP
+try:
+    os.remove(_HIST_TMP)
+except OSError:
+    pass
 at5 = _boot()
 _check("无记录时给出占位说明", "还没有分析记录" in _cap(at5))
-_check("明确声明不持久化（刷新即清空）",
-       ("刷新页面即清空" in _cap(at5)) or ("刷新即清空" in _cap(at5)))
+_check("v10：明确声明本地持久化 2 小时（红色高亮，不再说『刷新即清空』）",
+       ("保留 2 小时" in _md(at5)) and ("刷新页面即清空" not in _md(at5)))
 at5.session_state["analysis_history"] = [
     {"id": "t1", "code": "600519", "name": "贵州茅台", "industry": "消费",
      "total": 8.5, "ts": "12:00:00", "analysis": {}},
@@ -490,34 +510,34 @@ _check("卡片编号方块改成青蓝渐变 + 外发光（不再是一块死蓝
        "background: linear-gradient(145deg, #38BDF8 0%, #1D4ED8 100%);" in SRC
        and "box-shadow: 0 2px 9px rgba(29, 78, 216, 0.32);" in SRC)
 
-# ⑤ 单公司工作栏排版：三栏 → 两行（用户：从左往右乱乱的）
-_check("第 1 行网格按 ① ② ③ 排列（① 行业基准 / ② 数据来源 / ③ 数据获取）",
-       '_single_grid = st.columns([1, 1, 1.15], gap="medium")' in SRC
-       and "col=_single_grid[0]" in SRC and "col=_single_grid[1]" in SRC
-       and "col=_single_grid[2]" in SRC)
-_check("第 2 行网格独立创建，且落在 ③ 之后、④ 之前（创建顺序 = 视觉先后）",
-       '_single_grid_r2 = st.columns([2, 1], gap="medium")' in SRC
+# ⑤ 单公司工作栏排版：两行网格 → 纵向逐行（v10，用户："直接一横一横来"）
+_check("① ② ③ 改为纵向逐行容器（行业基准 / 数据来源 / 数据获取）",
+       'st.container(key="sg-r1")' in SRC and "col=_single_grid[0]" in SRC
+       and "col=_single_grid[1]" in SRC and "col=_single_grid[2]" in SRC)
+_check("④ ⑤ 纵向容器在 ③ 之后创建（创建顺序 = 显示顺序）",
+       '_single_grid_r2 = [st.container(key="sg-r4"), st.container(key="sg-r5")]'
+       in SRC
        and SRC.index('with card("fetch", col=_single_grid[2])')
-           < SRC.index("_single_grid_r2 = st.columns")
+           < SRC.index("_single_grid_r2 = [st.container")
            < SRC.index('tag="可选", col=_single_grid_r2[0]'))
 _check("④ 补充材料在第 2 行左栏（宽 2/3）",
        'tag="可选", col=_single_grid_r2[0]' in SRC)
 _check("⑤ 运行分析按模式落栏（在线 → 右栏 / 手动 → 左栏，不留一大片空位）",
        "_run_col = _single_grid_r2[1] if src_mode.startswith(\"🌐\") else _single_grid_r2[0]" in SRC
        and 'tag="出结果", col=_run_col' in SRC)
-_check("② 数据来源占用第 1 行第 2 栏（不再和 ① 挤同一栏）",
+_check("② 数据来源占用第 2 个纵向容器（顺序：① → ② → ③）",
        'tag="二选一", col=_single_grid[1]' in SRC)
-_check("手动模式的 ③ 也进了第 1 行第 3 栏（与在线模式同位置）",
+_check("手动模式的 ③ 也进了第 3 个纵向容器（与在线模式同位置）",
        SRC.count("col=_single_grid[2]") == 2)
 
 # 标题被第一张卡压在下面 → 整页看上去还是"一堆卡片摊着"（用户：布局没变）。
-# 第 1 步「行业财务基准库」在模块级先渲染，所以标题必须也提到模块级、且在网格之前。
+# 第 1 步「行业财务基准库」在模块级先渲染，所以标题必须也提到模块级、且在容器之前。
 _check("单公司页面大标题移到模块级（否则渲染顺序变成「卡 1 → 标题 → 卡 2…」）",
-       SRC.index('"单公司深度分析",') < SRC.index('_single_grid = st.columns([1, 1, 1.15]')
+       SRC.index('"单公司深度分析",') < SRC.index('st.container(key="sg-r1")')
        and SRC.count('"单公司深度分析",') == 1)
-_check("网格在标题之后创建（标题必须是最上面的元素）",
+_check("纵向容器在标题之后创建（标题必须是最上面的元素）",
        SRC.index('page_head(\n        "单公司深度分析"')
-       < SRC.index('_single_grid = st.columns([1, 1, 1.15]'))
+       < SRC.index('st.container(key="sg-r1")'))
 _check("_view_single 内部不再重复渲染页面标题（避免出现两个大标题）",
        '"单公司深度分析",' not in SRC.split("def _view_single()", 1)[1].split("def _view_compare", 1)[0])
 
@@ -583,9 +603,9 @@ _check("输入框在深底上不再是白底深字（改半透明底 + 浅字 + 
        and "color: #A9C0E6 !important" in SRC)
 _check("卡内报错提示在深色卡上可见（否则红字压深底看不见）",
        '[data-testid="stForm"] [data-testid="stAlert"]' in SRC)
-_check("账号/密码标签**外置**，框内放小号英文占位符",
-       'st.text_input("账号", placeholder="Account")' in SRC
-       and 'st.text_input("密码", type="password", placeholder="Password")' in SRC)
+_check("账号/密码标签**外置**，框内放小号英文占位符（v10 起带 key，避免控件状态串台）",
+       'st.text_input("账号", key="login_user", placeholder="Account")' in SRC
+       and 'st.text_input("密码", type="password", key="login_pw", placeholder="Password")' in SRC)
 _check("占位符字号小于外置标签（15px < 18.5px，框内更轻）",
        "input::placeholder" in SRC
        and "font-size: 15px !important" in SRC
@@ -615,11 +635,32 @@ _pl_val = "".join(_pl_blk.split("'")[1::2])
 _pr_val = "".join(_pr_blk.split("'")[1::2])
 _panels_val = _pl_val + _pr_val
 _brand_val = "".join(_brand_blk.split("'")[1::2])
+# v10-2（用户第 6 条）：面板表头原来是「■ + 中文」，■ 是纯装饰字符、图里也没有文字，
+# 评审看不懂 → 改成「中文 + 英文」双行式，并在图里直接给关键节点打中文标签。
 _check("两侧共 6 块数据面板、按 3+3 分列（走势曲线/财务指标/关系网络 · 指标摘要/财务评分/风险评分）",
        _pl_val.count('class="lb-panel"') == 3 and _pr_val.count('class="lb-panel"') == 3
-       and all(k in _panels_val for k in ("■ 走势曲线", "■ 财务指标", "■ 公司关系网络",
-                                          "■ 指标摘要", "■ 财务评分", "■ 风险评分")),
+       and all(k in _panels_val for k in ("走势曲线 · K 线结构", "财务指标", "公司关系网络",
+                                         "指标摘要", "财务评分 · 四维", "风险评分")),
        f"L={_pl_val.count('lb-panel')} R={_pr_val.count('lb-panel')}")
+_check("面板表头不再是纯图形「■」（改成中文 + 英文，看不懂图也能靠文字认）",
+       "■" not in _panels_val
+       and all(k in _panels_val for k in ('<span class="lp-en">Price Trend / K-Line</span>',
+                                         '<span class="lp-en">Financial Indicators</span>',
+                                         '<span class="lp-en">Supply Chain Network</span>',
+                                         '<span class="lp-en">Key Metrics</span>',
+                                         '<span class="lp-en">4-Dimension Score</span>',
+                                         '<span class="lp-en">Risk Score</span>')),
+       f"■ count={_panels_val.count('■')}")
+_check("每张图下面都有「这图画的是什么」的文字说明（.lp-cap），图上关键节点也有文字标签",
+       _panels_val.count('class="lp-cap"') == 6
+       and _panels_val.count("<text ") >= 12
+       and all(k in _panels_val for k in ("供应商", "核心企业", "经销商", "盈利", "财务风险")))
+_check("面板文字与深色玻璃底拉开对比度（白色 22px 标题 + 深色底片 + 青色竖条）",
+       ".lb-panel .lp-head {" in SRC
+       and "font-size: 22px; font-weight: 800" in SRC
+       and "color: #FFFFFF !important;" in SRC
+       and "background: rgba(5, 15, 34, 0.62);" in SRC,
+       "旧版 #7FE9FF 青字压青色极光 = 字与背景融为一体")
 _check("品牌区背后有旋转光环 + 锥形扫描光（@keyframes 动画）",
        'class="lb-ring"' in SRC and 'class="lb-scan"' in SRC
        and "@keyframes lb-spin" in SRC and "animation: lb-spin 18s linear infinite" in SRC)
@@ -639,7 +680,8 @@ _check("窄屏撤掉两侧装饰（:has 命中则整列隐藏，并让登录卡�
 _check("注入的 HTML 一律单行（含缩进/空行就会掉进 markdown 缩进代码块，页面直接打印源码）",
        "\n" not in _deco_val and "\n" not in _brand_val
        and "\n" not in _pl_val and "\n" not in _pr_val
-       and _deco_val.startswith('<div class="lb-deco"')
+       and _deco_val.startswith('<div class="lb-aurora"')
+       and '<div class="lb-deco"' in _deco_val
        and _pl_val.startswith('<div class="lb-side-col">')
        and _pr_val.startswith('<div class="lb-side-col">')
        and _brand_val.startswith('<div class="login-brand"'),
@@ -664,15 +706,17 @@ _check("面板与登录卡同一套玻璃材质（同底色 / 同描边 / 同圆
 _check("面板再放大一档（内边距 19/22 + 圆角 18 + 顶条 4px + 进度条 13px）",
        "padding: 19px 22px 20px 22px;" in SRC
        and "height: 13px; border-radius: 999px; margin-top: 12px;" in SRC)
-_check("面板文字再放大提亮（标题 20px 青 / 行文字 18px #DCEBFF / 数值 19px 白）",
-       "font-size: 20px; font-weight: 800; letter-spacing: 1.4px;" in SRC
-       and "font-size: 18px; color: #DCEBFF !important; line-height: 2.0;" in SRC
-       and ".lb-panel .lp-row b { color: #FFFFFF !important; font-size: 19px; }" in SRC)
+# v10-2（用户第 6 条）：青色标题压在青色极光上会"字与背景融为一体" → 改纯白 22px + 深色底片
+_check("面板文字再放大提亮（标题 22px 纯白 + 深色底片 / 行文字 18.5px #EAF4FF / 数值 21px 白）",
+       "font-size: 22px; font-weight: 800; letter-spacing: 1.1px;" in SRC
+       and "color: #FFFFFF !important; margin-bottom: 13px;" in SRC
+       and "font-size: 18.5px; color: #EAF4FF !important; line-height: 1.95;" in SRC
+       and ".lb-panel .lp-row b { color: #FFFFFF !important; font-size: 21px; font-weight: 800; }" in SRC)
 _check("面板组在列里竖直居中（列被拉高后不至于上重下轻）",
        '[data-testid="stColumn"]:has(.lb-side-col) > [data-testid="stVerticalBlock"]' in SRC
        and "flex: 1 1 auto; justify-content: center;" in SRC)
 _check("面板标签列显式上色（全站 p/li/span/div{color:#334155} 是直接规则，会盖掉继承来的浅色）",
-       ".lb-panel .lp-row span { color: #DCEBFF !important; }" in SRC)
+       ".lb-panel .lp-row span { color: #EFF6FF !important; font-size: 17px; }" in SRC)
 _check("面板插画按比例放大（保留 viewBox，只改 width/height 等比缩放 + 铺满面板宽度）",
        'width="272"' in SRC and "width: 100%; height: auto;" in SRC)
 
@@ -760,6 +804,68 @@ _check("登录页确实是三列（左装饰 | 登录卡 | 右装饰 = 1.3 : 2 :
        [round(float(c.weight) * 4.6, 2) for c in _COLS6] == [1.3, 2.0, 1.3]
        and "large" in str(getattr(_COLS6[0], "gap", "")),
        str([(getattr(c, "weight", None), getattr(c, "gap", None)) for c in _COLS6]))
+
+# =====================================================================
+# 任务1：登录页六项指标（用户第 1 / 4 / 7 / 11 条反馈）
+#   去提示 · 删简介 · 加深按钮 · 密码可见 · 大字体 · 动态背景（含图动效）
+# =====================================================================
+# ① 去提示：Streamlit 每个 form 底部都自带一行 "Press Enter to submit form"，
+#    对中文评审来说是干扰项。全局补丁 + 表单内兜底，两条都要在。
+# ⚠️ f-string 里不能出现反斜杠（Python 3.11 直接 SyntaxError，PEP 701 才放开）
+_II_KEY = '[data-testid="InputInstructions"] { display: none !important; }'
+_II_N = SRC.count(_II_KEY)
+_check("登录页彻底去掉「Press Enter」英文提示（全局补丁 + 表单内兜底两条）",
+       _II_N >= 2, f"n={_II_N}")
+# ② 删简介：登录卡里塞功能介绍会挤占输入区，也拉低首屏质感（该内容在使用说明页）
+_check("登录卡内只留登录本身（四条功能简介与演示路径已删除）",
+       "单公司深度分析" not in _md6 and "演示路径" not in _md6
+       and _md6.count("输入账号与密码进入投研工作台") == 1)
+# ③ 加深按钮：旧版是青渐变 + 深蓝字 21px，字和青底糊在一起 → 深蓝底 + 纯白粗字
+_check("「安全登录」按钮：深蓝渐变底 + 纯白 24px/900（不再是与青底融在一起的深蓝字）",
+       "linear-gradient(92deg, #1D4ED8 0%, #2563EB 55%, #0EA5E9 100%)" in SRC
+       and "font-size: 24px !important;" in SRC
+       and "font-weight: 900 !important;" in SRC
+       and "padding: 18px 22px !important;" in SRC)
+# ④ 密码可见（任务1 新增项）：眼睛图标默认 #A9C0E6 淡蓝 + 18px，压在半透明框里
+#    几乎看不见，用户根本不知道能点 → 提亮 + 放大 + 补一行明文说明。
+_TIP_N = _md6.count('class="login-pw-tip"')
+_check("密码可见：明文提示真的渲染出来了（告诉用户可以点眼睛核对）",
+       _TIP_N == 1, f"tip={_TIP_N}")
+_check("密码框右侧眼睛图标提到近白 #EAF2FF 并放大到 24px（否则没人发现能点）",
+       "fill: #EAF2FF !important; color: #EAF2FF !important;" in SRC
+       and "width: 24px; height: 24px;" in SRC
+       and '[data-testid="stTextInputRootElement"] button:hover svg' in SRC)
+# ⑤ 大字体：密码圆点「•」字形本身就小，跟账号同字号时看着像没输进去
+_check("输入文字放大：账号 22px / 密码 26px + 6px 字距（圆点分得开、位数能数清）",
+       "font-size: 22px !important;" in SRC
+       and "font-size: 26px !important;" in SRC
+       and "letter-spacing: 6px;" in SRC
+       and "padding-right: 52px !important;" in SRC)
+_check("卡内文字同步放大（卡标题 30px / 外置标签 20px / 占位符 16.5px）",
+       "font-size:30px;font-weight:800" in SRC
+       and "font-size: 20px !important;" in SRC
+       and "font-size: 16.5px !important;" in SRC)
+# ⑥ 动态：背景极光（v10 已有）+ **图也要动**（六张装饰图原来是死图）
+_check("动态背景：三团极光色块缓慢漂移（17s / 21s / 25s 错开周期），且真的注入了 DOM",
+       "@keyframes lbAurora1" in SRC and "@keyframes lbAurora3" in SRC
+       and _md6.count('class="lb-aurora"') == 1)
+_TR_N = _md6.count('class="tr-main"')
+_NW_N = _md6.count('class="nw-node"')
+_SC_N = _md6.count('class="sc-bar"')
+_RK_N = _md6.count('class="rk-arc"')
+_RKB_N = _md6.count('rk-arc-b"')
+_check("六张装饰图也全部动起来（走势描线 / 网络流光 / 评分柱生长 / 风险环扫描）",
+       _TR_N == 1 and _NW_N == 5 and _SC_N == 4 and _RK_N == 1 and _RKB_N == 1
+       and "@keyframes lbDraw" in SRC and "@keyframes lbFlow" in SRC
+       and "@keyframes lbGrow" in SRC and "@keyframes lbRingSpin" in SRC,
+       f"tr={_TR_N} nw={_NW_N} sc={_SC_N} rk={_RK_N}/{_RKB_N}")
+# 风险环的 -90° 起始角必须写进 keyframes：CSS transform 会覆盖 SVG transform 属性
+_check("风险环动画把 -90° 起始角写进 keyframes（否则弧线会跳回 3 点钟方向）",
+       "from { transform: rotate(-90deg); }" in SRC
+       and "transform-box: fill-box; transform-origin: center;" in SRC)
+_check("系统开了「减少动态效果」时全部动画静止（无障碍）",
+       ".lb-panel .tr-main, .lb-panel .tr-sub, .lb-panel .tr-dot," in SRC
+       and ".lb-panel .sc-bar, .lb-panel .rk-arc { animation: none !important; }" in SRC)
 
 # 3) 错误凭据：给出提示且不放行
 at6.get("text_input")[0].set_value("wrong_user")

@@ -52,7 +52,14 @@ def main() -> int:
     ck(not at.exception, "登录后无异常", [e.value for e in at.exception])
 
     # ---- 注入一份最小分析结果，逼出结果区（含新增的第 5 个页签）----
-    at.session_state["analysis"] = {
+    # ⚠️ v10 起这里必须换一个**全新的已认证 AppTest**：
+    #    上面那个实例的树里还残留登录页的 text_input 节点，而登录成功后
+    #    Streamlit 会清理已消失控件的状态 —— 下一次 at.run() 在
+    #    get_widget_states() 阶段就会 KeyError（AppTest 伪问题，真实浏览器
+    #    没有旧树残留）。直接用 session_state 置登录态开新实例即可绕开。
+    at2 = AppTest.from_file("app.py", default_timeout=120)
+    at2.session_state["authenticated"] = True
+    at2.session_state["analysis"] = {
         "company": "验证用公司",
         "summary": "仅用于渲染验证",
         "scores": {"盈利能力": 8.0, "成长性": 6.5, "偿债能力": 9.0, "现金流质量": 7.5},
@@ -67,8 +74,9 @@ def main() -> int:
         "highlights": ["亮点一"],
         "trend": [],
     }
-    at.session_state["analysis_data"] = "营业收入 100 亿元"
-    at.run()
+    at2.session_state["analysis_data"] = "营业收入 100 亿元"
+    at2.run()
+    at = at2
     ck(not at.exception, "注入分析结果后无异常", [e.value for e in at.exception])
 
     # AppTest 会把一组 tabs 展平成 N 个 tab 对象，每个 label 是单独的字符串
