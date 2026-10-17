@@ -315,8 +315,20 @@ def pipeline_diag_markdown() -> str:
 # RAG + 双模型 (Plan B)  -- 千问用作润色 + RAG 检索回答, DeepSeek 仍负责结构化分析
 try:
     import rag_engine as rag
-except ImportError:
+except Exception:
     rag = None  # 模块可选缺失, 走兜底
+# 【v13 · 用户「为什么没给我建立年报索引」】
+# 旧写法只捕获 ImportError 且没有第二梯队：rag_engine 顶层 import chromadb /
+# dashscope 一失败 → rag = None → 面板里 `if rag is not None` 永远不成立 →
+# 点了「下载并解析」也建不出索引，页面永远挂着"未建立年报向量索引"且无任何报错。
+# 现在 rag_engine 已把硬依赖改成可选（自带 rag_lite 零依赖后端），
+# 这里再补一层：万一 rag_engine 仍不可用，直接把 rag_lite 顶上作为 rag，
+# 保证「解析了年报就一定能拿到页码引用」在任何环境下都成立。
+if rag is None:
+    try:
+        import rag_lite as rag
+    except Exception:
+        rag = None
 try:
     import llm_qwen as lq
 except ImportError:
@@ -3804,6 +3816,24 @@ def render_rag_hits_panel(rag_hits: list) -> str:
 
 
 # ============ 在线取数：UI 组件（可复用） ============
+def _report_year(date_str: str, report_type: str) -> str:
+    """把「公告日期 + 报告类型」换算成**报告期所属年度**。
+
+    这是个真实的口径 bug：年报是在**次年**披露的（2025 年年报在 2026-04 才公告），
+    直接取公告日期的年份会得到 2026 —— 标注成"2026 年年报"是错的，
+    而且一旦分析侧按 2025 取数、索引侧按 2026 命名，两边就对不上。
+    换算规则：年报且公告月份 ≤6 → 上一年；其余（含半年报/季报）→ 公告年。
+    """
+    _d = re.sub(r"\D", "", date_str or "")
+    if len(_d) < 4:
+        return ""
+    _y = int(_d[:4])
+    _m = int(_d[4:6]) if len(_d) >= 6 else 1
+    if (report_type or "").strip() == "年报" and _m <= 6:
+        _y -= 1
+    return str(_y)
+
+
 def _panel_clear(key_prefix: str) -> None:
     """清空某个取数面板派生的全部结果（P0-01：失败 / 换标的时必须让旧结果失效）。
 
@@ -4360,6 +4390,140 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
             st.info("请先在上方取数成功，这里才能下载并解析年报 PDF。")
         else:
             rtype = st.radio("报告类型", ["年报", "半年报", "一季报", "三季报"], horizontal=True, key=f"{key_prefix}_rtype")
+
+            # ---- 下载 → 解析 → 建索引（一键自动 / 手动选报告两条路径共用）----
+            def _build_rag_from_report(_r: dict, _rtype: str):
+                """下载年报 → 解析 → 建立页码索引，返回 (ok, 说明文案)。
+
+                【v13】以前「下载解析」和「建索引」是两段割裂的代码，且建索引被
+                `if rag is not None` 挡着 —— rag 为 None 时（chromadb 缺失）
+                点了就只是"已解析 XX 字"，索引永远不会建，页面永远提示"未建立"。
+                现在合并成一条必走链路，且**任何一步失败都返回可见原因**。
+                """
+                if rag is None:
+                    return False, "RAG 模块不可用（rag_engine 与 rag_lite 均未能加载）"
+                with st.spinner(f"正在下载《{_r.get('title', '')}》（大文件约 10-30 秒）……"):
+                    try:
+                        pdf = ds.download_pdf(_r["url"])
+                    except Exception as _e:
+                        pdf = None
+                if not pdf:
+                    return False, "PDF 下载失败（可能是网络或公告链接失效），请稍后重试或改用手动上传。"
+                ptxt = extract_pdf_bytes(pdf)
+                if not ptxt or len(ptxt) < 200:
+                    return False, "该 PDF 提取不到文字（疑似扫描件/图片型），页码引用无法建立。"
+
+                # ⚠️ 用**报告期所属年度**而非公告年份：2025 年年报是 2026-04 公告的，
+                # 取 [:4] 会得到 2026（错）。详见 _report_year()。
+                _yr = _report_year(_r.get("date") or "", _rtype)
+                # 文档标签：公告日期 + 报告类型。用于区分"同一年披露的年报/半年报/修订版"，
+                # 否则它们会共用同一份索引，检索到的是另一份报告的原文与页码。
+                try:
+                    _tag = rag.doc_tag_for(_r.get("date"), _rtype)
+                except Exception:
+                    _tag = ""
+                _pdf_path = Path(tempfile.gettempdir()) / f"{code}_{_yr}_{_rtype}.pdf"
+                try:
+                    _pdf_path.write_bytes(pdf)
+                except Exception:
+                    return False, "PDF 保存到临时目录失败（磁盘不可写）。"
+
+                st.session_state[f"{key_prefix}_pdftext"] = ptxt
+                st.session_state[f"{key_prefix}_pdf_title"] = _r.get("title", "")
+                st.session_state[f"{key_prefix}_pdf_year"] = _yr
+                st.session_state[f"{key_prefix}_pdf_tag"] = _tag
+                st.session_state[f"{key_prefix}_pdf_path"] = str(_pdf_path)
+                st.session_state.pop(f"{key_prefix}_rag_status", None)
+
+                if not code or not _yr:
+                    return False, f"无法从公告日期解析出年报年份（date={_r.get('date')}）。"
+
+                # 【RAG 接通关键步】立即按页切片并建立索引
+                # ⚠️ 不再依赖"双模型润色"开关：那个开关只决定要不要花钱调千问润色；
+                #    证据检索是**分析链路的一部分**，跟着开关走会出现入口不一致。
+                import time as _time
+                _t0 = _time.time()
+                _pbar = st.progress(0.0, text="正在建立年报页码索引……")
+
+                def _pcb(done: int, total: int):
+                    _pbar.progress(
+                        min(done / max(total, 1), 1.0),
+                        text=f"正在建立年报页码索引… 批次 {done}/{total}"
+                             f"（完整年报约需 40-80 秒，请勿关闭页面）",
+                    )
+
+                try:
+                    _st = rag.build_index_from_pdf(
+                        _pdf_path, code, _yr, progress_cb=_pcb, doc_tag=_tag
+                    )
+                except Exception as _e:
+                    _st = {"ok": False, "chunks": 0, "pages": 0,
+                           "msg": f"{type(_e).__name__}: {_e}"}
+                _pbar.empty()
+                log_event(
+                    "rag_build", ok=bool(_st.get("ok")),
+                    dur=_time.time() - _t0,
+                    extra=f"chunks={_st.get('chunks', 0)};backend={_st.get('backend', '?')}",
+                )
+                st.session_state[f"{key_prefix}_rag_status"] = _st
+                if _st.get("ok"):
+                    _be = "语义向量" if _st.get("backend") == "chroma" else "本地页级"
+                    return True, (
+                        f"✅ 已解析《{_r.get('title', '')}》并建立**{_be}索引**："
+                        f"{_st.get('chunks', 0)} 个文本块 · 覆盖 {_st.get('pages', 0)} 页；"
+                        f"后续分析 / 研报 / 追问将自动检索原文并标注「见年报第X页」。"
+                        + (f"（{_st.get('msg', '')}）" if "⚠️" in str(_st.get("msg", "")) else "")
+                    )
+                return False, f"索引未建立：{_st.get('msg') or '未知原因'}"
+
+            # ---- ⚡ 一键自动建立：无需手动选报告，自动取最新一份完整年报 ----
+            # 用户的原话是"你没有给我建立年报索引" —— 他要的是系统自己建，
+            # 而不是让他去点「获取报告列表 → 选报告 → 下载并解析」三步。
+            _auto_key = f"{key_prefix}_rag_auto"
+            _tried_key = f"{key_prefix}_rag_autotried"
+            _c1, _c2 = st.columns([1.25, 1])
+            with _c1:
+                _auto_btn = st.button(
+                    "⚡ 一键自动建立页码索引（自动取最新年报）",
+                    key=f"{key_prefix}_autobtn", type="primary", use_container_width=True,
+                )
+            with _c2:
+                st.toggle(
+                    "🚀 取数成功后自动建立",
+                    key=_auto_key,
+                    value=bool(st.session_state.get(_auto_key, True)),
+                    help="开启后，每次取数成功会自动下载并解析一份最新年报建立页码索引（约 40-80 秒）。"
+                         "关闭则只在手动点击时才建立。",
+                )
+
+            # 自动触发条件：开关开 + 当前确实没索引 + 这家公司还没尝试过（避免每轮 rerun 都卡 40 秒）
+            _need_auto = (
+                bool(st.session_state.get(_auto_key, True))
+                and not _rag_ok
+                and st.session_state.get(_tried_key) != code
+            )
+            if _auto_btn or _need_auto:
+                st.session_state[_tried_key] = code      # 先记账，失败也不再反复重试
+                with st.spinner("正在查找该公司最新年报公告……"):
+                    try:
+                        _auto_reports = ds.list_reports(code, org, rtype, limit=3)
+                    except Exception:
+                        _auto_reports = []
+                if not _auto_reports:
+                    st.warning(
+                        f"未找到「{rtype}」类型的完整版报告。可换一个报告类型，"
+                        f"或改用下方手动选择 / 手动上传 PDF。"
+                    )
+                else:
+                    _ok, _msg = _build_rag_from_report(_auto_reports[0], rtype)
+                    if _ok:
+                        st.success(_msg)
+                    else:
+                        st.warning(_msg)
+                    st.session_state[f"{key_prefix}_reports"] = _auto_reports
+
+            st.divider()
+            st.caption("—— 或手动指定某一份报告 ——")
             if st.button("获取报告列表", key=f"{key_prefix}_listbtn"):
                 reports = ds.list_reports(code, org, rtype, limit=8)
                 st.session_state[f"{key_prefix}_reports"] = reports
@@ -4371,89 +4535,38 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
                 opts = [f"{r['date']} {r['title']}" for r in reports]
                 idx = st.selectbox("选择报告", range(len(opts)), format_func=lambda i: opts[i], key=f"{key_prefix}_rsel")
                 if st.button("下载并解析该报告", key=f"{key_prefix}_dlbtn"):
-                    with st.spinner("正在下载并解析 PDF（大文件约 10-20 秒）……"):
-                        pdf = ds.download_pdf(reports[idx]["url"])
-                        if not pdf:
-                            st.error("PDF 下载失败，请稍后重试或改用手动上传。")
-                        else:
-                            ptxt = extract_pdf_bytes(pdf)
-                            if not ptxt or len(ptxt) < 200:
-                                st.warning("该 PDF 提取不到文字（可能是扫描件），请改用手动粘贴。")
-                            else:
-                                # 保存 PDF 到临时文件（供 RAG 按页建库）
-                                _yr = re.sub(r"\D", "", reports[idx].get("date") or "")[:4]
-                                # 文档标签：公告日期 + 报告类型。用于给向量集合命名 ——
-                                # 只按 code+year 命名会让"同一年披露的年报/半年报/修订版"
-                                # 共用同一个集合，检索到的是另一份报告的原文与页码。
-                                _tag = rag.doc_tag_for(reports[idx].get("date"), rtype) if rag is not None else ""
-                                _pdf_path = Path(tempfile.gettempdir()) / f"{code}_{_yr}_{rtype}.pdf"
-                                try:
-                                    _pdf_path.write_bytes(pdf)
-                                except Exception:
-                                    _pdf_path = None
-                                st.session_state[f"{key_prefix}_pdftext"] = ptxt
-                                st.session_state[f"{key_prefix}_pdf_title"] = reports[idx]["title"]
-                                st.session_state[f"{key_prefix}_pdf_year"] = _yr
-                                st.session_state[f"{key_prefix}_pdf_tag"] = _tag
-                                st.session_state[f"{key_prefix}_pdf_path"] = str(_pdf_path) if _pdf_path else ""
-                                st.session_state.pop(f"{key_prefix}_rag_status", None)
-                                st.success(f"✅ 已解析《{reports[idx]['title']}》，提取 {len(ptxt)} 字。")
-                                # 【RAG 接通关键步】立即按页切片并构建向量索引
-                                # ⚠️ 不再依赖"双模型润色"开关：那个开关只决定要不要
-                                #    花钱调千问润色；证据检索是**分析链路的一部分**，
-                                #    若跟着开关走，会出现"关掉开关 → 结构化分析仍用年报证据、
-                                #    研报却不用"的入口不一致。
-                                if rag is not None and _pdf_path and code and _yr:
-                                    import time as _time
-                                    _t0 = _time.time()
-                                    # 实时进度条：40 万字完整年报约 100+ 批 Embedding，
-                                    # 静态 spinner 会像卡死；逐批回报消除"没反应"的观感
-                                    _pbar = st.progress(
-                                        0.0, text="正在构建年报向量索引（8 路并发 Embedding）……"
-                                    )
-
-                                    def _pcb(done: int, total: int):
-                                        _pbar.progress(
-                                            min(done / max(total, 1), 1.0),
-                                            text=f"正在构建年报向量索引… 批次 {done}/{total}"
-                                                 f"（完整年报约需 40-80 秒，单批失败会自动重试，请勿关闭页面）",
-                                        )
-
-                                    _st = rag.build_index_from_pdf(
-                                        _pdf_path, code, _yr, progress_cb=_pcb, doc_tag=_tag
-                                    )
-                                    _pbar.empty()
-                                    log_event(
-                                        "rag_build", ok=bool(_st.get("ok")),
-                                        dur=_time.time() - _t0,
-                                        extra=f"chunks={_st.get('chunks', 0)}",
-                                    )
-                                    st.session_state[f"{key_prefix}_rag_status"] = _st
-                                    if _st.get("ok"):
-                                        st.success(
-                                            f"📚 RAG 索引构建成功：{_st['chunks']} 个文本块 · "
-                                            f"覆盖 {_st.get('pages', 0)} 页，后续分析与追问将自动检索引用（含页码）。"
-                                        )
-                                        if "⚠️" in _st.get("msg", ""):
-                                            st.warning(_st["msg"])
-                                    else:
-                                        st.warning(f"RAG 索引未构建：{_st.get('msg', '未知原因')}（分析仍可用年报开头文本）")
+                    _ok, _msg = _build_rag_from_report(reports[idx], rtype)
+                    if _ok:
+                        st.success(_msg)
+                    else:
+                        st.error(_msg)
 
     # RAG 状态提示：明确告诉使用者"现在有没有页码引用能力"
     # （重新读一次：向量索引可能就在本轮刚构建完成，不能用构建前的旧值）
     _rag_ok = bool(st.session_state.get(f"{key_prefix}_rag_status", {}).get("ok"))
     if _rag_ok:
         _st_ = st.session_state.get(f"{key_prefix}_rag_status", {})
+        _be_ = "语义向量" if _st_.get("backend") == "chroma" else "本地页级"
         st.caption(
-            f"📚 年报向量库已就绪：{_st_.get('chunks', 0)} chunks · "
-            f"{_st_.get('pages', 0)} 页 · 分析/研报/追问将按问题检索相关章节并标注页码"
+            f"📚 **年报索引已就绪（{_be_}）**：{_st_.get('chunks', 0)} 个文本块 · "
+            f"覆盖 {_st_.get('pages', 0)} 页 · 分析/研报/追问将按问题检索相关章节"
+            f"并标注「见年报第X页」。"
         )
     else:
+        _be_now = ""
+        try:
+            _be_now = rag.backend_label() if rag is not None else ""
+        except Exception:
+            _be_now = ""
+        _why = (
+            f"（当前检索后端：{_be_now}）" if _be_now else
+            "（⚠️ RAG 模块未加载：rag_engine 与 rag_lite 均不可用，页码引用功能不可用）"
+        )
         st.caption(
-            "ℹ️ **当前未建立年报向量索引** —— 分析结果基于取数文本（含年报开头部分），"
-            "**不含「见年报第X页」式页码引用**。若要启用页码引用，请点开上方面板"
-            "「📄 一键获取并解析年报 PDF」下载解析一份年报（约 40-80 秒），"
-            "建好后本页会自动提示「向量库已就绪」。"
+            f"ℹ️ **当前未建立年报索引** {_why}—— 分析结果基于取数文本（含年报开头部分），"
+            "**不含「见年报第X页」式页码引用**。点开上方面板的"
+            "「⚡ 一键自动建立页码索引」即可自动下载解析最新年报并建立索引"
+            "（约 40-80 秒），建好后这里会自动变成「年报索引已就绪」。"
         )
 
     pdftext = st.session_state.get(f"{key_prefix}_pdftext", "")
@@ -4490,8 +4603,9 @@ def _topbar_html() -> str:
         if _tb_rag_ok else
         "这是什么：还没有解析过年报 PDF，所以无法给出「见年报第X页」式页码引用 —— "
         "不是报错，分析照常可用（基于在线取数的财务文本）。"
-        "想启用：在单公司「🌐 在线取数」面板里点「📄 一键获取并解析年报 PDF」"
-        "（约 40-80 秒），建好后这个徽章会自动变化。"
+        "想启用：在单公司「🌐 在线取数」面板里点「⚡ 一键自动建立页码索引」"
+        "（自动取最新年报，约 40-80 秒）；或勾选「🚀 取数成功后自动建立」，"
+        "以后每次取数会自动建好，这个徽章会自动变化。"
     )
     _tb_who = "🎤 演示模式" if st.session_state.get("demo_mode") else "🔒 已登录"
     return (

@@ -12,10 +12,12 @@ numpy>=1.24.0
 # 千问 DashScope（"双模型协同"润色 + RAG 的 Embedding 调用）
 dashscope>=1.20.0
 
-# RAG 向量库（rag_engine.py 顶层 import chromadb / pypdf）
+# RAG 语义向量后端（可选）
+# 【v13 起改为可选依赖】rag_engine.py 已把 chromadb / dashscope 改成 try-import：
+# 缺失时自动降级到 rag_lite.py（纯 pypdf + stdlib 的本地页级索引），
+# 「见年报第X页」照常可用 —— 这两行即使安装失败应用也不会崩、功能也不会缺。
 # 说明：Streamlit Community Cloud 用 uv 安装，整棵依赖树（含 onnxruntime、
-# kubernetes、grpcio、opentelemetry 等 114 个包）实测约 16 秒装完，
-# 不是构建慢的原因，故保留。
+# kubernetes、grpcio、opentelemetry 等 114 个包）实测约 16 秒装完，不是构建慢的原因。
 chromadb>=0.5.0
 
 # 注：tiktoken 不再声明 —— 全项目代码未 import（仅早期排查脚本引用过）。

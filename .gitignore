@@ -190,6 +190,8 @@ materials/
 *.log
 # 本地向量库缓存与实验输出（运行时生成，不入库）
 chroma_store/
+# 本地页级年报索引（rag_lite.py 生成，含年报原文切片，不入库）
+rag_index/
 eval_results/
 llm_usage.txt
 # 使用日志（运行时生成，不入库）

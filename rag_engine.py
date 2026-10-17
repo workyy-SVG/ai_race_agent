@@ -22,11 +22,44 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 
-import dashscope
-from dashscope import TextEmbedding
-import chromadb
-from chromadb.config import Settings
 from pypdf import PdfReader
+
+# 【v13 关键修复 · 用户反馈「为什么没给我建立年报索引」】
+# 原先这里四个包全是**顶层硬导入**。chromadb / dashscope 一旦缺失（ChromaDB 依赖树
+# 上百个包：onnxruntime / grpcio / kubernetes…，受限环境装不上是常态），
+# `import rag_engine` 就直接抛 ImportError，而 app.py 是
+#     try: import rag_engine as rag / except ImportError: rag = None
+# 于是 rag 恒为 None → 面板里 `if rag is not None` 永远不成立 →
+# 用户点「下载并解析年报」只停在"已解析 XX 字"，**索引永远建不起来**，
+# 页面就一直挂着「当前未建立年报向量索引」，且全程没有任何报错。
+#
+# 修法：① 硬依赖改为可选导入，保证 rag_engine 在任何环境都能被 import；
+#       ② 提供零依赖后端 rag_lite（纯 pypdf + stdlib 的页级索引），
+#          没有向量库也照样能给出真正的「见年报第X页」引用。
+try:
+    import dashscope
+    from dashscope import TextEmbedding
+except Exception as _e:      # pragma: no cover - 环境相关
+    dashscope = None
+    TextEmbedding = None
+    logger = logging.getLogger(__name__)
+    logger.warning("dashscope 不可用（%s），RAG 将降级为本地页级索引", type(_e).__name__)
+
+try:
+    import chromadb
+    from chromadb.config import Settings
+except Exception as _e:      # pragma: no cover - 环境相关
+    chromadb = None
+    Settings = None
+    logger = logging.getLogger(__name__)
+    logger.warning("chromadb 不可用（%s），RAG 将降级为本地页级索引", type(_e).__name__)
+
+try:
+    import rag_lite
+except Exception as _e:      # pragma: no cover
+    rag_lite = None
+    logger = logging.getLogger(__name__)
+    logger.warning("rag_lite 不可用（%s）", type(_e).__name__)
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +78,12 @@ except Exception:  # pragma: no cover - 预算统计绝不拖垮 RAG
 # ---------------------------------------------------------------------------
 # 配置
 # ---------------------------------------------------------------------------
-CHROMA_ROOT = Path("./chroma_store")
-CHROMA_ROOT.mkdir(parents=True, exist_ok=True)
+# ⚠️ 同理：不在导入期 mkdir，受限环境下会让 `import rag_engine` 直接失败
+CHROMA_ROOT = Path(os.environ.get("RAG_CHROMA_DIR", "./chroma_store"))
+try:
+    CHROMA_ROOT.mkdir(parents=True, exist_ok=True)
+except Exception:
+    logger.warning("chroma_store 目录不可写（%s），向量后端可能不可用", CHROMA_ROOT)
 
 EMBED_MODEL_DEFAULT = "text-embedding-v3"
 EMBED_DIM = 1024  # text-embedding-v3 输出维度
@@ -336,7 +373,39 @@ def _embed_query(q: str, model: str = EMBED_MODEL_DEFAULT) -> List[float]:
 # ---------------------------------------------------------------------------
 # ChromaDB
 # ---------------------------------------------------------------------------
-def _get_chroma_client() -> chromadb.PersistentClient:
+# ---------------------------------------------------------------------------
+# 后端选择（v13）
+#
+# 「见年报第X页」的本质是：解析 PDF → 按页切片 → 存页号 → 按问题检索相关页。
+# 向量库只是**提高召回质量**的手段，不是必要条件。因此这里做双后端：
+#   · chroma：chromadb + dashscope 都在，且能拿到 API key → 语义向量检索（质量最优）
+#   · lite  ：任一缺失 → rag_lite 的本地页级索引（零依赖，永远可用）
+# 关键是**两条路径返回结构完全一致**，调用方不用关心当前跑的是哪条。
+# ---------------------------------------------------------------------------
+def backend_available() -> str:
+    """当前可用后端名：'chroma' / 'lite' / 'none'（两个后端都不可用时）。"""
+    if chromadb is not None and dashscope is not None:
+        try:
+            _ensure_dashscope_key()
+            return "chroma"
+        except Exception:
+            pass
+    return "lite" if rag_lite is not None else "none"
+
+
+def backend_label() -> str:
+    """给 UI 用的一句话说明，避免用户/评委误以为"没建索引 = 出错"。"""
+    b = backend_available()
+    if b == "chroma":
+        return "语义向量检索（ChromaDB + DashScope Embedding）"
+    if b == "lite":
+        return "本地页级索引（零依赖关键词检索，同样支持「见年报第X页」）"
+    return "不可用"
+
+
+def _get_chroma_client():
+    if chromadb is None:
+        raise RuntimeError("chromadb 未安装")
     return chromadb.PersistentClient(
         path=str(CHROMA_ROOT),
         settings=Settings(anonymized_telemetry=False, allow_reset=False),
@@ -467,7 +536,20 @@ def build_index_from_pdf(
     doc_tag: 同一年份内的文档标签（年报/半年报/修订版…），见 doc_tag_for()。
 
     Returns: {"ok": bool, "chunks": int, "pages": int, "msg": str, "collection": str}
+            另含 "backend": "chroma" | "lite"，供 UI 显示当前实际生效的检索后端。
     """
+    # 【v13】向量后端不可用时转本地页级索引 —— 绝不让"点了解析却建不出索引"发生
+    if backend_available() != "chroma" and rag_lite is not None:
+        _st = rag_lite.build_index_from_pdf(
+            pdf_path, code, year, doc_tag=doc_tag, progress_cb=progress_cb)
+        # 词项索引是瞬时建完的（无需 Embedding），进度回调补一次 100%
+        try:
+            if progress_cb:
+                progress_cb(1, 1)
+        except Exception:
+            pass
+        return _st
+
     try:
         pages = pdf_to_pages(pdf_path)
         if not any(p["text"].strip() for p in pages):
@@ -492,10 +574,19 @@ def build_index_from_pdf(
             "pages": len(pages),
             "msg": f"已构建/复用索引 ({cnt} chunks, 覆盖 {len(pages)} 页){_warn}",
             "collection": _collection_name(code, year, doc_tag),
+            "backend": "chroma",
         }
     except Exception as e:
         logger.exception("build_index_from_pdf 失败")
-        return {"ok": False, "chunks": 0, "pages": 0, "msg": f"{type(e).__name__}: {e}", "collection": ""}
+        # 【v13】向量链路崩了也要留下可用索引 —— 降级而非放弃
+        if rag_lite is not None:
+            _st = rag_lite.build_index_from_pdf(
+                pdf_path, code, year, doc_tag=doc_tag, progress_cb=progress_cb)
+            if _st.get("ok"):
+                _st["msg"] = f"向量后端失败（{type(e).__name__}），已降级为本地页级索引：{_st.get('msg','')}"
+                return _st
+        return {"ok": False, "chunks": 0, "pages": 0,
+                "msg": f"{type(e).__name__}: {e}", "collection": "", "backend": "none"}
 
 
 # ---------------------------------------------------------------------------
@@ -547,7 +638,12 @@ def retrieve(
     宁可返回空（调用方会明确说"未检索到相关片段"），也不要把无关段落当依据。
     `score` 是混合相关度（余弦 + 关键词重叠，用于最终排序），
     `cos` 是纯语义相似度。相关度**只表示排序依据**，不是"结论正确的概率"，页面也照此措辞。
+
+    【v13】向量后端不可用时自动走 rag_lite 的本地页级检索，返回结构一致（同样带 page）。
     """
+    if backend_available() != "chroma" and rag_lite is not None:
+        return rag_lite.retrieve(query, code, year, top_k=top_k,
+                                 doc_tag=doc_tag, min_score=rag_lite.MIN_SCORE)
     try:
         client = _get_chroma_client()
         cname = _collection_name(code, year, doc_tag)
@@ -588,6 +684,13 @@ def retrieve(
         return out[:max(int(top_k or TOP_K), 1)]
     except Exception as e:
         logger.exception("retrieve 失败")
+        # 【v13】向量检索崩了也要给得出证据 —— 降级到本地页级索引
+        if rag_lite is not None:
+            try:
+                return rag_lite.retrieve(query, code, year, top_k=top_k,
+                                         doc_tag=doc_tag, min_score=rag_lite.MIN_SCORE)
+            except Exception:
+                pass
         return []
 
 
@@ -612,6 +715,12 @@ def find_index_tag(code: str, year: str) -> Optional[str]:
                     continue
     except Exception:
         logger.warning("find_index_tag 失败", exc_info=True)
+    # 【v13】向量库不可用时，回本地页级索引找
+    if rag_lite is not None:
+        try:
+            return rag_lite.find_index_tag(code, year)
+        except Exception:
+            pass
     return None
 
 
@@ -624,12 +733,22 @@ def has_index(code: str, year: str, doc_tag: str = "") -> bool:
     ⇒ retrieve() 每次都在入口直接 return [] ⇒ **RAG 检索从未真正生效**
     (应用照样会显示"向量库已就绪", 因为那只取决于 build 返回的 chunks 数)。
     """
+    # 先问向量库（有就是真有）
     try:
-        client = _get_chroma_client()
-        coll = client.get_collection(_collection_name(code, year, doc_tag))
-        return coll.count() > 0
+        if chromadb is not None:
+            client = _get_chroma_client()
+            coll = client.get_collection(_collection_name(code, year, doc_tag))
+            if coll.count() > 0:
+                return True
     except Exception:
-        return False
+        pass
+    # 再问本地页级索引（v13：没有向量库时这才是主链路）
+    if rag_lite is not None:
+        try:
+            return rag_lite.has_index(code, year, doc_tag)
+        except Exception:
+            return False
+    return False
 
 
 def format_citations(hits: List[Dict[str, Any]]) -> str:
