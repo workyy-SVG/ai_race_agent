@@ -1405,7 +1405,8 @@ CUSTOM_CSS = """
     border-left: 3px dashed #94A3B8;
     color: #475569;
   }
-  .base-bar .bb-nodata .bb-note { color: #64748B; }
+  /* 文字色一律 ≥4.5:1：#64748B 在 #F8FAFC 上只有 3.77:1，不合格 */
+  .base-bar .bb-nodata .bb-note { color: #475569; }
 
   /* ===== v10 全局补丁 ===== */
 

@@ -112,6 +112,25 @@ ck(_st3 == "keep_draft" and any("99.9" in i for i in _is3),
 _t4, _st4, _is4 = fc.polish_guard(_d, "")
 ck(_st4 == "keep_draft", "B06 润色为空 → 保留初稿")
 
+# ---- B06 的边界：数字有出处 ≠ 口径正确 ----
+# B06 的本质是「数字没变、口径被偷换」：11% 在初稿里是**规则线**，
+# 润色却把它说成行业平均。因此放行条件必须苛刻：
+#   数值必须来自**本次真实注入的同业统计**（allowed），
+#   来自初稿（尤其是规则线数值）的一律不算 —— 否则守卫形同虚设。
+_t5, _st5, _is5 = fc.polish_guard(
+    "## 摘要\n茅台 ROE 为 32.5%。",
+    "## 摘要\n茅台 ROE 为 32.5%，高于行业中值 13.24%。",
+    allowed=["13.24"])
+ck(_st5 == "pass", "B06 有真实注入值时允许引用同业中值", _st5)
+_t6, _st6, _is6 = fc.polish_guard(
+    "## 摘要\n茅台 ROE 为 32.5%。",
+    "## 摘要\n茅台 ROE 为 32.5%，高于行业中值 20%。",
+    allowed=["13.24"])
+ck(_st6 == "keep_draft", "B06 未注入的中值 → 退回初稿", _st6)
+# 邻近窗口不得把 "13.24" 切成 "24"（中文无空格分隔，切串取数会凭空造数）
+ck(not any(" 24）" in i or "24 " in i for i in _is5),
+   "B06 邻近取数按 token 位置，不会把 13.24 切成 24", _is5)
+
 # ---------------- B10：成稿格式 ----------------
 print("\n[B10] 成稿清洗")
 _c = fc.strip_polish_preface(
@@ -194,7 +213,8 @@ ck("—（数据不足未评分）" in _src, "B11 缺失综合评分显示『数
 ck("_ht = _h.get(\"total\")" in _src, "B11 先取值再判断，不再直接拼 None")
 
 print("\n[B06/B10] 润色守卫接入")
-ck("fc.polish_guard(report, _refined)" in _src, "B06 研报润色结果过守卫")
+ck("fc.polish_guard(" in _src and "report, _refined, allowed=_allow)" in _src,
+   "B06 研报润色结果过守卫（O11 起带 allowed 放行真实统计值）")
 ck("fc.fix_markdown(fc.strip_polish_preface(report))" in _src,
    "B10 成稿统一清洗加工前言与落单标记")
 

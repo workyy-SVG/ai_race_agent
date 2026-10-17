@@ -355,15 +355,13 @@ def fix_markdown(text: str) -> str:
 # 这些词一出现就意味着**引入了新的统计口径**：
 # 初稿"白酒业 ROE 11% 即显落后"是规则判断线，润色成"行业约 11% 的平均水平"
 # 就凭空造出一个未经本轮数据支持的行业均值。
+# O11 后新增「中值」：页面与上下文用的就是"中值 / 均值"这一对措辞，
+# 因此"中值"也要纳入锁定（没注入过就冒出来的中值同样拦下）。
 _LOCKED_STATS = ("平均水平", "行业平均", "平均值", "平均数", "均值",
-                 "中位数", "分位数", "均值水平", "平均水平约为")
+                 "中位数", "中值", "分位数", "均值水平", "平均水平约为")
 
 _LIST_MARK = re.compile(r"(?m)^\s*\d{1,2}[\.、)]\s*")
 _NUM_RE = re.compile(r"[+-]?\d+(?:\.\d+)?")
-
-# 切句：判定「统计口径词所在句子」时用（按句号 / 分号 / 换行切开）
-_SENT_SPLIT = re.compile(r"[。；\n]")
-
 
 def _in_allowed(x: float, allowed) -> bool:
     """该数值是否属于「本次真实注入、允许引用」的统计值。"""
@@ -383,15 +381,28 @@ def _near_numbers(text: str, w: str, before: int = 10, after: int = 12) -> set:
     "优于行业约 11% 的平均水平"。11 在初稿里存在，但它**不是**同业统计值，
     所以即便数字"有出处"也必须拦下。
     只看词前后一小段，才能判断这个数字到底是挂在规则线上还是挂在中值上。
+
+    ⚠️ 必须先取「全文数字 token + 位置」再按位置筛窗口，**不能**先切字符串
+    再取数字：中文没有空格分隔，粗暴切片会把 "13.24" 从中间切成 "24"，
+    凭空造出一个不存在的数字，导致本来该放行的引用被误判成新事实。
     """
+    t = text or ""
+    # 抹掉列表编号（"1. " 这类），用等长空格替换以保持位置索引不变
+    masked = _LIST_MARK.sub(lambda m: " " * (m.end() - m.start()), t)
+    tokens = [(m.start(), m.end()) for m in _NUM_RE.finditer(masked)]
     out: set = set()
     pos = 0
-    t = text or ""
     while True:
         i = t.find(w, pos)
         if i < 0:
             break
-        out |= _numbers(t[max(0, i - before): i + len(w) + after])
+        lo, hi = i - before, i + len(w) + after
+        for s, e in tokens:
+            if s >= lo and e <= hi:
+                try:
+                    out.add(round(float(masked[s:e]), 4))
+                except ValueError:
+                    pass
         pos = i + len(w)
     return out
 
@@ -436,24 +447,35 @@ def polish_guard(draft: str, polished: str, allowed=None) -> Tuple[str, str, Lis
     d0, p0 = draft or "", clean
     dn = _numbers(d0)
 
-    # ② 新统计口径：只有当该口径词所在句子里出现**未经注入**的数值才算违规。
-    #    例：上下文注入了"ROE 中值 13.24%"，润色写"高于行业中值 13.24%" → 放行；
-    #    没注入却写"低于行业平均水平 12%" → 拦下（这就是 B06 的老毛病）。
+    # ② 新统计口径：放行条件**很苛刻** —— 该口径词邻近的数值必须来自本次
+    #    真实注入的同业统计值（allowed）。
+    #       · 注入了中值 13.24 → "高于行业中值 13.24%" 放行；
+    #       · B06 老毛病：把初稿规则线 11% 说成"行业约 11% 的平均水平" → 拦下
+    #         （11 有出处，但出处是规则线，不是同业统计）；
+    #       · 凭空说"高于行业平均水平"却给不出可核对的数值 → 拦下。
     for w in _LOCKED_STATS:
         if w in p0 and w not in d0:
-            bad = []
-            for seg in _SENT_SPLIT.split(p0):
-                if w not in seg:
-                    continue
-                for x in _numbers(seg):
-                    if x in dn or _in_allowed(x, _allowed):
-                        continue
-                    bad.append(x)
-            if bad:
-                _bad = "、".join(_fmt(x) for x in bad[:4])
+            near = _near_numbers(p0, w)
+            hit = [x for x in near if _in_allowed(x, _allowed)]
+            if not near:
                 issues.append(
-                    "润色新增了未经本次数据支持的统计口径「" + w + "」（含未注入数值 " + _bad + "）"
+                    "润色新增了未经本次数据支持的统计口径「" + w + "」（未给出可核对的统计数值）"
                 )
+            elif not hit:
+                _bad = "、".join(_fmt(x) for x in sorted(near)[:4])
+                issues.append(
+                    "润色新增了未经本次数据支持的统计口径「" + w
+                    + "」（邻近数值 " + _bad + " 不属本次注入的同业统计）"
+                )
+            else:
+                unknown = [x for x in near
+                           if x not in dn and not _in_allowed(x, _allowed)]
+                if unknown:
+                    _bad = "、".join(_fmt(x) for x in sorted(unknown)[:4])
+                    issues.append(
+                        "润色新增了未经本次数据支持的统计口径「" + w
+                        + "」（含未注入数值 " + _bad + "）"
+                    )
 
     # ③ 新数字（剔除本次真实注入的统计值）
     pn = _numbers(p0)
