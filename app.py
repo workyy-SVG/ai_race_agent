@@ -346,6 +346,12 @@ try:
     import analysis_context as actx
 except Exception:
     actx = None
+# ---- 同业样本统计（优化方案 O11）----
+# 依赖 requests（与 data_source 同级），缺失时不可用 —— 页面只显示规则线。
+try:
+    import industry_stat as ist
+except Exception:
+    ist = None
 
 # ---- Agent 执行轨迹（工具调用链）----
 # 赛题是「让 AI Agent 赋能千行百业」，但页面上原本只呈现**最终结果**：
@@ -570,7 +576,18 @@ BASE_SYSTEM_PROMPT = """你是一名专业、严谨的金融投研分析师。�
   "缺少历史分位数据，无法判断是否便宜"，但必须先给出 PB 的值。
 - 描述数值变化时，方向由数字决定：后值大于前值用"上升 / 提高"，
   后值小于前值用"下降 / 降低"，比率变化用"百分点（pp）"，不要用百分比。
-  例如 50.53% → 50.75% 只能写"上升 0.22 个百分点"，写成"下降"即为错误。"""
+  例如 50.53% → 50.75% 只能写"上升 0.22 个百分点"，写成"下降"即为错误。
+
+【行业基准的两种口径必须分开】（违反即为错误输出）
+- 本项目有两条**含义不同**的行业基准线，绝不能互相冒充：
+  ①「规则优秀线」= 本项目为各行业设定的评判标准（如消费 ROE 18%），
+     页面上标注为「规则优秀线（本项目设定）」，仅用于评分与四象限定位；
+  ②「同业样本统计」= 东方财富 F10 公布的同行业实际水平（中值 / 均值）。
+- **不得**把"落后规则优秀线"表述成"低于行业平均水平"，反之亦然。
+- 引用同业统计时，必须说明是「中值」还是「均值」（两者可能相差很大，
+  且均值会被极端值拉偏）；只在上下文确实给出了【同业样本统计】区块时才能引用。
+- 上下文中若**没有**同业统计区块，就不得杜撰任何"行业平均 / 行业中位数"。
+- 与中值、均值比较时用**百分点（pp）**，不说"高出百分之多少"。"""
 
 # ============ 全局样式（金融主题：浅冷灰底 + 单一品牌蓝） ============
 CUSTOM_CSS = """
@@ -1365,6 +1382,30 @@ CUSTOM_CSS = """
   .base-bar b { color: #0B1F3A; }
   .base-bar .bb-num { color: #B45309; font-weight: 700; }
   .base-bar .bb-note { color: #3B4A5F; }
+
+  /* ===== O11：同业样本统计条（与「规则优秀线」分开的一栏） =====
+     两条线含义不同：规则线是本项目设的"优秀标准"，统计线是东财公布的实际水平。
+     用左边框颜色区分（规则=蓝，统计=绿），避免被误读成同一个东西。 */
+  .base-bar .bb-sub {
+    margin-top: 8px;
+    padding: 7px 12px;
+    border-radius: 6px;
+    font-size: 13.5px;
+    line-height: 1.75;
+  }
+  .base-bar .bb-stat {
+    background: #F0FDF4;
+    border-left: 3px solid #15803D;
+    color: #14532D;
+  }
+  .base-bar .bb-stat .bb-num { color: #B45309; font-weight: 700; }
+  .base-bar .bb-stat .bb-note { color: #3F6212; }
+  .base-bar .bb-nodata {
+    background: #F8FAFC;
+    border-left: 3px dashed #94A3B8;
+    color: #475569;
+  }
+  .base-bar .bb-nodata .bb-note { color: #64748B; }
 
   /* ===== v10 全局补丁 ===== */
 
@@ -3370,6 +3411,97 @@ def _industry_base(industry: str) -> tuple:
     return _INDUSTRY_BASE.get(industry or "通用", (_SCATTER_ROE_LINE, _SCATTER_GROW_LINE))
 
 
+# ---------------------------------------------------------------------------
+# O11：同业样本统计（与「规则优秀线」分开）
+#
+# 两条线必须分开的根本原因：
+#   · 规则优秀线 —— 本项目为各行业设定的评判标准（消费 ROE 18%），用于评分与四象限；
+#   · 同业样本统计 —— 东方财富 F10 公布的该细分行业实际水平（白酒 ROE 中值 13.24%）。
+# 两者数值可以差很远，且**含义完全不同**。混着说就会造出 B06 那类错误
+# （把"落后 18% 优秀线"写成"低于行业平均水平"）。
+# ---------------------------------------------------------------------------
+def _peer_stat_for(code, name=""):
+    """取同业样本统计。取不到返回 None（调用点负责显示"未取到"）。
+
+    INDUSTRY_STAT_OFF=1 可在回归测试里彻底关掉取数，保证测试不依赖网络。
+    """
+    if os.environ.get("INDUSTRY_STAT_OFF", "") == "1":
+        return None
+    if ist is None or not (code or "").strip():
+        return None
+    try:
+        return ist.industry_stats(code, name)
+    except Exception:
+        return None
+
+
+def _peer_stat_html(st, center_name=""):
+    """同业样本统计栏 HTML。
+
+    关键：拿不到真实样本时**只说明没拿到**，绝不把规则优秀线包装成"行业平均"。
+    """
+    if not (ist is not None and ist.usable(st)):
+        reason = ((st or {}).get("reason")
+                  or ("当前为手动材料，没有证券代码，无从定位同业样本"
+                      if not center_name else "未取到东方财富 F10 的同业样本"))
+        return (
+            '<div class="bb-sub bb-nodata">'
+            '📊 <b>同业样本统计</b>：' + _esc(reason) +
+            '<br><span class="bb-note">此处不显示行业平均 —— 没有真实样本时，'
+            '拿规则优秀线顶替成「行业平均」，等于造一个未经支持的数字。</span>'
+            '</div>'
+        )
+
+    roe = st.get("roe") or {}
+    rev = st.get("rev") or {}
+    period = st.get("period") or st.get("report_date") or "报告期未标注"
+    cname = center_name or st.get("center") or st.get("center_code") or ""
+
+    head = (f'📊 <b>同业样本统计</b>'
+            f'（东方财富 F10 · 以 <b>{_esc(cname)}</b> 为中心的同行业公司'
+            f' · {_esc(period)} · 样本 {st.get("n")} 家）')
+
+    segs = []
+    if roe.get("median") is not None:
+        segs.append(f'ROE 中值 <span class="bb-num">{roe["median"]:g}%</span>')
+    if roe.get("avg") is not None:
+        segs.append(f'均值 <span class="bb-num">{roe["avg"]:g}%</span>')
+    if rev.get("median") is not None:
+        segs.append(f'营收同比中值 <span class="bb-num">{rev["median"]:g}%</span>')
+    if rev.get("avg") is not None:
+        segs.append(f'均值 <span class="bb-num">{rev["avg"]:g}%</span>')
+    line1 = " ／ ".join(segs) if segs else ""
+
+    # 中值与均值并列展示本身就是 O11 的要点：均值会被极端值拉偏，
+    # 只报一个口径会丢信息（宁德时代营收同比就是"高于中值、却低于均值"）。
+    line2 = ""
+    pos = []
+    for val, kind, label in ((roe.get("self"), "roe", "ROE"),
+                             (rev.get("self"), "rev", "营收同比")):
+        if val is None:
+            continue
+        txt = ist.position_text(val, st, kind)
+        pos.append(f'{label} {val:g}%' + (f'（{txt}）' if txt else ""))
+    if pos:
+        line2 = ('<br><span class="bb-note">本股：' + "；".join(pos)
+                 + "（比率差一律用百分点，不说「高出百分之多少」）</span>")
+
+    return (
+        f'<div class="bb-sub bb-stat">{head}'
+        + (f'<br>{line1}' if line1 else "")
+        + line2
+        + '<br><span class="bb-note">这是「同业实际水平」，与上方规则优秀线不是一回事；'
+          '引用时必须说明是「中值」还是「均值」。</span>'
+          '</div>'
+    )
+
+
+def _esc(s: str) -> str:
+    """HTML 转义（拼接进 unsafe_allow_html 的用户/接口文本必须先转义）。"""
+    return (str(s or "").replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
+
+
 def render_scatter_roe_growth(roe, revenue_yoy, name: str = "本公司",
                               industry: str = "通用") -> bytes | None:
     """ROE × 营收增速 四象限定位散点图（明星 / 现金牛 / 问题 / 瘦狗）。
@@ -5233,15 +5365,26 @@ if _cur_view == "🏢":
         # ---- 同业对标基准条：把「对标」这个动作直接摆到用户面前 ----
         # 同一组财务数据只有在对标了行业基准后才具备可比性（银行 ROE 11% 已属优秀，
         # 白酒 ROE 11% 则严重落后）——「同业对标」是金融分析的规定动作，必须显式标注。
+        #
+        # 【O11】基准条拆成两条线：
+        #   ① 规则优秀线 —— 本项目设定，用于评分与四象限；
+        #   ② 同业样本统计 —— 东方财富 F10 的真实中值 / 均值。
+        # 两者数值与含义都不同，必须分开：否则会造出 B06 那类错误
+        # （把"落后 18% 优秀线"说成"低于行业平均水平"）。
         _base_roe, _base_grow = _industry_base(industry)
+        _peer_st = _peer_stat_for(_single_code, _single_name)
+        # 存业务键，供研报/追问的上下文注入使用（读它时也要判 usable）
+        st.session_state["peer_stat"] = _peer_st
         st.markdown(
             f'<div class="base-bar">'
-            f'📐 <b>同业对标基准（{industry}）</b>'
+            f'📐 <b>规则优秀线（{industry} · 本项目设定）</b>'
             f' · ROE 优秀线 <span class="bb-num">{_base_roe:g}%</span>'
             f' · 营收增速稳健线 <span class="bb-num">{_base_grow:g}%</span>'
-            f'<br><span class="bb-note">四维评分、四象限定位与散点基准线均按该行业口径计算；'
+            f'<br><span class="bb-note">这是「优秀标准」，不是行业实际水平；'
+            f'四维评分、四象限定位与散点基准线均按此口径计算，'
             f'切换上方行业按钮，全部基准随之调整。</span>'
-            f'</div>',
+            + _peer_stat_html(_peer_st, _single_name if _single_code else "")
+            + f'</div>',
             unsafe_allow_html=True,
         )
 else:
@@ -6396,6 +6539,14 @@ def _view_single():
                         context += "\n\n" + _vb
                 if analysis:
                     context += f"\n\n已有的结构化评分（供参考，保持一致）：{json.dumps(analysis.get('scores', {}), ensure_ascii=False)}"
+                # 【O11】同业样本统计块：把东财真实的同业中值 / 均值交给模型。
+                # 只有真拿到了才注入 —— 拿不到就一个字都不给，
+                # 模型也就无从杜撰"行业平均"（这正是 B06 的根因）。
+                if ist is not None:
+                    _pst = st.session_state.get("peer_stat")
+                    _pst_txt = ist.stats_text(_pst, _single_name or "")
+                    if _pst_txt:
+                        context += "\n\n" + _pst_txt
                 if _rag_hits:
                     context += f"\n\n【RAG 检索片段（来自年报全文）】\n{rag.format_citations(_rag_hits)}"
                 report = llm_stream(
@@ -6429,7 +6580,13 @@ def _view_single():
                     if _refined:
                         st.session_state.pop("polish_guard", None)
                         if fc is not None:
-                            _final, _pstat, _pissues = fc.polish_guard(report, _refined)
+                            # 【O11】把本次真实注入的同业统计值交给守卫放行 ——
+                            # 有了真实来源，"高于行业中值 13.24%"就不再是新事实；
+                            # 但没注入过却冒出来的行业均值，照样一律拦下。
+                            _allow = (ist.allowed_values(st.session_state.get("peer_stat"))
+                                      if ist is not None else [])
+                            _final, _pstat, _pissues = fc.polish_guard(
+                                report, _refined, allowed=_allow)
                         else:
                             _final, _pstat, _pissues = _refined, "pass", []
                         report = _final

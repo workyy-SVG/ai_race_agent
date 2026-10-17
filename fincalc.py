@@ -361,6 +361,40 @@ _LOCKED_STATS = ("平均水平", "行业平均", "平均值", "平均数", "均�
 _LIST_MARK = re.compile(r"(?m)^\s*\d{1,2}[\.、)]\s*")
 _NUM_RE = re.compile(r"[+-]?\d+(?:\.\d+)?")
 
+# 切句：判定「统计口径词所在句子」时用（按句号 / 分号 / 换行切开）
+_SENT_SPLIT = re.compile(r"[。；\n]")
+
+
+def _in_allowed(x: float, allowed) -> bool:
+    """该数值是否属于「本次真实注入、允许引用」的统计值。"""
+    if not allowed:
+        return False
+    for form in (_fmt(x, 4), _fmt(x, 2), _fmt(x, 1), f"{x:g}"):
+        if form in allowed:
+            return True
+    return False
+
+
+def _near_numbers(text: str, w: str, before: int = 10, after: int = 12) -> set:
+    """取统计口径词**邻近窗口**内的数字。
+
+    为什么要限定窗口：B06 的本质是「数字没变、口径被偷换」——
+    初稿写"白酒业 ROE 11% 即显落后"（11 是规则线），润色改成
+    "优于行业约 11% 的平均水平"。11 在初稿里存在，但它**不是**同业统计值，
+    所以即便数字"有出处"也必须拦下。
+    只看词前后一小段，才能判断这个数字到底是挂在规则线上还是挂在中值上。
+    """
+    out: set = set()
+    pos = 0
+    t = text or ""
+    while True:
+        i = t.find(w, pos)
+        if i < 0:
+            break
+        out |= _numbers(t[max(0, i - before): i + len(w) + after])
+        pos = i + len(w)
+    return out
+
 
 def _numbers(text: str) -> set:
     """取出文本里的全部数字（先剔除列表编号 1. 2. 3. 这类非事实数字）。"""
@@ -368,7 +402,7 @@ def _numbers(text: str) -> set:
     return {round(float(x), 4) for x in _NUM_RE.findall(t)}
 
 
-def polish_guard(draft: str, polished: str) -> Tuple[str, str, List[str]]:
+def polish_guard(draft: str, polished: str, allowed=None) -> Tuple[str, str, List[str]]:
     """润色结果守卫。返回 (最终采用的文本, 状态, 说明列表)。
 
     状态：
@@ -380,7 +414,12 @@ def polish_guard(draft: str, polished: str) -> Tuple[str, str, List[str]]:
       1. 新增**统计口径词**（平均水平 / 中位数 / 分位数 …）；
       2. 新增**数字**（初稿里从未出现过的数值 = 新事实）；
       3. 数值方向与用词相反（交由 fix_direction 修正，修正即视为通过）。
+
+    allowed（O11）：本次**真实注入**到上下文里的同业统计值（如行业中值 13.24）。
+    润色稿引用这些值不算"新事实" —— 因为它们有真实来源；
+    但**没有注入过**的行业均值仍然一律拦下。
     """
+    _allowed = set(allowed or ())
     issues: List[str] = []
     if not polished:
         return draft, "keep_draft", ["润色结果为空，保留初稿"]
@@ -394,15 +433,31 @@ def polish_guard(draft: str, polished: str) -> Tuple[str, str, List[str]]:
     for f in fixes:
         issues.append(f"已修正：{f}")
 
-    # ② 新统计口径
     d0, p0 = draft or "", clean
+    dn = _numbers(d0)
+
+    # ② 新统计口径：只有当该口径词所在句子里出现**未经注入**的数值才算违规。
+    #    例：上下文注入了"ROE 中值 13.24%"，润色写"高于行业中值 13.24%" → 放行；
+    #    没注入却写"低于行业平均水平 12%" → 拦下（这就是 B06 的老毛病）。
     for w in _LOCKED_STATS:
         if w in p0 and w not in d0:
-            issues.append(f"润色新增了未经本次数据支持的统计口径「{w}」")
+            bad = []
+            for seg in _SENT_SPLIT.split(p0):
+                if w not in seg:
+                    continue
+                for x in _numbers(seg):
+                    if x in dn or _in_allowed(x, _allowed):
+                        continue
+                    bad.append(x)
+            if bad:
+                _bad = "、".join(_fmt(x) for x in bad[:4])
+                issues.append(
+                    "润色新增了未经本次数据支持的统计口径「" + w + "」（含未注入数值 " + _bad + "）"
+                )
 
-    # ③ 新数字
-    dn, pn = _numbers(d0), _numbers(p0)
-    new_nums = sorted(pn - dn)
+    # ③ 新数字（剔除本次真实注入的统计值）
+    pn = _numbers(p0)
+    new_nums = sorted(x for x in (pn - dn) if not _in_allowed(x, _allowed))
     if new_nums:
         _show = "、".join(_fmt(x) for x in new_nums[:6])
         issues.append(f"润色新增了初稿中不存在的数值：{_show}")
