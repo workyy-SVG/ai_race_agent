@@ -6103,15 +6103,6 @@ def _render_history_list() -> None:
             st.session_state["analysis_history"] = _hist
     if not _hist:
         st.caption("还没有分析记录。完成一次「🚀 开始结构化分析」后，这里会留下一条，可点回查看。")
-        st.markdown(
-            # v11（用户阶段三第 ⑩ 条）：深蓝侧栏上红字 #FF9D9D 实测看不清，
-            # 用户点名"换成加粗加厚的白色或黄色" → 琥珀黄 15.5px/800 + 深色文字底片。
-            '<div style="background:rgba(67,44,6,.55);border-left:4px solid #FFC53D;'
-            'border-radius:10px;padding:9px 12px;margin:6px 0;">'
-            '<div style="color:#FFE066 !important;font-size:15.5px;font-weight:800;'
-            'line-height:1.7;">⚠️ 记录保留 2 小时：刷新页面不丢；超过 2 小时自动清除。</div></div>',
-            unsafe_allow_html=True,
-        )
         return
     st.caption(f"共 {len(_hist)} 条 · 本地保留 2 小时（刷新不丢）")
     # 定高容器 → 记录多了这一段自己滚动，不把侧边栏撑得老长。

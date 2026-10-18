@@ -945,10 +945,8 @@ _check("侧栏历史按钮悬停改纯白 + help 浮层白字（用户第 ② �
        '[data-testid="stSidebar"] button:hover p' in SRC
        and "color: #FFFFFF !important;" in SRC
        and '[data-testid="stSidebar"] [data-testid="stTooltipContent"]' in SRC)
-_check("2 小时警告改琥珀黄加粗 + 深色文字底片（用户第 ⑩ 条：红字看不清）",
-       "#FFE066" in SRC and "border-left:4px solid #FFC53D" in SRC
-       # 只查渲染字符串里的 color:#FF9D9D（源码注释里的旧色值不算）
-       and "color:#FF9D9D" not in SRC)
+_check("分析记录空状态不再显示 2 小时警告框",
+       "⚠️ 记录保留 2 小时" not in SRC)
 # ③ 股票池 + 腾讯接口（接口在 data_source.py，单独读源）：
 _DS_SRC = open("data_source.py", encoding="utf-8").read()
 _STK_N = SRC.count('", "消费"),') + SRC.count('", "金融"),') + SRC.count('", "新能源"),') \
