@@ -962,8 +962,11 @@ CUSTOM_CSS = """
      全部 ≥4.5:1，在 17px 根字号下正文已经是"亮青白"，不会再"看着发灰"。 */
   section[data-testid="stSidebar"] {
     background: linear-gradient(180deg, #0E2A5E 0%, #123A80 46%, #16489E 100%);
-    border-right: none;
-    box-shadow: 2px 0 18px rgba(10, 28, 60, 0.16);
+    /* 【v17 · 用户第 ⑤ 条】旧写法 border-right:none —— 深主题下侧栏与主区
+       同色带，等于没有边界。现在给一条主题色亮边 + 一道投影，
+       "左侧工作台 / 右侧内容"在任何主题下都有明确分界。 */
+    border-right: 2px solid var(--side-edge);
+    box-shadow: 6px 0 26px rgba(0, 0, 0, 0.35);
   }
   /* 侧栏内部容器一律透明，别把渐变盖住（Streamlit 默认给内层上了主题底色） */
   section[data-testid="stSidebar"] [data-testid="stSidebarContent"],
@@ -1459,7 +1462,13 @@ DEFAULT_THEME = "🌌 深空蓝"
 THEMES = {
     DEFAULT_THEME: {
         "--grad-page": "linear-gradient(180deg,#020A22 0%,#05204E 45%,#0A2C66 100%)",
-        "--grad-side": "linear-gradient(180deg,#041838 0%,#0A2A63 50%,#0D3A86 100%)",
+        # 【v17 · 用户第 ⑤ 条】侧栏（工作台）与主区颜色"混为一体"：
+        # 旧 --grad-side（#041838→#0D3A86）与 --grad-page（#020A22→#0A2C66）
+        # 几乎同一条色带，两块拼在一起看不出边界。现在把侧栏整体压深一档
+        # （最亮端 #081D45 vs 主区最亮端 #0A2C66），再配 --side-edge 亮边，
+        # 左"工作台" / 右"内容"一眼可分。
+        "--grad-side": "linear-gradient(180deg,#01060F 0%,#041230 50%,#081D45 100%)",
+        "--side-edge": "rgba(127,233,255,.45)",
         "--grad-panel": "linear-gradient(180deg,rgba(13,36,80,.88) 0%,rgba(9,26,58,.94) 100%)",
         "--grad-accent": "linear-gradient(160deg,#38BDF8 0%,#2563EB 100%)",
         "--grad-accent2": "linear-gradient(90deg,#1E3A8A 0%,#3B82F6 100%)",
@@ -1490,8 +1499,11 @@ THEMES = {
         #      config.toml 里的 [theme]（写死 base="light"）。深主题下这块
         #      "白底" 撞上兜底层的浅色正文 = 1.2:1，就是用户看到的"根本看不清"。
         #      下面这组变量 + _THEME_NATIVE_RULES 把原生层也拉进主题体系。 ----
-        "--surface": "rgba(9,26,58,.92)",
-        "--on-surface": "#D7E4FA",
+        # 【v17 · 用户第 ③ 条】输入框/展开面板/原始数据框"白底白字"：
+        # 原生层之前被拼在 </style> 外面根本没生效（见 _custom_css_themed），
+        # 生效之后再进一步：底更深（.92→.96 且压暗）、字更亮（#D7E4FA→#EAF3FF）。
+        "--surface": "rgba(5,15,38,.96)",
+        "--on-surface": "#EAF3FF",
         "--fw-body": "500",     # 正文加粗一档：浅字压深底要更实才看得清
         "--fw-label": "700",    # 控件标签（股票代码/报告期数…）
         "--fw-strong": "800",   # 标题 / 展开条 / 按钮
@@ -1510,7 +1522,9 @@ THEMES = {
     },
     "🔮 星云紫": {
         "--grad-page": "linear-gradient(180deg,#080518 0%,#180D3E 45%,#2C1A62 100%)",
-        "--grad-side": "linear-gradient(180deg,#160C38 0%,#22124E 50%,#321B6E 100%)",
+        # 【v17 · 同第 ⑤ 条】星云紫同理：侧栏整体压深，与主区拉开层级。
+        "--grad-side": "linear-gradient(180deg,#070213 0%,#100726 50%,#1A0E3A 100%)",
+        "--side-edge": "rgba(167,139,250,.45)",
         "--grad-panel": "linear-gradient(180deg,rgba(40,24,88,.86) 0%,rgba(28,16,64,.94) 100%)",
         "--grad-accent": "linear-gradient(160deg,#D8B4FE 0%,#8B5CF6 100%)",
         "--grad-accent2": "linear-gradient(90deg,#4C1D95 0%,#8B5CF6 100%)",
@@ -1536,8 +1550,8 @@ THEMES = {
         "--bad-bg": "rgba(244,63,94,.16)",
         "--warn-bg": "rgba(217,164,65,.18)",
         "--accent-tint": "rgba(167,139,250,.14)",
-        "--surface": "rgba(24,14,54,.92)",
-        "--on-surface": "#E4DCFA",
+        "--surface": "rgba(12,6,30,.96)",
+        "--on-surface": "#F3EDFF",
         "--fw-body": "500",
         "--fw-label": "700",
         "--fw-strong": "800",
@@ -1555,6 +1569,8 @@ THEMES = {
     "☁️ 浅色雅蓝": {
         "--grad-page": "linear-gradient(180deg,#EDF3FC 0%,#E3EDF9 48%,#DAE6F6 100%)",
         "--grad-side": "linear-gradient(180deg,#0E2A5E 0%,#123A80 46%,#16489E 100%)",
+        # 浅色主题侧栏本来就是深蓝 vs 主区浅蓝，天然可分；这里只补一条亮边。
+        "--side-edge": "rgba(255,255,255,.32)",
         "--grad-panel": "linear-gradient(180deg,#FBFDFF 0%,#F3F8FE 100%)",
         "--grad-accent": "linear-gradient(160deg,#38BDF8 0%,#1D4ED8 100%)",
         "--grad-accent2": "linear-gradient(90deg,#1E3A8A 0%,#2563EB 100%)",
@@ -1676,6 +1692,10 @@ _THEME_NATIVE_RULES = """
     -webkit-text-fill-color: var(--on-surface) !important;
     border-color: var(--brd) !important;
     caret-color: var(--on-surface) !important;
+    /* 【v17 · 用户第 ③ 条】换底色还不够 —— 用户点名要"加粗"：
+       输入框 / 下拉里的字按 --fw-label 加粗，深主题下浅字压深底更实。 */
+    font-weight: var(--fw-label) !important;
+    font-size: 15px !important;
   }
   .stApp input::placeholder,
   .stApp textarea::placeholder {
@@ -1689,6 +1709,16 @@ _THEME_NATIVE_RULES = """
     font-weight: var(--fw-label) !important;
   }
 
+  /* ①-b 下拉框里"已选中的那一项"（如「贵州茅台 (600519)」）——
+        用户第 ③ 条点名"股票代码或名称那个地方自己也看不清"。
+        baseweb 的选中值是一个嵌套 div，只给外层上色盖不到里面的 span。 */
+  .stApp [data-baseweb="select"] *,
+  .stApp [data-baseweb="select"] > div > div {
+    color: var(--on-surface) !important;
+    -webkit-text-fill-color: var(--on-surface) !important;
+    font-weight: var(--fw-label) !important;
+  }
+
   /* ② 展开面板（expander）正文 —— 「获取解析文档 / 查看原始数据」就是它。
         CUSTOM_CSS 里 details 是 background:transparent，于是透出 config 的白底。 */
   [data-testid="stExpander"] details,
@@ -1696,6 +1726,17 @@ _THEME_NATIVE_RULES = """
   [data-testid="stExpander"] details > div {
     background: var(--surface) !important;
     color: var(--on-surface) !important;
+  }
+  /* 【v17 · 用户第 ③ 条】展开面板正文（单公司「查看获取到的原始数据」/
+     多公司「原始数据 / 年报 PDF」）：底色之外，正文也要加粗 + 强制主题色，
+     否则 st.markdown 渲染出来的 <p> 仍可能被兜底层刷成别的颜色。 */
+  [data-testid="stExpanderDetails"] p,
+  [data-testid="stExpanderDetails"] li,
+  [data-testid="stExpanderDetails"] td,
+  [data-testid="stExpanderDetails"] th,
+  [data-testid="stExpanderDetails"] span {
+    color: var(--on-surface) !important;
+    font-weight: var(--fw-body) !important;
   }
   /* 展开条标题：按用户要求「换色之后再加粗加深」 */
   [data-testid="stExpander"] summary,
@@ -1719,6 +1760,19 @@ _THEME_NATIVE_RULES = """
     color: var(--on-surface) !important;
     border: 1px solid var(--brd) !important;
     border-radius: 10px;
+  }
+  /* 【v17 · 用户第 ③ 条】「查看获取到的原始数据」框里的正文：
+     底色换了还不够，字再加粗一档并强制继承主题字色 ——
+     这段文本是 st.markdown 渲染的 <p>，会被上面的兜底层规则覆盖颜色，
+     所以这里必须再点名一次并带 !important。 */
+  [class*="st-key-raw-scroll"] p,
+  [class*="st-key-raw-scroll"] li,
+  [class*="st-key-raw-scroll"] td,
+  [class*="st-key-raw-scroll"] th,
+  [class*="st-key-khist-scroll"] p,
+  [class*="st-key-khist-scroll"] li {
+    color: var(--on-surface) !important;
+    font-weight: var(--fw-body) !important;
   }
 
   /* ③-b 提示条（st.info / success / warning / error）—— 底色同样来自 config，
@@ -1899,8 +1953,17 @@ def _custom_css_themed() -> str:
     —— ③ 必须最后：它压的是 emotion 生成的组件样式，只有放在最后才盖得住。
     """
     if "v" not in _CSS_CACHE:
+        # ⚠️【v17 · 报告 B1】三段必须装在**同一个** <style> 里。
+        # 旧写法是 `CUSTOM_CSS(自带 <style>…</style>) + BASE + NATIVE` ——
+        # 后两段被拼在 </style> **之外**，落到 markdown 里就是两个普通段落，
+        # 浏览器把整段 CSS 当正文渲染出来（"页面上一大段 /* ===== v15 主题兜底层… */"），
+        # 而且**这两层样式从来没生效过** —— 深主题下原生控件一直白底白字，
+        # 用户反馈的"根本看不清"就是这么来的。
+        # 做法：先把 CUSTOM_CSS 自带的 <style>/</style> 脱掉，最后统一再包一层。
+        _body = _apply_theme_vars(CUSTOM_CSS)
+        _body = _body.replace("<style>", "").replace("</style>", "")
         _CSS_CACHE["v"] = (
-            _apply_theme_vars(CUSTOM_CSS) + _THEME_BASE_RULES + _THEME_NATIVE_RULES
+            "<style>" + _body + _THEME_BASE_RULES + _THEME_NATIVE_RULES + "</style>"
         )
     return _CSS_CACHE["v"]
 
@@ -4795,12 +4858,25 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
         # v11（用户阶段三第 ⑩b 条）：选中热门股票后**立即自动取数**，不再要求
         # 用户"先选下拉 → 再点获取"两步走 —— 用户原话"这两个地方多此一举"。
         # 手动输入框保留（用于股票池外的公司），但热门公司一次点击直接出数据。
-        # 多公司对比页受全局开关 cmp_auto_fetch 控制（用户第 ⑤ 条：选一家自动拉一家）。
+        # 【v17 · 用户第 ④ 条】多公司对比**不再"选一家立刻拉一家"**。
+        # 旧逻辑：在下拉里选中公司A → A 当场开始解析输出，用户还没来得及选 B/C，
+        # 页面已经跑起来一轮取数（截图里"选了贵州茅台它马上就开始获取"）。
+        # 新逻辑：下拉选中只负责"登记目标"（写回输入框），取数统一交给
+        # 对比页的「⚡ 一键获取全部公司数据」/「选齐后自动一次性取数」——
+        # 等 A/B(/C) 都登记完，再一次性把全部公司取回来。
+        # 单公司页（key_prefix 不以 cmp 开头）仍保留"选中即取数"的便利行为。
         def _on_pick():
-            _auto_all = key_prefix.startswith("cmp") and not bool(
-                st.session_state.get("cmp_auto_fetch"))
-            if not _auto_all:
+            if not key_prefix.startswith("cmp"):
                 st.session_state[f"{key_prefix}_auto_fetch"] = True
+                return
+            # 对比页：回调里**只登记目标**（把选中代码写回输入框），不取数。
+            # ⚠️ 必须写在回调里：对比页的「选齐后自动取数」判断跑在各公司面板
+            #    之前，若等面板渲染时才回填 kw，本次 rerun 里判断读到的还是空值，
+            #    要再交互一次才会触发（用户会以为"选齐了却没反应"）。
+            _sel = st.session_state.get(f"{key_prefix}_pickle", "")
+            _c = next((s[1] for s in POPULAR_STOCKS if s[0] == _sel), "")
+            if _c:
+                st.session_state[f"{key_prefix}_kw"] = _c
         _choice = st.selectbox(
             "📋 热门股票（点选无需查代码）",
             options=_pop_opts,
@@ -4904,9 +4980,14 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
             st.warning("请先在热门股票里选一家，或在输入框填写 6 位代码。")
 
     if do_fetch:
-        _kw = (kw or "").strip()
+        # 【B4】「热门下拉已选中」与「手动输入」是同一件事的两条入口，
+        # 合并成一个入参：任一非空即合法，**两者都空**才提示。
+        # 旧实现只看输入框 → 从下拉选好公司、再点「🔍 获取数据」时，
+        # 先弹一句"请先输入 6 位股票代码"，紧接着又报"已获取…数据"成功，
+        # 两条信息自相矛盾（外部测试报告 B4）。
+        _kw = (kw or "").strip() or (_code or "").strip()
         if not _kw:
-            st.error("请先输入 6 位股票代码或公司名称，再点击「获取数据」。")
+            st.error("请先在热门股票里选一家，或在输入框填写 6 位代码 / 公司名称，再点击「获取数据」。")
         else:
             _fetch_by_kw(_kw, periods)
 
@@ -5069,10 +5150,6 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
         if not code:
             st.caption("📄 取数成功后，这里会出现「一键解析年报 PDF」入口。")
             return
-        st.caption(
-            "📄 年报 PDF 解析 → 建立页码索引（约 40-80 秒）："
-            + ("✅ 已就绪" if _rag_ok else "当前**未**建立")
-        )
         if st.button("⚡ 一键解析最新年报并建立页码索引",
                      key=f"{key_prefix}_cautobtn", use_container_width=True):
             with st.spinner("正在查找该公司最新年报公告……"):
@@ -5103,6 +5180,16 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
                          use_container_width=True):
                 _c_ok, _c_msg = _build_rag_from_report(_c_rep[_c_i], "年报")
                 (st.success if _c_ok else st.error)(_c_msg)
+        # 【v17 · 用户第 ⑥ 条】状态提示**必须放在按钮之后**再渲染：
+        # 旧写法把它放在函数开头，读的是 `_rag_ok` 这个"建库之前"的闭包快照，
+        # 于是点了按钮建库成功，这一行仍写着「当前未建立」—— 同屏自相矛盾。
+        # 放在最后读一次 session_state，本轮刚建好的索引立刻就能显示出来。
+        _now_ok = bool(st.session_state.get(f"{key_prefix}_rag_status", {}).get("ok"))
+        st.caption(
+            "📄 年报页码索引："
+            + ("✅ 已就绪 —— 分析 / 研报 / 追问会标注「见年报第X页」。" if _now_ok
+               else "尚未建立 —— 点上方按钮自动下载解析最新年报（约 40-80 秒）。")
+        )
 
     if text:
         auto_ind = st.session_state.get(f"{key_prefix}_auto_industry")
@@ -5166,6 +5253,40 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
     # return 挡掉，取数一成功就再也看不到原始文本。现在无条件渲染。
     # ⚠️ 单独包一层 try：原始文本再长也只是展示，绝不能因为渲染异常
     #    把后面的「年报 PDF 解析入口」一起吞掉（B04 的核心诉求）。
+    # ---- ⚡ 自动建立页码索引（v17 · 用户第 ⑥ 条）----
+    # ⚠️ 这一段必须放在**所有展开面板之前**：
+    #   旧实现把它埋在「一键获取并解析年报 PDF」展开面板里，而紧凑模式（多公司）
+    #   的状态提示在它**之前**渲染 —— 于是同一张卡里上下两行自相矛盾：
+    #   上面「当前未建立年报索引」、下面「年报索引已就绪」，用户看到的就是
+    #   "点了却说没建"。现在先建库、后渲染状态，读到的永远是本轮真实结果。
+    _auto_key = f"{key_prefix}_rag_auto"
+    _tried_key = f"{key_prefix}_rag_autotried"
+    # 报告类型：完整模式由展开面板里的 radio 选（key 同名），这里先读会话值；
+    # 紧凑模式没有 radio → 固定按「年报」。
+    rtype = str(st.session_state.get(f"{key_prefix}_rtype", "") or "年报")
+    if code:
+        _need_auto = (
+            bool(st.session_state.get(_auto_key, True))
+            and not bool(st.session_state.get(f"{key_prefix}_rag_status", {}).get("ok"))
+            and st.session_state.get(_tried_key) != code
+        )
+        if _need_auto:
+            st.session_state[_tried_key] = code      # 先记账，失败也不再反复重试
+            with st.spinner(f"正在查找 {name or code} 最新年报公告……"):
+                try:
+                    _auto_reports = ds.list_reports(code, org, rtype, limit=3)
+                except Exception:
+                    _auto_reports = []
+            if not _auto_reports:
+                st.warning(
+                    f"未找到「{rtype}」类型的完整版报告，年报页码索引未能建立。"
+                    f"可展开下方面板换一个报告类型或手动指定报告。"
+                )
+            else:
+                _ok, _msg = _build_rag_from_report(_auto_reports[0], rtype)
+                (st.success if _ok else st.warning)(_msg)
+                st.session_state[f"{key_prefix}_reports"] = _auto_reports
+
     if compact:
         # 紧凑模式（多公司对比）：窄卡里折叠成一个入口，不撑破卡片
         with st.expander("📄 原始数据 / 年报 PDF（点击展开）", expanded=False):
@@ -5176,95 +5297,84 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
                 st.markdown(text or "（尚未取到数据 —— 先在上方检索一家上市公司）")
         except Exception:
             pass
+        # 年报 PDF 一键获取：默认展开，且解析成功后保持展开
+        _rag_ok = bool(st.session_state.get(f"{key_prefix}_rag_status", {}).get("ok"))
+        # 索引还没建 → 默认展开这个面板，把"要页码引用就先解析年报"变成显式引导，
+        # 而不是让评委点完「开始分析」才发现结论里没有引用（优化清单：RAG 不是开箱即用）
+        # 【v17 · 用户第 ⑥ 条】紧凑模式**不再渲染这块**：它和卡片里那个
+        # 「原始数据 / 年报 PDF」展开面板功能完全重复（两套"一键建立索引"按钮
+        # 并排出现在窄卡里，用户根本分不清该点哪个）。紧凑模式走 _compact_pdf_body()。
+        with st.expander(
+            "📄 一键获取并解析年报 PDF → 启用「见年报第X页」页码引用（约 40-80 秒）",
+            expanded=not _rag_ok,
+        ):
+            if not code:
+                st.info("请先在上方取数成功，这里才能下载并解析年报 PDF。")
+            else:
+                rtype = st.radio("报告类型", ["年报", "半年报", "一季报", "三季报"], horizontal=True, key=f"{key_prefix}_rtype")
 
-    # 年报 PDF 一键获取：默认展开，且解析成功后保持展开
-    _rag_ok = bool(st.session_state.get(f"{key_prefix}_rag_status", {}).get("ok"))
-    # 索引还没建 → 默认展开这个面板，把"要页码引用就先解析年报"变成显式引导，
-    # 而不是让评委点完「开始分析」才发现结论里没有引用（优化清单：RAG 不是开箱即用）
-    with st.expander(
-        "📄 一键获取并解析年报 PDF → 启用「见年报第X页」页码引用（约 40-80 秒）",
-        expanded=not _rag_ok,
-    ):
-        if not code:
-            st.info("请先在上方取数成功，这里才能下载并解析年报 PDF。")
-        else:
-            rtype = st.radio("报告类型", ["年报", "半年报", "一季报", "三季报"], horizontal=True, key=f"{key_prefix}_rtype")
-
-
-            # ---- ⚡ 一键自动建立：无需手动选报告，自动取最新一份完整年报 ----
-            # 用户的原话是"你没有给我建立年报索引" —— 他要的是系统自己建，
-            # 而不是让他去点「获取报告列表 → 选报告 → 下载并解析」三步。
-            _auto_key = f"{key_prefix}_rag_auto"
-            _tried_key = f"{key_prefix}_rag_autotried"
-            _c1, _c2 = st.columns([1.25, 1])
-            with _c1:
-                _auto_btn = st.button(
-                    "⚡ 一键自动建立页码索引（自动取最新年报）",
-                    key=f"{key_prefix}_autobtn", type="primary", use_container_width=True,
-                )
-            with _c2:
-                st.toggle(
-                    "🚀 取数成功后自动建立",
-                    key=_auto_key,
-                    value=bool(st.session_state.get(_auto_key, True)),
-                    help="开启后，每次取数成功会自动下载并解析一份最新年报建立页码索引（约 40-80 秒）。"
-                         "关闭则只在手动点击时才建立。",
-                )
-
-            # 自动触发条件：开关开 + 当前确实没索引 + 这家公司还没尝试过（避免每轮 rerun 都卡 40 秒）
-            _need_auto = (
-                bool(st.session_state.get(_auto_key, True))
-                and not _rag_ok
-                and st.session_state.get(_tried_key) != code
-            )
-            if _auto_btn or _need_auto:
-                st.session_state[_tried_key] = code      # 先记账，失败也不再反复重试
-                with st.spinner("正在查找该公司最新年报公告……"):
-                    try:
-                        _auto_reports = ds.list_reports(code, org, rtype, limit=3)
-                    except Exception:
-                        _auto_reports = []
-                if not _auto_reports:
-                    st.warning(
-                        f"未找到「{rtype}」类型的完整版报告。可换一个报告类型，"
-                        f"或改用下方手动选择 / 手动上传 PDF。"
+                # ---- ⚡ 手动点一次：立即按当前报告类型重建 ----
+                _c1, _c2 = st.columns([1.25, 1])
+                with _c1:
+                    _auto_btn = st.button(
+                        "⚡ 一键自动建立页码索引（自动取最新年报）",
+                        key=f"{key_prefix}_autobtn", type="primary", use_container_width=True,
                     )
-                else:
-                    _ok, _msg = _build_rag_from_report(_auto_reports[0], rtype)
-                    if _ok:
-                        st.success(_msg)
+                with _c2:
+                    st.toggle(
+                        "🚀 取数成功后自动建立",
+                        key=_auto_key,
+                        value=bool(st.session_state.get(_auto_key, True)),
+                        help="开启后，每次取数成功会自动下载并解析一份最新年报建立页码索引（约 40-80 秒）。"
+                             "关闭则只在手动点击时才建立。",
+                    )
+                if _auto_btn:
+                    st.session_state[_tried_key] = code
+                    with st.spinner("正在查找该公司最新年报公告……"):
+                        try:
+                            _auto_reports = ds.list_reports(code, org, rtype, limit=3)
+                        except Exception:
+                            _auto_reports = []
+                    if not _auto_reports:
+                        st.warning(
+                            f"未找到「{rtype}」类型的完整版报告。可换一个报告类型，"
+                            f"或改用下方手动选择 / 手动上传 PDF。"
+                        )
                     else:
-                        st.warning(_msg)
-                    st.session_state[f"{key_prefix}_reports"] = _auto_reports
+                        _ok, _msg = _build_rag_from_report(_auto_reports[0], rtype)
+                        (st.success if _ok else st.warning)(_msg)
+                        st.session_state[f"{key_prefix}_reports"] = _auto_reports
 
-            st.divider()
-            st.caption("—— 或手动指定某一份报告 ——")
-            if st.button("获取报告列表", key=f"{key_prefix}_listbtn"):
-                reports = ds.list_reports(code, org, rtype, limit=8)
-                st.session_state[f"{key_prefix}_reports"] = reports
-                if not reports:
-                    st.warning("未找到该类型的完整版报告，可换一个报告类型，或改用手动上传 PDF。")
-            reports = st.session_state.get(f"{key_prefix}_reports", [])
-            if reports:
-                st.caption("📋 已自动过滤摘要版 / 英文版，仅保留完整报告（内容厚、含财报明细与风险章节）。")
-                opts = [f"{r['date']} {r['title']}" for r in reports]
-                idx = st.selectbox("选择报告", range(len(opts)), format_func=lambda i: opts[i], key=f"{key_prefix}_rsel")
-                if st.button("下载并解析该报告", key=f"{key_prefix}_dlbtn"):
-                    _ok, _msg = _build_rag_from_report(reports[idx], rtype)
-                    if _ok:
-                        st.success(_msg)
-                    else:
-                        st.error(_msg)
+                st.divider()
+                st.caption("—— 或手动指定某一份报告 ——")
+                if st.button("获取报告列表", key=f"{key_prefix}_listbtn"):
+                    reports = ds.list_reports(code, org, rtype, limit=8)
+                    st.session_state[f"{key_prefix}_reports"] = reports
+                    if not reports:
+                        st.warning("未找到该类型的完整版报告，可换一个报告类型，或改用手动上传 PDF。")
+                reports = st.session_state.get(f"{key_prefix}_reports", [])
+                if reports:
+                    st.caption("📋 已自动过滤摘要版 / 英文版，仅保留完整报告（内容厚、含财报明细与风险章节）。")
+                    opts = [f"{r['date']} {r['title']}" for r in reports]
+                    idx = st.selectbox("选择报告", range(len(opts)), format_func=lambda i: opts[i], key=f"{key_prefix}_rsel")
+                    if st.button("下载并解析该报告", key=f"{key_prefix}_dlbtn"):
+                        _ok, _msg = _build_rag_from_report(reports[idx], rtype)
+                        if _ok:
+                            st.success(_msg)
+                        else:
+                            st.error(_msg)
 
     # RAG 状态提示：明确告诉使用者"现在有没有页码引用能力"
     # （重新读一次：向量索引可能就在本轮刚构建完成，不能用构建前的旧值）
     _rag_ok = bool(st.session_state.get(f"{key_prefix}_rag_status", {}).get("ok"))
     if _rag_ok:
         _st_ = st.session_state.get(f"{key_prefix}_rag_status", {})
-        _be_ = "语义向量" if _st_.get("backend") == "chroma" else "本地页级"
+        # 【v17 · 用户第 ⑥ 条】旧文案「年报索引已就绪（本地页级）」里的括号被外层
+        # 括号套了两层，读起来像"检索方式有问题"。改成"检索方式：xxx"的直陈句。
+        _be_ = "语义向量检索" if _st_.get("backend") == "chroma" else "本地页级关键词检索"
         st.caption(
-            f"📚 **年报索引已就绪（{_be_}）**：{_st_.get('chunks', 0)} 个文本块 · "
-            f"覆盖 {_st_.get('pages', 0)} 页 · 分析/研报/追问将按问题检索相关章节"
+            f"📚 **年报索引已就绪** —— 检索方式：{_be_} · {_st_.get('chunks', 0)} 个文本块 · "
+            f"覆盖 {_st_.get('pages', 0)} 页 · 分析 / 研报 / 追问会按问题检索原文"
             f"并标注「见年报第X页」。"
         )
     else:
@@ -5273,15 +5383,14 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
             _be_now = rag.backend_label() if rag is not None else ""
         except Exception:
             _be_now = ""
-        _why = (
-            f"（当前检索后端：{_be_now}）" if _be_now else
-            "（⚠️ RAG 模块未加载：rag_engine 与 rag_lite 均不可用，页码引用功能不可用）"
-        )
         st.caption(
-            f"ℹ️ **当前未建立年报索引** {_why}—— 分析结果基于取数文本（含年报开头部分），"
-            "**不含「见年报第X页」式页码引用**。点开上方面板的"
-            "「⚡ 一键自动建立页码索引」即可自动下载解析最新年报并建立索引"
-            "（约 40-80 秒），建好后这里会自动变成「年报索引已就绪」。"
+            "ℹ️ **当前尚未建立年报索引** —— 分析基于取数文本（含年报开头部分），"
+            "**不含「见年报第X页」式页码引用**。点上方「⚡ 一键建立页码索引」"
+            "即可自动下载解析最新年报并建库（约 40-80 秒），建好后本行会变成"
+            "「📚 年报索引已就绪」。"
+            + (f"当前可用检索方式：{_be_now}。"
+               if _be_now else
+               "⚠️ RAG 模块未加载（rag_engine 与 rag_lite 均不可用），页码引用功能不可用。")
         )
 
     pdftext = st.session_state.get(f"{key_prefix}_pdftext", "")
@@ -6015,6 +6124,14 @@ def _view_single():
         st.caption("直接出稿：把上面的结果整理成一份可下载的 Markdown 研报。")
 
         if not raw_data:
+            # 【B2】按钮被禁用必须**自带原因**。外部测试报告实测：取数接口偶发
+            # 失败时"剩余额度不变、没有任何错误提示、分析按钮一直灰色"，
+            # 用户分不清"正在取数"还是"取数失败"。这里把禁用原因写在按钮正下方。
+            st.caption(
+                "🔒 两个按钮当前不可用：**还没有可分析的数据** —— 请先在上方完成"
+                "「🌐 在线取数」并出现「✅ 已获取…」提示；若取数失败，上方会红字"
+                "给出失败原因（可稍后重试或换一家公司）。也可以切到「✍️ 手动粘贴 / 上传」直接粘贴财报文本。"
+            )
             # v7：未取数时不再只丢一行 info —— 这里放一块科技风空状态插图，
             # 把"接下来会发生什么"画出来（同心环 + 六边形 + 折线），
             # 解决"卡片里空空如也、整页看着太空"。（用户明确要求"多放点图形"）
@@ -6403,9 +6520,23 @@ def _view_single():
                                or st.session_state.get("single_online_name", ""))
                     _h_code = st.session_state.get("single_online_code", "")
                 _hid = f"{_h_code or 'x'}-{len(_hist)}-{id(analysis)}"
+                # 【B5】记录唯一键 = 公司 + 行业 + 数据来源。同一家公司反复测
+                # 会堆出一串内容几乎相同的「综合 8.4」（外部测试报告实测贵州茅台
+                # 多条雷同记录）。现在同键**覆盖更新**而不是追加：列表里只留
+                # 最新的一次，位置也顺带排到最后（侧栏按倒序展示 → 新的在最上）。
+                # 老记录没有 _sig（值为 ""），不会误删。
+                _sig = "|".join([
+                    str(_h_code or ""),
+                    str(_h_name or ""),
+                    str(industry or ""),
+                    str((_ctx_now.get("source") if actx is not None else "") or ""),
+                ])
+                _hist = [h for h in _hist if (h.get("_sig") or "") != _sig]
                 _hist.append(
                     {
                         "id": _hid,
+                        "_sig": _sig,
+                        "_sid": _hist_sid(),
                         "code": _h_code,
                         "name": _h_name,
                         "industry": industry,
@@ -7337,48 +7468,61 @@ def _view_compare():
     # 现在填好各家的代码/名称后，这里一次取完全部：内部仍然逐家调用
     # resolve_stock + _panel_store（与单家点按钮**同一条链路**，轨迹、清空、
     # 校验逻辑一行没改），只是把"点 N 次"折叠成"点 1 次"。
-    # v11（用户第 ⑤ 条）：再加「自动合并取数」开关 —— 打开后在任意一家的
-    # 热门下拉里选公司，**这一家立即自动取数**，先选 A 再选 B 也一样，
-    # 全程不用碰「获取数据」按钮；开关关闭则退回手动点按钮。
+    # 【v17 · 用户第 ④ 条】语义从"选一家自动拉一家"改为"**选齐后自动一次性取数**"。
+    # 旧语义（v11）的问题：选中 A 就立刻开跑，用户还没选 B/C，页面已经输出了一轮
+    # 单家数据，既打断操作顺序，也让人误以为"对比已经开始了"。
+    # 新语义：登记（下拉选中/手填）与取数分离 —— 等所有公司都登记完，
+    # 才一次性把 N 家全部取回；没登记完就绝不提前跑。
+    def _cmp_targets() -> list:
+        return [str(st.session_state.get(f"cmp{_bi}_kw", "") or "").strip()
+                for _bi in range(_n_cmp)]
+
+    def _cmp_all_filled() -> bool:
+        return _n_cmp >= 2 and all(_cmp_targets())
+
+    def _run_batch_fetch() -> bool:
+        """一次性取回全部对比公司的数据。返回是否至少成功一家。"""
+        _bf_results = []
+        with st.spinner("正在逐家联网取数（巨潮 + 东方财富）……"):
+            for _bi in range(_n_cmp):
+                _bw = _cmp_targets()[_bi]
+                if not _bw:
+                    _bf_results.append((chr(65 + _bi), "", False, "未填写代码/名称，已跳过"))
+                    continue
+                _bres = ds.resolve_stock(_bw)
+                if not _bres.get("ok"):
+                    _bf_results.append((chr(65 + _bi), _bw, False,
+                                        _bres.get("error") or "证券解析失败"))
+                    continue
+                _bok, _berr = _panel_store(
+                    f"cmp{_bi}", _bres["code"], _bres["name"],
+                    _bres.get("orgId", ""), _cmp_periods,
+                )
+                _bf_results.append((chr(65 + _bi),
+                                    f'{_bres["name"]}（{_bres["code"]}）', _bok, _berr))
+        _bf_ok = [r for r in _bf_results if r[2]]
+        _bf_bad = [r for r in _bf_results if not r[2]]
+        if _bf_ok:
+            get_tracer().hit("批量取数", "一键获取全部对比公司",
+                             inp=f"{_n_cmp} 家 · {_cmp_periods} 期",
+                             out=f"成功 {len(_bf_ok)} 家")
+            st.success("✅ 已获取：" + "、".join(r[1] for r in _bf_ok))
+        for r in _bf_bad:
+            st.warning(f"公司 {r[0]}：{r[3]}")
+        return bool(_bf_ok)
+
     _bf1, _bf2, _bf3 = st.columns([1, 1, 2])
     with _bf1:
         if st.button("⚡ 一键获取全部公司数据", key="cmp_batch_fetch",
                      use_container_width=True):
-            _bf_results = []
-            with st.spinner("正在逐家联网取数（巨潮 + 东方财富）……"):
-                for _bi in range(_n_cmp):
-                    _bw = str(st.session_state.get(f"cmp{_bi}_kw", "") or "").strip()
-                    if not _bw:
-                        _bf_results.append((chr(65 + _bi), "", False, "未填写代码/名称，已跳过"))
-                        continue
-                    _bres = ds.resolve_stock(_bw)
-                    if not _bres.get("ok"):
-                        _bf_results.append((chr(65 + _bi), _bw, False,
-                                            _bres.get("error") or "证券解析失败"))
-                        continue
-                    _bok, _berr = _panel_store(
-                        f"cmp{_bi}", _bres["code"], _bres["name"],
-                        _bres.get("orgId", ""), _cmp_periods,
-                    )
-                    _bf_results.append((chr(65 + _bi),
-                                        f'{_bres["name"]}（{_bres["code"]}）', _bok, _berr))
-            _bf_ok = [r for r in _bf_results if r[2]]
-            _bf_bad = [r for r in _bf_results if not r[2]]
-            if _bf_ok:
-                get_tracer().hit("批量取数", "一键获取全部对比公司",
-                                 inp=f"{_n_cmp} 家 · {_cmp_periods} 期",
-                                 out=f"成功 {len(_bf_ok)} 家")
-                st.success("✅ 已获取：" + "、".join(r[1] for r in _bf_ok))
-            for r in _bf_bad:
-                st.warning(f"公司 {r[0]}：{r[3]}")
-            if _bf_ok:
+            if _run_batch_fetch():
                 st.rerun()
     with _bf2:
         st.toggle(
-            "🚀 自动合并取数", key="cmp_auto_fetch", value=True,
-            help="开启后：在任意公司的「热门股票」下拉里选一家，这一家**立即自动取数**"
-                 "（先选公司A、再选公司B也一样，一次点击出一次数据，不用再点「获取数据」）。"
-                 "关闭后恢复手动点按钮取数。",
+            "🚀 选齐后自动取数", key="cmp_auto_fetch", value=True,
+            help="开启后：等**每一家**都选好/填好代码，才一次性把所有公司取回来"
+                 "（不会再出现『选了公司A就立刻开跑』的情况）。"
+                 "关闭后只在手动点「⚡ 一键获取全部公司数据」时取数。",
         )
     with _bf3:
         # 真正的控件渲染；取值已在上方提前读入 _cmp_periods（按钮分支要用）
@@ -7389,10 +7533,33 @@ def _view_compare():
             help="每家公司向东方财富拉取「最近 N 个报告期」。N 越大，可参与对比的"
                  "年报年份越多（N=24 时年报口径约 6 个年度）——想比 2023 / 2024 年就调大它。",
         )
+        _filled_n = sum(1 for _t in _cmp_targets() if _t)
         st.caption(
-            "填好每家公司的代码 / 名称后点「⚡ 一键获取」，**一次性取完全部**；"
-            "或开着「🚀 自动合并取数」逐家选公司，**选一家自动拉一家**。"
+            f"已选 **{_filled_n}/{_n_cmp}** 家。"
+            + ("全部选齐 —— 正在一次性取数。"
+               if _cmp_all_filled() and _cmp_auto_on else
+               "每家都选好之后会**一次性取完全部**；也可以随时点「⚡ 一键获取全部公司数据」。")
         )
+
+    # ---- 选齐后自动一次性取数（v17 · 用户第 ④ 条）----
+    # 触发条件三条同时成立才跑，缺一不可：
+    #   ① 开关开着；② N 家目标全部登记完；③ 至少还有一家没数据（说明本轮该取）。
+    # 用「目标指纹」记账（_cmp_batch_tried），同一组目标只自动取一次 ——
+    # 否则每次 rerun 都会重跑取数，页面永远卡在转圈。
+    _cmp_sig_targets = "|".join(_cmp_targets())
+    _cmp_need_data = any(
+        not str(st.session_state.get(f"cmp{_bi}_online", "") or "").strip()
+        for _bi in range(_n_cmp)
+    )
+    if (
+        bool(st.session_state.get("cmp_auto_fetch", True))   # 现读：本轮刚拨的开关立刻生效
+        and _cmp_all_filled()
+        and _cmp_need_data
+        and st.session_state.get("cmp_batch_tried") != _cmp_sig_targets
+    ):
+        st.session_state["cmp_batch_tried"] = _cmp_sig_targets
+        if _run_batch_fetch():
+            st.rerun()
 
     _cmp_tags = ["🅰️", "🅱️", "🅲", "🅳", "🅴"]
     _cmp_cols = st.columns(_n_cmp)
@@ -7621,14 +7788,29 @@ def _view_compare():
                 "「两者相当」，纯属浪费一次分析）。"
             )
             _block = True
-        if _invalid:
+        # 【B9】原来这里是两条独立告警：_invalid（在线取数没取到）是 _empty
+        # （没有数据）的**子集** —— 同一家公司被说了两遍，屏幕上出现两条含义
+        # 重复的黄条（外部测试报告 B9）。现在合并成一条，按公司分点写清
+        # 「缺什么 + 怎么补」。
+        _missing_tips: list = []
+        for _s in _cmp_side:
+            if (_s["data"] or "").strip():
+                continue
+            if _s["online"] and not _s["code"]:
+                _missing_tips.append(
+                    f"- **{_s['name']}**：选了「在线取数」但还没取到数据 —— "
+                    "请在上方选好股票代码后点「🔍 获取数据」（或先粘贴财报文本改用手动输入）"
+                )
+            else:
+                _missing_tips.append(
+                    f"- **{_s['name']}**：没有可分析的数据 —— "
+                    "请粘贴财报文本，或切换到「🌐 在线取数」并点「🔍 获取数据」"
+                )
+        if _missing_tips:
             st.warning(
-                "⚠️ 以下公司选了「在线取数」但**尚未成功取到数据**（代码无效或还没点「🔍 获取数据」）："
-                + "、".join(_invalid) + "。"
+                "⚠️ 以下公司**暂无可分析的数据**，补全后才能开始对比：\n"
+                + "\n".join(_missing_tips)
             )
-            _block = True
-        if _empty:
-            st.warning("⚠️ 以下公司的**输入未完成**（没有可分析的数据）：" + "、".join(_empty) + "。")
             _block = True
         if _all_online and not _common_years and _year_mode == _MODE_SAME:
             # 同年份口径下没有共同年报年 → 阻断；各自最新口径放行（期别分别标注）
