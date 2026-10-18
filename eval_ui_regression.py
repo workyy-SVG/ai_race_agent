@@ -634,9 +634,10 @@ _check("主内容抬到装饰层之上（fixed 元素默认会盖住静态内容
        '[data-testid="stMainBlockContainer"] { position: relative; z-index: 3; }' in SRC)
 
 # 先把注入 HTML 抽出来（都是"多行源码、单行字符串"）
-# —— 后面的断言要用它们，尤其是"面板必须正好 6 块"：
+# —— 后面的断言要用它们，尤其是"面板必须正好 4 块"：
 #     直接数 SRC 会被 CSS 注释里的同名字面量污染，必须只数真正的 HTML 值。
 # v9：面板从 LOGIN_DECO 拆到 LOGIN_PANELS_L / LOGIN_PANELS_R（各 3 块）。
+# v15：用户点名删掉「公司关系网络」「指标摘要」两块 → 两侧各剩 2 块（2+2）。
 _deco_blk = SRC.split("LOGIN_DECO = (", 1)[1].split("\n)\n", 1)[0]
 _pl_blk = SRC.split("LOGIN_PANELS_L = (", 1)[1].split("\n)\n", 1)[0]
 _pr_blk = SRC.split("LOGIN_PANELS_R = (", 1)[1].split("\n)\n", 1)[0]
@@ -648,24 +649,23 @@ _panels_val = _pl_val + _pr_val
 _brand_val = "".join(_brand_blk.split("'")[1::2])
 # v10-2（用户第 6 条）：面板表头原来是「■ + 中文」，■ 是纯装饰字符、图里也没有文字，
 # 评审看不懂 → 改成「中文 + 英文」双行式，并在图里直接给关键节点打中文标签。
-_check("两侧共 6 块数据面板、按 3+3 分列（走势曲线/财务指标/关系网络 · 指标摘要/财务评分/风险评分）",
-       _pl_val.count('class="lb-panel"') == 3 and _pr_val.count('class="lb-panel"') == 3
-       and all(k in _panels_val for k in ("走势曲线 · K 线结构", "财务指标", "公司关系网络",
-                                         "指标摘要", "财务评分 · 四维", "风险评分")),
+_check("两侧共 4 块数据面板、按 2+2 分列（走势曲线/财务指标 · 财务评分/风险评分；v15 删去另外两块）",
+       _pl_val.count('class="lb-panel"') == 2 and _pr_val.count('class="lb-panel"') == 2
+       and all(k in _panels_val for k in ("走势曲线 · K 线结构", "财务指标",
+                                         "财务评分 · 四维", "风险评分"))
+       and "公司关系网络" not in _panels_val and "指标摘要" not in _panels_val,
        f"L={_pl_val.count('lb-panel')} R={_pr_val.count('lb-panel')}")
 _check("面板表头不再是纯图形「■」（改成中文 + 英文，看不懂图也能靠文字认）",
        "■" not in _panels_val
        and all(k in _panels_val for k in ('<span class="lp-en">Price Trend / K-Line</span>',
                                          '<span class="lp-en">Financial Indicators</span>',
-                                         '<span class="lp-en">Supply Chain Network</span>',
-                                         '<span class="lp-en">Key Metrics</span>',
                                          '<span class="lp-en">4-Dimension Score</span>',
                                          '<span class="lp-en">Risk Score</span>')),
        f"■ count={_panels_val.count('■')}")
 _check("每张图下面都有「这图画的是什么」的文字说明（.lp-cap），图上关键节点也有文字标签",
-       _panels_val.count('class="lp-cap"') == 6
+       _panels_val.count('class="lp-cap"') == 4
        and _panels_val.count("<text ") >= 12
-       and all(k in _panels_val for k in ("供应商", "核心企业", "经销商", "盈利", "财务风险")))
+       and all(k in _panels_val for k in ("盈利", "成长", "财务风险", "经营稳健")))
 _check("面板文字与深色玻璃底拉开对比度（白色 22px 标题 + 深色底片 + 青色竖条）",
        ".lb-panel .lp-head {" in SRC
        and "font-size: 22px; font-weight: 800" in SRC
@@ -703,8 +703,8 @@ _check("登录页横向变宽：容器上限 1320→1560→**1800px**（治折�
        ".block-container { max-width: 1800px !important; }" in SRC)
 _check("品牌区宽度再放宽到 1080px（说明文字一行铺开，不再折成两行）",
        "max-width:1080px;" in SRC)
-_check("v9 面板搬进**真实三列**（1.3 : 2 : 1.3）→ 宽度由布局给，不再靠 clamp 硬撑、也不会压住输入框",
-       'st.columns([1.3, 2, 1.3], gap="large")' in SRC
+_check("v15 面板搬进**真实三列**（1.4 : 2 : 1.4）→ 宽度由布局给，不再靠 clamp 硬撑、也不会压住输入框",
+       'st.columns([1.4, 2, 1.4], gap="large")' in SRC
        and "st.markdown(LOGIN_PANELS_L, unsafe_allow_html=True)" in SRC
        and "st.markdown(LOGIN_PANELS_R, unsafe_allow_html=True)" in SRC
        and 'class="lb-side-col"' in SRC
@@ -739,9 +739,9 @@ try:
     _md_parser = MarkdownIt("commonmark", {"html": True})
     _dec_html = _md_parser.render(_deco_val)
     _pan_html = _md_parser.render(_panels_val)
-    _check("装饰层 / 面板 HTML 经 markdown-it 解析：0 个代码块 + 6 块面板原样通过",
+    _check("装饰层 / 面板 HTML 经 markdown-it 解析：0 个代码块 + 4 块面板原样通过",
            "<pre>" not in _dec_html and "<pre>" not in _pan_html
-           and _pan_html.count('class="lb-panel"') == 6,
+           and _pan_html.count('class="lb-panel"') == 4,
            f"pre={_dec_html.count('<pre>')}/{_pan_html.count('<pre>')} "
            f"panels={_pan_html.count('lb-panel')}")
     _check("品牌区 HTML 经 markdown-it 解析：0 个代码块",
@@ -803,16 +803,20 @@ _check("账号/密码是**外置可见标签**（不再是张冠李戴的折叠�
 # v7/v9：装饰层必须真的渲染出来（写过样式但没注入 HTML = 用户看到的还是"空旷的一张卡"）
 _md6 = _md(at6)
 _PANEL = 'class="lb-panel"'
-_check("未登录时装饰层真的渲染了（6 块数据面板 + 光环 + 网格 + 中央辉光）",
-       _md6.count(_PANEL) == 6 and 'class="lb-deco"' in _md6
+_check("未登录时装饰层真的渲染了（4 块数据面板 + 光环 + 网格 + 中央辉光）",
+       _md6.count(_PANEL) == 4 and 'class="lb-deco"' in _md6
        and 'class="lb-ring"' in _md6 and 'class="lb-grid"' in _md6
        and 'class="lb-halo"' in _md6,
        f"panels={_md6.count(_PANEL)}")
 _check("未登录时六边形徽标在（品牌区视觉锚点）", 'class="lb-orb"' in _md6)
 # v9：面板住进真实列（不是 fixed 覆盖层）——运行时直接读列元素校验
 _COLS6 = at6.get("column")
-_check("登录页确实是三列（左装饰 | 登录卡 | 右装饰 = 1.3 : 2 : 1.3，gap=large）",
-       [round(float(c.weight) * 4.6, 2) for c in _COLS6] == [1.3, 2.0, 1.3]
+# v15：比例从 1.3:2:1.3 提到 1.4:2:1.4（删掉两块面板后侧列要更宽才协调）。
+# 换算别写死倍数 —— 按实际总宽归一化到 4.8，以后再调比例也不会误报。
+_W6 = [float(c.weight) for c in _COLS6]
+_S6 = sum(_W6) or 1.0
+_check("登录页确实是三列（左装饰 | 登录卡 | 右装饰 = 1.4 : 2 : 1.4，gap=large）",
+       [round(w / _S6 * 4.8, 2) for w in _W6] == [1.4, 2.0, 1.4]
        and "large" in str(getattr(_COLS6[0], "gap", "")),
        str([(getattr(c, "weight", None), getattr(c, "gap", None)) for c in _COLS6]))
 
@@ -865,10 +869,10 @@ _NW_N = _md6.count('class="nw-node"')
 _SC_N = _md6.count('class="sc-bar"')
 _RK_N = _md6.count('class="rk-arc"')
 _RKB_N = _md6.count('rk-arc-b"')
-_check("六张装饰图也全部动起来（走势描线 / 网络流光 / 评分柱生长 / 风险环扫描）",
-       _TR_N == 1 and _NW_N == 5 and _SC_N == 4 and _RK_N == 1 and _RKB_N == 1
-       and "@keyframes lbDraw" in SRC and "@keyframes lbFlow" in SRC
-       and "@keyframes lbGrow" in SRC and "@keyframes lbRingSpin" in SRC,
+_check("四张装饰图也全部动起来（走势描线 / 评分柱生长 / 风险环扫描；v15 删去网络流光图）",
+       _TR_N == 1 and _NW_N == 0 and _SC_N == 4 and _RK_N == 1 and _RKB_N == 1
+       and "@keyframes lbDraw" in SRC and "@keyframes lbGrow" in SRC
+       and "@keyframes lbRingSpin" in SRC,
        f"tr={_TR_N} nw={_NW_N} sc={_SC_N} rk={_RK_N}/{_RKB_N}")
 # 风险环的 -90° 起始角必须写进 keyframes：CSS transform 会覆盖 SVG transform 属性
 _check("风险环动画把 -90° 起始角写进 keyframes（否则弧线会跳回 3 点钟方向）",
@@ -956,6 +960,139 @@ _check("单公司报告期数放开到 24 期（原来最多 8 期 ≈ 只有 2 
        "list(range(1, 25))" in SRC)
 _check("多公司对比新增全局报告期数选择器（3~24 期，作用全部公司）",
        'key="cmp_periods"' in SRC and "max(_cmp_periods, 8)" in SRC)
+
+# =====================================================================
+# v15 主题系统（用户：登录后背景单调丑陋 → 按两张参考图做主题，可切换；
+#       主题变，字体颜色也跟着变）+ 三条点名修复（删面板 / 问号提示 / 井号提亮）
+# =====================================================================
+def _lum(hexs: str) -> float:
+    """WCAG 相对亮度。只吃 #RRGGBB（主题变量值都是六位）。"""
+    r, g, b = (int(hexs[i:i + 2], 16) / 255 for i in (1, 3, 5))
+
+    def _c(v):
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+    return 0.2126 * _c(r) + 0.7152 * _c(g) + 0.0722 * _c(b)
+
+
+def _ratio(a: str, b: str) -> float:
+    la, lb = _lum(a), _lum(b)
+    hi, lo = max(la, lb), min(la, lb)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+# 直接从 app.py 里取出 THEMES / _apply_theme_vars，避免断言与实现各写一份
+_ns = {}
+_src = io.open(APP, encoding="utf-8").read()
+_i0 = _src.index("DEFAULT_THEME = ")
+_i1 = _src.index("# ============ 页面与登录 ============")
+exec(compile(_src[_i0:_i1], "app_theme", "exec"), {"re": __import__("re")}, _ns)
+_THEMES = _ns["THEMES"]
+_apply = _ns["_apply_theme_vars"]
+_BASE_RULES = _ns["_THEME_BASE_RULES"]
+
+_check("v15 提供三套可切换主题（深空蓝 / 星云紫 / 浅色雅蓝）",
+       list(_THEMES) == ["🌌 深空蓝", "🔮 星云紫", "☁️ 浅色雅蓝"],
+       str(list(_THEMES)))
+# 变量键必须完全一致：少一个键 → 该属性在某一主题下会继承上一主题的值（串色）
+_keysets = {frozenset(v) for v in _THEMES.values()}
+_check("三套主题的变量键完全一致（缺键会导致切主题时串色）",
+       len(_keysets) == 1, f"keysets={len(_keysets)}")
+_check("主题切换器挂在侧边栏、key=ui_theme（选中即生效，不用二次刷新）",
+       'key="ui_theme"' in SRC and 'with st.sidebar:' in SRC
+       and "_theme_style()" in SRC and "_custom_css_themed()" in SRC)
+# 注意：要找的是「调用点」而不是 def 那一行 —— def _theme_style() 与
+# def _custom_css_themed() 都出现在注入点之前，直接 index() 会命中定义，
+# 断言永远为真、失去意义。所以只在"真正注入的那一行"里比前后顺序。
+_INJL = [l for l in SRC.split("\n")
+         if "st.markdown(" in l and "_custom_css_themed()" in l]
+_check("主题变量先注入、再注入变量化 CSS（顺序反了变量不生效）",
+       len(_INJL) == 1 and "_theme_style()" in _INJL[0]
+       and _INJL[0].index("_theme_style()") < _INJL[0].index("_custom_css_themed()"),
+       str(_INJL[:1]))
+
+# —— 对比度硬校验：文字 vs 卡片底，两套深色主题 + 浅色主题都要 ≥4.5:1 ——
+# 深色主题的卡片是半透明 rgba(12,32,70,.82) 压在页面渐变上，这里取渐变首色作保守底。
+_BAD_C = []
+for _tn, _tv in _THEMES.items():
+    _card = _tv["--bg-card"]
+    if _card.startswith("rgba"):
+        # 半透明卡片压在页面渐变上 → 按 alpha 与渐变首色合成出实际底色再算对比度。
+        # 用正则取数，别按固定下标切：rgba(12,32,70,.82) 里通道位数不固定（还有 .82）。
+        _n = [float(x) for x in
+              __import__("re").findall(r"[\d.]+", _card)]  # 12,32,70,.82
+        _cr, _a = _n[:3], _n[3]
+        _base = _tv["--grad-page"]
+        _base = _base[_base.index("#"):_base.index("#") + 7]      # 渐变首色
+        _br = [int(_base[1 + i * 2:3 + i * 2], 16) for i in range(3)]
+        _card = "#%02X%02X%02X" % tuple(round(c * _a + b * (1 - _a))
+                                        for c, b in zip(_cr, _br))
+    # --gold 是井号/安全提醒色，两套深色主题用亮黄 #FFD84D，浅色主题必须
+    # 自动转深琥珀 #B45309（亮黄压白底 ≈1.1:1 等于隐形）—— 一起卡对比度。
+    for _k in ("--tx-strong", "--tx-body", "--tx-dim", "--tx-cap", "--gold"):
+        _r = _ratio(_tv[_k], _card)
+        if _r < 4.5:
+            _BAD_C.append(f"{_tn}{_k}={_r:.2f}")
+_check("每套主题的正文/次要/说明文字压卡片底 ≥4.5:1（深色主题也按 WCAG 卡）",
+       not _BAD_C, ",".join(_BAD_C))
+
+# —— 用户点名①：删掉「公司关系网络」「指标摘要」两块装饰面板 ——
+_PL_BLK = SRC.split("LOGIN_PANELS_L = (", 1)[1].split("\n)\n", 1)[0]
+_PR_BLK = SRC.split("LOGIN_PANELS_R = (", 1)[1].split("\n)\n", 1)[0]
+_check("登录页删掉「公司关系网络」「指标摘要」两块装饰面板（用户点名）",
+       "公司关系网络" not in (_PL_BLK + _PR_BLK)
+       and "指标摘要" not in (_PL_BLK + _PR_BLK)
+       and (_PL_BLK + _PR_BLK).count('class="lb-panel"') == 4,
+       f"panels={(_PL_BLK + _PR_BLK).count('lb-panel')}")
+_check("删面板后侧列加宽（1.4 : 2 : 1.4，不再是 1.3）",
+       "st.columns([1.4, 2, 1.4], gap=\"large\")" in SRC)
+
+# —— 用户点名②：问号提示（help ⓘ tooltip）黑字混蓝底 → 深底亮黄字 ——
+_check("问号提示改深底 + 亮黄字（不再黑字压蓝底看不清）",
+       '[data-testid="stTooltipContent"]' in _BASE_RULES
+       and "color: #FFE066 !important;" in _BASE_RULES
+       and _ratio("#FFE066", "#060F24") >= 4.5,
+       f"ratio={_ratio('#FFE066', '#060F24'):.1f}")
+# —— 用户点名③：井号（标题 hover 锚点）→ 黄色 ——
+_check("井号（标题锚点 #）改黄色 --gold（用户点名）",
+       'data-testid="stHeadingActionElements"' in _BASE_RULES
+       and "color: var(--gold) !important;" in _BASE_RULES)
+# —— 分析记录说明文字 ——
+_check("分析记录说明文字改用 --tx-cap 变量（不再写死暗蓝 #475569）",
+       'color:var(--tx-cap) !important;' in SRC and "color:#475569" not in SRC)
+
+# —— 变量化覆盖率：CUSTOM_CSS 里不该再有"深色文字"硬编码残留 ——
+# ⚠️ 必须先剥掉 CSS 注释：CUSTOM_CSS 顶部的配色说明里写满了 #64748B / #0B1F3A
+#    这类"旧色值 + 对比度实测"的字面量，不剥注释会误判成"没变量化"。
+_CSS0 = __import__("re").sub(
+    r"/\*.*?\*/", "", SRC.split('CUSTOM_CSS = """', 1)[1].split('"""', 1)[0],
+    flags=__import__("re").S)
+_LEFTH = sorted({h.lower() for h in
+                 __import__("re").findall(r"#[0-9A-Fa-f]{6}\b", _apply(_CSS0))})
+# 允许残留的只有"本来就设计成白/近白"的值（压在蓝底或渐变上的白字白边）
+_check("CUSTOM_CSS 的深色硬编码色已全部变量化（残留只允许 #FFFFFF）",
+       set(_LEFTH) <= {"#ffffff"}, ",".join(_LEFTH))
+_check("登录页固定深蓝底 → 无论哪套主题都兜底浅字（防止浅色主题把登录页文字变墨色）",
+       ".stApp p, .stApp li," in SRC.split("LOGIN_CSS", 1)[-1]
+       and "color: #EAF2FF !important;" in SRC)
+
+# —— 运行时校验：静态断言只能证明"代码写了"，证明不了"切了真的变" ——
+_at_t = _boot()
+_ROOTS = {}
+for _tn in _THEMES:
+    _at_t.session_state["ui_theme"] = _tn
+    _at_t.run()
+    _v = [m.value for m in _at_t.markdown if m.value and ":root{" in m.value]
+    _ROOTS[_tn] = _v[0] if len(_v) == 1 else ""
+_check("运行时切主题：三套 :root 注入各不相同，且每次只注入一份（不重复叠加）",
+       len(set(_ROOTS.values())) == 3 and all(_ROOTS.values()),
+       str({k: len(v) for k, v in _ROOTS.items()}))
+_check("运行时：深色主题井号走亮黄 #FFD84D，浅色主题自动转深琥珀 #B45309（白底上才看得清）",
+       "--gold:#FFD84D" in _ROOTS["🌌 深空蓝"]
+       and "--gold:#FFD84D" in _ROOTS["🔮 星云紫"]
+       and "--gold:#B45309" in _ROOTS["☁️ 浅色雅蓝"])
+_check("运行时：井号黄 + 问号 tooltip 兜底确实进了页面（不是只写在源码里）",
+       all("stHeadingActionElements" in v and "stTooltipContent" in v
+           for v in _ROOTS.values()))
 
 print()
 if FAILS:

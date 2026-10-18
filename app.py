@@ -1460,6 +1460,268 @@ CUSTOM_CSS = """
 </style>
 """
 
+# ============================================================
+# v15 主题系统（用户："登录后界面颜色背景单调丑陋，按我给的两张图做主题，
+#       可以随意切换；主题变，字体也变 —— 字体主要变它的颜色"）
+#
+# 原理：CUSTOM_CSS 原文里的旧硬编码颜色**不做逐条手工改写**（900 行、70+ 个色值，
+#       手改极易漏），而是在注入前用 _apply_theme_vars() 统一替换成 :root 变量
+#       —— 纯字符串替换、进程内只算一次。三套主题各自给出一整组变量值：
+#       背景渐变 / 卡片 / 边框 / 文字 / 语义色（涨绿跌红琥珀）全部联动。
+#   🌌 深空蓝 —— 按参考图1：深海军蓝星空底 + 玻璃蓝卡 + 青色霓虹
+#   🔮 星云紫 —— 按参考图2：深蓝紫星云底 + 紫玻璃卡 + 亮紫霓虹
+#   ☁️ 浅色雅蓝 —— 原浅色版（变量=旧值），作为保底可选项
+# 对比度均按 ≥4.5:1 校验（正文 #D7E4FA/#E4DCFA 压深底 ≈ 10:1+）。
+# ============================================================
+DEFAULT_THEME = "🌌 深空蓝"
+THEMES = {
+    DEFAULT_THEME: {
+        "--grad-page": "linear-gradient(180deg,#020A22 0%,#05204E 45%,#0A2C66 100%)",
+        "--grad-side": "linear-gradient(180deg,#041838 0%,#0A2A63 50%,#0D3A86 100%)",
+        "--grad-panel": "linear-gradient(180deg,rgba(13,36,80,.88) 0%,rgba(9,26,58,.94) 100%)",
+        "--grad-accent": "linear-gradient(160deg,#38BDF8 0%,#2563EB 100%)",
+        "--grad-accent2": "linear-gradient(90deg,#1E3A8A 0%,#3B82F6 100%)",
+        "--grad-ok": "linear-gradient(96deg,rgba(22,163,74,.20) 0%,rgba(14,165,233,.14) 100%)",
+        "--bg-card": "rgba(12,32,70,.82)",
+        "--bg-tint": "rgba(56,110,210,.22)",
+        "--bg-soft": "rgba(8,24,54,.62)",
+        "--brd": "rgba(148,184,240,.35)",
+        "--tx-strong": "#FFFFFF",
+        "--tx-body": "#D7E4FA",
+        "--tx-dim": "#A9C0E6",
+        "--tx-soft": "#BFD7F7",
+        "--tx-cap": "#FFE9A8",
+        "--tx-onaccent": "#052438",
+        "--accent": "#5AA2FF",
+        "--accent-bg": "#1D4ED8",
+        "--cyan": "#7FE9FF",
+        "--cyan-vivid": "#7FE9FF",
+        "--gold": "#FFD84D",
+        "--ok-tx": "#6EE7A0",
+        "--bad-tx": "#FF9D9D",
+        "--ok-bg": "rgba(22,163,74,.16)",
+        "--bad-bg": "rgba(220,38,38,.16)",
+        "--warn-bg": "rgba(217,164,65,.18)",
+        "--accent-tint": "rgba(90,162,255,.12)",
+    },
+    "🔮 星云紫": {
+        "--grad-page": "linear-gradient(180deg,#080518 0%,#180D3E 45%,#2C1A62 100%)",
+        "--grad-side": "linear-gradient(180deg,#160C38 0%,#22124E 50%,#321B6E 100%)",
+        "--grad-panel": "linear-gradient(180deg,rgba(40,24,88,.86) 0%,rgba(28,16,64,.94) 100%)",
+        "--grad-accent": "linear-gradient(160deg,#D8B4FE 0%,#8B5CF6 100%)",
+        "--grad-accent2": "linear-gradient(90deg,#4C1D95 0%,#8B5CF6 100%)",
+        "--grad-ok": "linear-gradient(96deg,rgba(34,197,94,.18) 0%,rgba(168,85,247,.16) 100%)",
+        "--bg-card": "rgba(30,18,66,.84)",
+        "--bg-tint": "rgba(124,90,255,.20)",
+        "--bg-soft": "rgba(20,12,48,.64)",
+        "--brd": "rgba(190,160,255,.32)",
+        "--tx-strong": "#FFFFFF",
+        "--tx-body": "#E4DCFA",
+        "--tx-dim": "#B9A8E8",
+        "--tx-soft": "#CFC0F5",
+        "--tx-cap": "#FFE9A8",
+        "--tx-onaccent": "#2A0E4F",
+        "--accent": "#B79CFF",
+        "--accent-bg": "#7C3AED",
+        "--cyan": "#67E8F9",
+        "--cyan-vivid": "#67E8F9",
+        "--gold": "#FFD84D",
+        "--ok-tx": "#6EE7A0",
+        "--bad-tx": "#FF9DB4",
+        "--ok-bg": "rgba(34,197,94,.16)",
+        "--bad-bg": "rgba(244,63,94,.16)",
+        "--warn-bg": "rgba(217,164,65,.18)",
+        "--accent-tint": "rgba(167,139,250,.14)",
+    },
+    "☁️ 浅色雅蓝": {
+        "--grad-page": "linear-gradient(180deg,#EDF3FC 0%,#E3EDF9 48%,#DAE6F6 100%)",
+        "--grad-side": "linear-gradient(180deg,#0E2A5E 0%,#123A80 46%,#16489E 100%)",
+        "--grad-panel": "linear-gradient(180deg,#FBFDFF 0%,#F3F8FE 100%)",
+        "--grad-accent": "linear-gradient(160deg,#38BDF8 0%,#1D4ED8 100%)",
+        "--grad-accent2": "linear-gradient(90deg,#1E3A8A 0%,#2563EB 100%)",
+        "--grad-ok": "linear-gradient(96deg,#E6F8EF 0%,#F3FBFF 100%)",
+        "--bg-card": "#FFFFFF",
+        "--bg-tint": "#EEF3FE",
+        "--bg-soft": "#F8FAFC",
+        "--brd": "#E4EAF2",
+        "--tx-strong": "#0B1F3A",
+        "--tx-body": "#334155",
+        "--tx-dim": "#64748B",
+        "--tx-soft": "#AFD2F5",
+        "--tx-cap": "#475569",
+        "--tx-onaccent": "#052438",
+        "--accent": "#1D4ED8",
+        "--accent-bg": "#1D4ED8",
+        "--cyan": "#0369A1",
+        "--cyan-vivid": "#22D3EE",
+        "--gold": "#B45309",
+        "--ok-tx": "#15803D",
+        "--bad-tx": "#DC2626",
+        "--ok-bg": "rgba(22,163,74,.10)",
+        "--bad-bg": "rgba(220,38,38,.10)",
+        "--warn-bg": "rgba(217,164,65,.15)",
+        "--accent-tint": "rgba(29,78,216,.07)",
+    },
+}
+
+# 主题兜底层：追加在变量化 CSS 末尾（只兜"没有自己颜色规则"的元素）。
+# ① 井号（标题锚点 #）→ 黄色 —— 用户点名；
+# ② 问号提示（help ⓘ tooltip）→ 深底 + 亮黄字 —— 用户点名"黑字和蓝色字体混在一起"；
+#    Tooltip 由前端 Portal 挂在 body 下，不能用 .stApp 前缀。
+_THEME_BASE_RULES = """
+  /* ===== v15 主题兜底层（变量驱动；追加在所有规则之后） ===== */
+  .stApp p, .stApp li, .stApp td, .stApp th { color: var(--tx-body); }
+  .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6 {
+    color: var(--tx-strong);
+  }
+  .stApp [data-testid="stWidgetLabel"] p { color: var(--tx-body); }
+  .stApp [data-testid="stCaptionContainer"],
+  .stApp [data-testid="stCaptionContainer"] p { color: var(--tx-cap) !important; }
+  .stApp a { color: var(--cyan); }
+  /* 井号（标题 hover 锚点）→ 黄色 */
+  [data-testid="stHeadingActionElements"],
+  [data-testid="stHeadingActionElements"] a,
+  [data-testid="stHeadingActionElements"] svg {
+    color: var(--gold) !important;
+    stroke: var(--gold);
+    opacity: .9;
+  }
+  /* 问号提示（help ⓘ）→ 深底亮黄字，彻底告别黑字混蓝底 */
+  [data-testid="stTooltipContent"] {
+    background: rgba(6, 15, 36, .97) !important;
+    border: 1px solid rgba(255, 216, 77, .55);
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .5);
+  }
+  [data-testid="stTooltipContent"], [data-testid="stTooltipContent"] * {
+    color: #FFE066 !important;
+  }
+"""
+
+
+def _apply_theme_vars(css: str) -> str:
+    """把 CUSTOM_CSS 里的旧硬编码颜色替换成 :root 主题变量。
+
+    只做"属性域内"的字符串替换（color: / background: / border: 各用各的映射表，
+    渐变整段替换），不动任何选择器与布局 —— 替换不中的原样保留，绝不误伤。
+    """
+    # ---- 1. 整段渐变 → 变量（去掉空格后精确匹配） ----
+    grads = {
+        "linear-gradient(180deg,#edf3fc0%,#e3edf948%,#dae6f6100%)": "var(--grad-page)",
+        "linear-gradient(180deg,#0e2a5e0%,#123a8046%,#16489e100%)": "var(--grad-side)",
+        "linear-gradient(180deg,#fbfdff0%,#f3f8fe100%)": "var(--grad-panel)",
+        "linear-gradient(160deg,#38bdf80%,#1d4ed8100%)": "var(--grad-accent)",
+        "linear-gradient(145deg,#38bdf80%,#1d4ed8100%)": "var(--grad-accent)",
+        "linear-gradient(90deg,#1e3a8a0%,#2563eb100%)": "var(--grad-accent2)",
+        "linear-gradient(96deg,#e6f8ef0%,#f3fbff100%)": "var(--grad-ok)",
+    }
+
+    def _grad_sub(m: "re.Match") -> str:
+        return grads.get(re.sub(r"\s+", "", m.group(0)).lower(), m.group(0))
+
+    css = re.sub(r"linear-gradient\([^()]*\)", _grad_sub, css)
+
+    # ---- 2. 按属性域映射 hex ----
+    color_map = {
+        "#0b1f3a": "var(--tx-strong)", "#14377a": "var(--tx-strong)",
+        "#1e3a5f": "var(--tx-strong)", "#1e3a8a": "var(--tx-strong)",
+        "#0f3272": "var(--tx-strong)",
+        "#3b4a5f": "var(--tx-body)", "#334155": "var(--tx-body)",
+        "#475569": "var(--tx-body)", "#33455f": "var(--tx-body)",
+        "#64748b": "var(--tx-dim)", "#94a3b8": "var(--tx-dim)",
+        "#1d4ed8": "var(--accent)", "#2563eb": "var(--accent)",
+        "#1e40af": "var(--accent)", "#16489e": "var(--accent)",
+        "#7fe9ff": "var(--cyan)", "#67e8f9": "var(--cyan)",
+        "#22d3ee": "var(--cyan)", "#38bdf8": "var(--cyan)",
+        "#0ea5e9": "var(--cyan)", "#0284c7": "var(--cyan)",
+        "#eaf4ff": "var(--tx-soft)", "#eaf2ff": "var(--tx-soft)",
+        "#dce8fb": "var(--tx-soft)", "#c9daf6": "var(--tx-soft)",
+        "#c7d7f0": "var(--tx-soft)", "#afd2f5": "var(--tx-soft)",
+        "#a9c0e6": "var(--tx-soft)", "#93b4e8": "var(--tx-soft)",
+        "#93b5e0": "var(--tx-soft)", "#b7caea": "var(--tx-soft)",
+        "#8fa9d4": "var(--tx-soft)",
+        "#b45309": "var(--gold)", "#92400e": "var(--gold)",
+        "#78350f": "var(--gold)", "#d9a441": "var(--gold)",
+        "#fbbf24": "var(--gold)", "#fde68a": "var(--gold)",
+        "#16a34a": "var(--ok-tx)", "#15803d": "var(--ok-tx)",
+        "#14532d": "var(--ok-tx)", "#0f2419": "var(--ok-tx)",
+        "#1f5138": "var(--ok-tx)", "#3f6212": "var(--ok-tx)",
+        "#dc2626": "var(--bad-tx)", "#7f1d1d": "var(--bad-tx)",
+        "#052438": "var(--tx-onaccent)", "#061428": "var(--tx-onaccent)",
+    }
+    bg_map = {
+        "#ffffff": "var(--bg-card)",
+        "#eef3fe": "var(--bg-tint)", "#f4f8ff": "var(--bg-tint)",
+        "#e8f0ff": "var(--bg-tint)",
+        "#f8fafc": "var(--bg-soft)", "#fbfdff": "var(--bg-soft)",
+        "#f4f7fb": "var(--bg-soft)", "#edf2f8": "var(--bg-soft)",
+        "#f3f8fe": "var(--bg-soft)",
+        "#1d4ed8": "var(--accent-bg)", "#2563eb": "var(--accent-bg)",
+        "#1e40af": "var(--accent-bg)", "#16489e": "var(--accent-bg)",
+        "#fef3c7": "var(--warn-bg)", "#f0fdf4": "var(--ok-bg)",
+    }
+    bord_map = {
+        "#e4eaf2": "var(--brd)", "#d8e3fa": "var(--brd)", "#d6e0ec": "var(--brd)",
+        "#e1eaf6": "var(--brd)", "#dce6f3": "var(--brd)", "#edf2f8": "var(--brd)",
+        "#c9daf0": "var(--brd)", "#b9c7dc": "var(--brd)", "#dae6f6": "var(--brd)",
+        "#edf3fc": "var(--brd)", "#e3edf9": "var(--brd)", "#e8f0ff": "var(--brd)",
+        "#1d4ed8": "var(--accent)", "#2563eb": "var(--accent)",
+        "#1e40af": "var(--accent)", "#16489e": "var(--accent)",
+        "#16a34a": "var(--ok-tx)", "#15803d": "var(--ok-tx)",
+        "#a7e3c4": "var(--ok-tx)",
+        "#dc2626": "var(--bad-tx)",
+        "#d9a441": "var(--gold)", "#fde68a": "var(--gold)",
+        "#22d3ee": "var(--cyan-vivid)", "#0ea5e9": "var(--cyan-vivid)",
+        "#7fe9ff": "var(--cyan-vivid)", "#0284c7": "var(--cyan-vivid)",
+        "#93b4e8": "var(--tx-soft)", "#94a3b8": "var(--tx-dim)",
+    }
+
+    def _decl_sub(m: "re.Match") -> str:
+        prop, val = m.group(1), m.group(2)
+        # -webkit-text-fill-color / fill / stroke 都按"文字色"处理
+        # （fill 是 SVG 图标填充，如指标箭头；漏掉会留下深色图标压深底）
+        if prop == "color" or prop.endswith("text-fill-color") or prop in ("fill", "stroke"):
+            mp = color_map
+        elif prop.startswith("border") or prop.startswith("outline"):
+            mp = bord_map
+        else:
+            mp = bg_map
+        return prop + ":" + re.sub(
+            r"#[0-9A-Fa-f]{6}\b",
+            lambda mm: mp.get(mm.group(0).lower(), mm.group(0)),
+            val,
+        )
+
+    css = re.sub(r"([a-z-]+):([^;{}]*#[0-9A-Fa-f]{6}[^;{}]*)", _decl_sub, css)
+
+    # ---- 3. rgba 语义底色 → 变量 ----
+    for pat, rep in [
+        (r"rgba\(29,\s*78,\s*216,\s*0\.07\)", "var(--accent-tint)"),
+        (r"rgba\(220,\s*38,\s*38,\s*0\.10\)", "var(--bad-bg)"),
+        (r"rgba\(22,\s*163,\s*74,\s*0\.10\)", "var(--ok-bg)"),
+        (r"rgba\(217,\s*164,\s*65,\s*0\.15\)", "var(--warn-bg)"),
+    ]:
+        css = re.sub(pat, rep, css)
+    return css
+
+
+_CSS_CACHE: dict = {}
+
+
+def _custom_css_themed() -> str:
+    """变量化 + 追加兜底层后的 CUSTOM_CSS（进程内只算一次）。"""
+    if "v" not in _CSS_CACHE:
+        _CSS_CACHE["v"] = _apply_theme_vars(CUSTOM_CSS) + _THEME_BASE_RULES
+    return _CSS_CACHE["v"]
+
+
+def _theme_style() -> str:
+    """当前主题的 :root 变量注入（必须放在 CUSTOM_CSS 之前）。"""
+    _t = THEMES.get(st.session_state.get("ui_theme") or DEFAULT_THEME) or THEMES[DEFAULT_THEME]
+    _body = ";".join(f"{k}:{v}" for k, v in _t.items())
+    return f"<style>:root{{{_body};}}</style>"
+
+
 # ============ 页面与登录 ============
 # ⚠️ initial_sidebar_state 必须是 expanded：导航菜单与分析记录都住在侧边栏里，
 #    默认折叠会让用户进来看到一片空白的主区（找不到切视图的入口）。
@@ -1468,7 +1730,20 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+# ---- v15：主题切换（侧边栏最顶部；登录前侧栏被 LOGIN_CSS 隐藏，不影响登录页）----
+# 先建控件再注入样式：radio 执行时立刻写入 session_state，紧接着的
+# _theme_style() 读到的就是本次选择，主题"点一下就变"，不用再刷一次。
+if "ui_theme" not in st.session_state:
+    st.session_state["ui_theme"] = DEFAULT_THEME
+with st.sidebar:
+    st.radio(
+        "🎨 界面主题",
+        list(THEMES),
+        key="ui_theme",
+        horizontal=True,
+        help="一键切换整套配色：背景、卡片、边框与文字颜色全部联动。",
+    )
+st.markdown(_theme_style() + _custom_css_themed(), unsafe_allow_html=True)
 
 # ---------------------------------------------------------------
 # 登录页（v6：深蓝科技版，按用户给的登录页模板）
@@ -2035,8 +2310,14 @@ LOGIN_CSS = """
     .lb-aurora i,
     .lb-panel .tr-main, .lb-panel .tr-sub, .lb-panel .tr-dot,
     .lb-panel .lp-bar, .lb-panel .nw-link, .lb-panel .nw-node,
-    .lb-panel .sc-bar, .lb-panel .rk-arc { animation: none !important; }
+     .lb-panel .sc-bar, .lb-panel .rk-arc { animation: none !important; }
   }
+  /* v15：主题系统会给 .stApp 的 p/li 兜底上"主题正文色"。登录页固定深蓝底，
+     无论用户选了哪套主题（含浅色雅蓝），这里统一兜回浅字，保证对比度。 */
+  .stApp p, .stApp li,
+  .stApp [data-testid="stWidgetLabel"] p,
+  .stApp [data-testid="stCaptionContainer"],
+  .stApp [data-testid="stCaptionContainer"] p { color: #EAF2FF !important; }
 </style>
 """
 
@@ -2100,41 +2381,11 @@ LOGIN_PANELS_L = (
     '<div class="lp-bar" style="width:78%;"></div>'
     '<div class="lp-cap">进度条＝ROE 在同行业中的相对位置（78% 分位）。</div>'
     '</div>'
-    '<div class="lb-panel">'
-    '<div class="lp-head">公司关系网络<span class="lp-en">Supply Chain Network</span></div>'
-    '<svg width="272" height="122" viewBox="0 0 212 96" fill="none" '
-    'xmlns="http://www.w3.org/2000/svg">'
-    '<line class="nw-link" x1="34" y1="24" x2="106" y2="44" stroke="rgba(103,232,249,.35)"/>'
-    '<line class="nw-link" x1="34" y1="62" x2="106" y2="44" stroke="rgba(103,232,249,.35)"/>'
-    '<line class="nw-link" x1="106" y1="44" x2="178" y2="24" stroke="rgba(103,232,249,.35)"/>'
-    '<line class="nw-link" x1="106" y1="44" x2="178" y2="62" stroke="rgba(103,232,249,.35)"/>'
-    '<line class="nw-link" x1="34" y1="24" x2="178" y2="24" stroke="rgba(56,189,248,.20)"/>'
-    '<circle class="nw-node" cx="34" cy="24" r="5" fill="#22D3EE"/>'
-    '<circle class="nw-node" cx="34" cy="62" r="5" fill="#3B82F6"/>'
-    '<circle class="nw-node" cx="106" cy="44" r="7" fill="#7FE9FF"/>'
-    '<circle class="nw-node" cx="178" cy="24" r="5" fill="#3B82F6"/>'
-    '<circle class="nw-node" cx="178" cy="62" r="5" fill="#22D3EE"/>'
-    '<text x="34" y="14" text-anchor="middle" fill="#EAF6FF" font-size="9.5" font-weight="700">供应商</text>'
-    '<text x="34" y="80" text-anchor="middle" fill="#EAF6FF" font-size="9.5" font-weight="700">供应商B</text>'
-    '<text x="106" y="64" text-anchor="middle" fill="#FFFFFF" font-size="10" font-weight="800">核心企业</text>'
-    '<text x="178" y="14" text-anchor="middle" fill="#EAF6FF" font-size="9.5" font-weight="700">客户</text>'
-    '<text x="178" y="80" text-anchor="middle" fill="#EAF6FF" font-size="9.5" font-weight="700">经销商</text>'
-    '</svg>'
-    '<div class="lp-cap">上游供应商 → 核心企业 → 下游客户／经销商的产业链图谱。</div>'
-    '</div>'
     '</div>'
 )
 
 LOGIN_PANELS_R = (
     '<div class="lb-side-col">'
-    '<div class="lb-panel">'
-    '<div class="lp-head">指标摘要<span class="lp-en">Key Metrics</span></div>'
-    '<div class="lp-row"><span>市盈率 PE-TTM</span><b>21.4</b></div>'
-    '<div class="lp-row"><span>市净率 PB</span><b>5.86</b></div>'
-    '<div class="lp-row"><span>毛利率 Gross Margin</span><b>91.3%</b></div>'
-    '<div class="lp-row"><span>资产负债率 Debt Ratio</span><b>16.8%</b></div>'
-    '<div class="lp-cap">估值（PE / PB）＋ 盈利质量（毛利率）＋ 负债水平，四项核心指标。</div>'
-    '</div>'
     '<div class="lb-panel">'
     '<div class="lp-head">财务评分 · 四维<span class="lp-en">4-Dimension Score</span></div>'
     '<svg width="272" height="112" viewBox="0 0 212 92" fill="none" '
@@ -2215,7 +2466,7 @@ def check_login():
     # ---- v7/v9：科技装饰层（纯 CSS + 内联 SVG，无任何图片素材）----
     # 用户反馈"不要只给我一个登录的账号，里面有很多图形，给我放一点在上面，
     # 要不然给人的感觉太空旷"。这里按参考图补上：
-    #   左：走势曲线 / 财务指标 / 公司关系网络   右：指标摘要 / 财务评分 / 风险评分
+    #   左：走势曲线 / 财务指标        右：财务评分 / 风险评分（v15 删去另外两块）
     # 背景那层（光环 / 扫描光 / 网格 / 中央辉光）装在一个 fixed + pointer-events:none
     # 的 `.lb-deco` 里，且主内容 z-index:3（见 LOGIN_CSS），永远不会挡住表单与文字。
     # ⚠️ v8：HTML 常量见文件上方（必须单行，否则会被 markdown 当代码块打出来）。
@@ -2226,11 +2477,11 @@ def check_login():
     # 而不是在窄条里折成两行（用户要求"横向变大，不要竖着变大"）。
     st.markdown(LOGIN_BRAND, unsafe_allow_html=True)
 
-    # v9：登录页改成**真三列**（左装饰 | 登录卡 | 右装饰，比例 1.3 : 2 : 1.3）。
-    # 面板住进真实列之后：① 宽度由布局给（1800px 容器下每列 ≈ 500px，
-    # 比旧的 clamp(270~350px) 大一截）；② 与登录卡同高、同材质 → "融合在一起"；
-    # ③ 结构上不可能压住输入框（旧版是 fixed 覆盖层，全靠 media query 兜）。
-    _cl, _mid, _cr = st.columns([1.3, 2, 1.3], gap="large")
+    # v9：登录页改成**真三列**（左装饰 | 登录卡 | 右装饰）。
+    # v15：用户点名删掉「指标摘要」「公司关系网络」两块预览面板（只留
+    #   走势曲线 / 财务指标 / 财务评分 / 风险评分），两侧各剩两块 →
+    #   侧列比例从 1.3 提到 1.4，面板更宽、与登录卡同高更协调。
+    _cl, _mid, _cr = st.columns([1.4, 2, 1.4], gap="large")
     with _cl:
         st.markdown(LOGIN_PANELS_L, unsafe_allow_html=True)
     with _mid:
@@ -4000,11 +4251,11 @@ def render_rag_hits_panel(rag_hits: list) -> str:
             f'<span class="rag-rank">#{i}</span>'
             f'<span class="rag-page">📄 年报第 {page} 页</span>'
             f'&nbsp;|&nbsp;<span class="{sim_cls}">相关度 {sim:.2f}{_cos_txt}</span>'
-            f'<br><span style="color:#334155;font-size:12px;line-height:1.6;">{text}</span>'
+            f'<br><span style="color:var(--tx-body);font-size:12px;line-height:1.6;">{text}</span>'
             f'</div>'
         )
     return (
-        '<div style="margin: 10px 0 6px 0;color:#1E3A8A;font-weight:700;font-size:14px;">'
+        '<div style="margin: 10px 0 6px 0;color:var(--accent);font-weight:700;font-size:14px;">'
         f'📚 RAG 检索过程（Top-{len(rows)} 相关章节 · 语义+关键词混合重排）</div>'
         + "".join(rows)
     )
@@ -5161,8 +5412,8 @@ with st.sidebar:
     if USING_DEFAULT_CREDS:
         st.markdown(
             '<div class="sb-card" style="border-left:3px solid #D9A441;">'
-            '<div class="sb-title" style="color:#B45309 !important;">⚠️ 安全提醒</div>'
-            '<div style="font-size:12.5px;line-height:1.75;color:#78350F !important;">'
+            '<div class="sb-title" style="color:var(--gold) !important;">⚠️ 安全提醒</div>'
+            '<div style="font-size:12.5px;line-height:1.75;color:var(--tx-cap) !important;">'
             '当前使用<b>内置默认凭据</b>。<br>公开部署请在 Secrets 中设置 '
             '<code>APP_USER</code> / <code>APP_PASSWORD</code> / <code>DEMO_KEY</code> '
             '（模板见 <code>.streamlit/secrets.toml.example</code>）。'
@@ -6390,7 +6641,7 @@ def _view_single():
                     f'　ROE&lt;{_rl:g}% 且 增速≥{_gl:g}%（低盈利 · 高成长）<br>'
                     f'<span class="q-dog">■ 瘦狗 <span class="q-en">Dog</span></span>'
                     f'　ROE&lt;{_rl:g}% 且 增速&lt;{_gl:g}%（低盈利 · 低成长）<br>'
-                    f'<span style="color:#475569">切换行业财务基准库按钮，基准线会随之调整。</span>'
+                    f'<span style="color:var(--tx-dim)">切换行业财务基准库按钮，基准线会随之调整。</span>'
                     f'</div>',
                     unsafe_allow_html=True,
                 )
