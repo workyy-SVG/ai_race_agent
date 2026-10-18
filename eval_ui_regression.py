@@ -1065,7 +1065,7 @@ _check("v18：注入串只有一个 <style> / 一个 </style>，且 </style> 前
 _check("v18：每段行内 CSS 先过 _strip_style_tags（漏一个就等于又造出一个收尾点）",
        all(f"_strip_style_tags({v})" in _INJ_BODY
            for v in ("_apply_theme_vars(CUSTOM_CSS)", "_THEME_BASE_RULES",
-                     "_THEME_NATIVE_RULES", "_V18_RULES")),
+                     "_THEME_NATIVE_RULES", "_V18_RULES", "_V19_RULES")),
        str([v for v in ("_apply_theme_vars(CUSTOM_CSS)", "_THEME_BASE_RULES",
                         "_THEME_NATIVE_RULES", "_V18_RULES")
             if f"_strip_style_tags({v})" not in _INJ_BODY]))
@@ -1206,7 +1206,7 @@ _NATIVE = _ns["_THEME_NATIVE_RULES"]
 # v18 起四层 CSS 都进 _inject_page_css 的 cache body，层序在这里卡（见上面 v18 断言）
 _check("v16 原生层已接入注入（四层 CSS 全部拼进 _inject_page_css 的缓存体）",
        all(v in _INJ_FN for v in ("CUSTOM_CSS", "_THEME_BASE_RULES",
-                                  "_THEME_NATIVE_RULES", "_V18_RULES")))
+                                  "_THEME_NATIVE_RULES", "_V18_RULES", "_V19_RULES")))
 _check("v16 原生层层序正确：兜底层在前、原生层在后（原生层要压 emotion 样式）",
        _INJ_FN.index("_THEME_BASE_RULES") < _INJ_FN.index("_THEME_NATIVE_RULES"))
 _check("v16 原生层覆盖：输入框 / 展开面板 / 定高容器 / 上传区 / 表格 / 提示条",
@@ -1445,8 +1445,11 @@ _check("v18③：缺数据的维度要在标题里点名（留白不能被读成
 _check("v18④：画布宽度封顶 12 英寸（旧值 15 / 甚至 28 会把字按 disp_w/W 压没）",
        SRC.count("min(max(6.2, 1.5 * n + 4.0), 12.0)") >= 3
        and "min(max(6.2, 0.62 * len(years) * n + 3.2), 12.0)" in SRC)
-_check("v18④：画布高度由 _fig_h 按宽高比反推（不再写死 3.3，避免细横条）",
-       "def _fig_h(" in SRC and "_MAX_FIG_ASPECT = 2.05" in SRC
+# v19 起高度改为「按目标显示高度反算」：H = target_px × W / disp_w ——
+# 同一个 target_px 在半栏 / 整行下都成立，比固定宽高比更准（详见 app.py _fig_h）。
+_check("v18④/v19：画布高度由 _fig_h 反推（目标显示高 330px，不再写死 3.3）",
+       "def _fig_h(" in SRC and "_TARGET_FIG_PX = 330.0" in SRC
+       and "float(target_px) * float(W) / max(float(disp_w), 1.0)" in SRC
        and SRC.count("H = _fig_h(W") >= 4)
 _check("v18④：柱顶数字在放不下时竖排（90°），不再挤成一团黑",
        "def _cmp_bar_px(" in SRC and "rotation=_rot" in SRC)
@@ -1472,6 +1475,47 @@ _check("v18⑤：≥3 家追加一条「评分最高 vs 最低」的捉对问题
        and "_hi, _lo = _ranked[0][\"name\"], _ranked[-1][\"name\"]" in SRC)
 _check("v18⑤：推荐区标注当前对比了几家（避免误以为还是两家）",
        "f\"当前对比 {_nv} 家：{_all}" in SRC)
+
+# =====================================================================
+# v19 十二条（本轮用户反馈）
+# =====================================================================
+# ② 基准条整行不再渲染（业务计算保留）
+_check("v19②：规则优秀线/同业样本统计条不再渲染（peer_stat 计算保留）",
+       "+ _peer_stat_html(" not in SRC
+       and 'st.session_state["peer_stat"] = _peer_st' in SRC)
+# ③ 数据来源副标题换成真实来源
+_check("v19③：数据来源副标题写明真实来源（巨潮/东财/腾讯）",
+       SRC.count("（巨潮资讯网 · 东方财富 · 腾讯财经）") >= 1
+       and "在线取数已包含实时行情" not in SRC)
+# ④⑤⑥ 三行说明文字删除
+_check("v19④：报告期数说明行已删（口径说明挪进滑块 help）",
+       "报告期数 = 抓取最近 N 期财务数据" not in SRC
+       and "向东方财富拉取「最近 N 个报告期」" in SRC)
+_check("v19⑤：年报索引已就绪提示行已删",
+       "年报索引已就绪** —— 检索方式" not in SRC)
+_check("v19⑥：先看分数提示行已删",
+       "先看分数：四维评分" not in SRC)
+# ⑦ 登录后页脚免责声明删除 + 追问输入框占位词去掉「例如：」示例
+# ⚠️ 源码里留着注释解释"为什么删"，注释里会引用旧文案 —— 先剥掉 # 注释行再查。
+_SRC_NOC = __import__("re").sub(r"(?m)^\s*#.*$", "", SRC)
+_check("v19⑦：登录后的页脚免责声明不再渲染（登录页那条保留）",
+       "第二届全国人工智能应用创新大赛参赛作品 · 分析结果仅供参考" not in _SRC_NOC
+       and "本作品仅供大赛评审访问 · 分析结果仅供参考" in _SRC_NOC)
+_check("v19⑦：追问输入框不再带「例如：…」示例占位",
+       "例如：这家公司的毛利率" not in _SRC_NOC and "例如：这几家公司" not in _SRC_NOC
+       and "输入你想追问的问题" in _SRC_NOC)
+# ⑧⑨⑩⑪ CSS 层
+_check("v19⑧⑩⑪：侧栏对比度/字号规则落在 _V19_RULES 并接入注入",
+       "_strip_style_tags(_V19_RULES)" in SRC
+       and 'section[data-testid="stSidebar"] div[role="radiogroup"] label' in SRC
+       and "color: #FFD866 !important;" in SRC
+       and "font-size: 15.5px !important;" in SRC)
+_check("v19⑨：主区非主按钮按主题变量配色（深主题不再白底浅字）",
+       '[data-testid="stMain"] .stButton > button:not([kind="primary"])' in SRC)
+# ⑫ 登录页整体上移
+_check("v19⑫：登录页顶部留白压缩（内容整体上移更对称）",
+       'padding-top: 0.5rem !important;' in SRC.split("LOGIN_CSS = ", 1)[1]
+       .split("\n</style>", 1)[0])
 
 print()
 if FAILS:

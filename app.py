@@ -1970,6 +1970,76 @@ _V18_RULES = """
 }
 """
 
+_V19_RULES = """
+/* ===== v19 · 用户第 8/9/10/11 条：对比度与侧栏可读性 ===== */
+
+/* ①（第 9 条）主区非主按钮在深主题下"白底浅字"：
+   按钮底色来自 config.toml 的原生主题（白），而文字被追加在后面的
+   `.stApp p { color: var(--tx-body) }` 刷成浅色 —— 深主题里正好 1:1 融化。
+   这里把非主按钮整体交给主题变量：深主题=深底亮字，浅主题=白底深字。
+   ⚠️ 只作用于**主区**：选择器锚在 [data-testid="stMain"] 上，避免盖掉
+   侧栏导航按钮自己那套「半透明白底 / 选中白底深蓝字」的配色。 */
+[data-testid="stMain"] .stButton > button:not([kind="primary"]) {
+  background: var(--surface) !important;
+  color: var(--on-surface) !important;
+  border: 1px solid var(--brd) !important;
+  font-weight: 700 !important;
+}
+[data-testid="stMain"] .stButton > button:not([kind="primary"]) p,
+[data-testid="stMain"] .stButton > button:not([kind="primary"]) * {
+  color: var(--on-surface) !important;
+}
+
+/* ②（第 8 条）侧栏顶部的主题选择药丸：通用规则给它白底，而侧栏的
+   `section label { color:#EAF4FF !important }` 特异性更高 → 白底白字。
+   侧栏作用域内显式改成「白底深蓝字」，选中态「蓝底白字」。 */
+section[data-testid="stSidebar"] div[role="radiogroup"] label,
+section[data-testid="stSidebar"] div[role="radiogroup"] label div,
+section[data-testid="stSidebar"] div[role="radiogroup"] label p,
+section[data-testid="stSidebar"] div[role="radiogroup"] label span {
+  background: #FFFFFF !important;
+  color: #14377A !important;
+  font-weight: 700 !important;
+}
+section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked),
+section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) div,
+section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) p,
+section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) span {
+  background: #1D4ED8 !important;
+  color: #FFFFFF !important;
+}
+
+/* ③（第 10 条）侧栏文字整体加粗加大 —— 用户："工具栏字体偏小"。 */
+section[data-testid="stSidebar"] .stButton > button {
+  font-size: 15.5px !important;
+  font-weight: 700 !important;
+  padding-top: 9px !important;
+  padding-bottom: 9px !important;
+}
+section[data-testid="stSidebar"] .sb-title {
+  font-size: 16.5px !important;
+  font-weight: 800 !important;
+}
+section[data-testid="stSidebar"] .sb-brand {
+  font-size: 18px !important;
+}
+
+/* ④（第 11 条）侧栏 caption（分析记录的时间行 / 双模型协同状态行）：
+   原 #AFD2F5 用户仍嫌看不清 —— 换成亮黄 + 加大加粗（深蓝底上 9.6:1）。 */
+section[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] p,
+section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] * {
+  color: #FFD866 !important;
+  font-size: 14px !important;
+  font-weight: 700 !important;
+}
+/* 侧栏里 st.markdown 的普通段落（当前登录 / 双模型状态说明）同步提亮加粗 */
+section[data-testid="stSidebar"] p {
+  font-size: 14.5px !important;
+  font-weight: 600 !important;
+}
+"""
+
 _CSS_CACHE: dict = {}
 
 
@@ -2014,6 +2084,7 @@ def _inject_page_css() -> str:
             + _strip_style_tags(_THEME_BASE_RULES)
             + _strip_style_tags(_THEME_NATIVE_RULES)
             + _strip_style_tags(_V18_RULES)
+            + _strip_style_tags(_V19_RULES)
         )
     # 结尾的 \n 让 </style> 独占一行：即便日后又有人往里追加内容，
     # 也不会形成「</style> 后面还跟着东西」的同款陷阱。
@@ -2092,6 +2163,11 @@ LOGIN_CSS = """
      文案改成横向铺开 → 视觉变宽，行数变少，而不是整体拔高。
      ⚠️ 这段 CSS 只在未登录分支注入，工作台宽度不受影响。 */
   .block-container { max-width: 1800px !important; }
+  /* 【v19 · 用户第 12 条】登录页整体上移：默认 stMainBlockContainer 顶部留白
+     有 5~6rem，标题被压到屏幕中段，下面又剩大片空白，视觉不对称。
+     登录页把顶部内边距压到 0.5rem，整组（标题 + 登录卡 + 两侧可视化）
+     一起上移、在竖直方向更居中对称。仅登录分支注入，不影响工作台。 */
+  [data-testid="stMainBlockContainer"] { padding-top: 0.5rem !important; }
   header[data-testid="stHeader"] { background: transparent !important; }
 
   /* ---- v9 修正：右上角工具栏（Share / 星标 / 菜单）终于看得清了 ----
@@ -3760,7 +3836,7 @@ def fig_compare_scale_n(mets: list, names: list,
     total_w = 0.5
     w = total_w / n
     W = min(max(6.2, 1.5 * n + 4.0), 12.0)
-    H = _fig_h(W)
+    H = _fig_h(W, disp_w)
     fig, ax = plt.subplots(figsize=(W, H), facecolor=_PAL["card"])
     ax.set_facecolor(_PAL["card"])
     _rot = 90 if _cmp_bar_px(disp_w, n, len(rows), total_w) < 34 else 0
@@ -3819,7 +3895,7 @@ def fig_compare_years_n(rows_map: dict, names: list, pipeline,
     total_w = 0.82
     w = total_w / n
     W = min(max(6.2, 0.62 * len(years) * n + 3.2), 12.0)
-    H = _fig_h(W)
+    H = _fig_h(W, disp_w)
     fig, ax = plt.subplots(figsize=(W, H), facecolor=_PAL["card"])
     ax.set_facecolor(_PAL["card"])
     _rot = 90 if _cmp_bar_px(disp_w, n, max(1, len(years))) < 30 else 0
@@ -5153,11 +5229,8 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
         st.write("")
         st.write("")
         do_fetch = st.button("🔍 获取数据", use_container_width=True, key=f"{key_prefix}_fetch")
-    if not compact:
-        st.caption(
-            "ℹ️ **报告期数 = 抓取最近 N 期财务数据**（含季报/中报/年报）；它只影响「可选报告的期数」与趋势范围，"
-            "**评分与图表固定按「最近一个年报」口径**计算 —— 换 N 不会让分数漂移。"
-        )
+    # 【v19 · 用户第 4 条】「报告期数」下方那行说明文字整行删除（用户嫌文字太多显得乱）。
+    # 口径说明已挪进滑块的 help 悬浮提示里，鼠标悬上去仍能看到完整解释。
 
     # ---- 取数主流程（手动按钮与热门下拉自动触发共用，v11 抽成函数）----
     def _fail_fetch(msg: str) -> None:
@@ -5601,11 +5674,9 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
         # 【v17 · 用户第 ⑥ 条】旧文案「年报索引已就绪（本地页级）」里的括号被外层
         # 括号套了两层，读起来像"检索方式有问题"。改成"检索方式：xxx"的直陈句。
         _be_ = "语义向量检索" if _st_.get("backend") == "chroma" else "本地页级关键词检索"
-        st.caption(
-            f"📚 **年报索引已就绪** —— 检索方式：{_be_} · {_st_.get('chunks', 0)} 个文本块 · "
-            f"覆盖 {_st_.get('pages', 0)} 页 · 分析 / 研报 / 追问会按问题检索原文"
-            f"并标注「见年报第X页」。"
-        )
+        # 【v19 · 用户第 5 条】「年报索引已就绪……」这行提示不再渲染（前面已经说过
+        # 年报相关说明，用户嫌重复）。索引状态在后台照常维护，只是不打扰页面。
+        pass
     else:
         _be_now = ""
         try:
@@ -6191,18 +6262,9 @@ if _cur_view == "🏢":
         _peer_st = _peer_stat_for(_single_code, _single_name)
         # 存业务键，供研报/追问的上下文注入使用（读它时也要判 usable）
         st.session_state["peer_stat"] = _peer_st
-        st.markdown(
-            f'<div class="base-bar">'
-            f'📐 <b>规则优秀线（{industry} · 本项目设定）</b>'
-            f' · ROE 优秀线 <span class="bb-num">{_base_roe:g}%</span>'
-            f' · 营收增速稳健线 <span class="bb-num">{_base_grow:g}%</span>'
-            f'<br><span class="bb-note">这是「优秀标准」，不是行业实际水平；'
-            f'四维评分、四象限定位与散点基准线均按此口径计算，'
-            f'切换上方行业按钮，全部基准随之调整。</span>'
-            + _peer_stat_html(_peer_st, _single_name if _single_code else "")
-            + f'</div>',
-            unsafe_allow_html=True,
-        )
+        # 【v19 · 用户第 2 条】整条「规则优秀线 + 同业样本统计」基准条不再渲染：
+        # 用户反馈这段解释性文字太啰嗦、界面乱。业务计算（_industry_base / peer_stat）
+        # 全部保留 —— 评分、四象限、研报与追问的上下文注入照常使用，只是不在页面上展示。
 else:
     # 非单公司视图：不渲染行业选择器与基准条（它们只对单公司分析有意义），
     # 沿用上次选择的行业作为「多公司对比」的默认口径。
@@ -6238,7 +6300,7 @@ def _view_single():
 
     # ---- 数据来源选择（第 1 行第 2 栏） ----
     with card("src", "2", "数据来源",
-              "在线取数已包含实时行情、多期财务指标与年报检索片段",
+              "（巨潮资讯网 · 东方财富 · 腾讯财经）",
               tag="二选一", col=_single_grid[1]):
         src_mode = st.radio(
             "数据来源",
@@ -6403,7 +6465,7 @@ def _view_single():
         # ⚠️ 这一栏只有 1/3 宽（在线模式），两个按钮并排会各自挤到 ~180px、
         #    按钮文案会折行，所以改成上下两个整宽按钮（主操作在上）。
         run_btn = st.button("🚀 开始结构化分析", disabled=not raw_data, use_container_width=True, type="primary")
-        st.caption("先看分数：四维评分、图表、风险与亮点（结果按四个页签展开）。")
+        # 【v19 · 用户第 6 条】「先看分数…」说明行删除
         report_btn = st.button("📝 生成完整研报", disabled=not raw_data, use_container_width=True)
         st.caption("直接出稿：把上面的结果整理成一份可下载的 Markdown 研报。")
 
@@ -7705,7 +7767,9 @@ def _view_single():
     # ---- 提问入口：放在最后（内联模式下"最后执行 = 显示在最下面"）----
     # ⚠️ 必须**无条件**实例化 chat_input。写成 `_pending or st.chat_input(...)` 会因
     #    Python 短路求值而在命中上一项时整个输入框当轮消失。
-    _typed = st.chat_input("例如：这家公司的毛利率在同行业处于什么水平？", key="chat_q")
+    # 【v19 · 用户第 7 条】占位示例「例如：这家公司的毛利率…」删除：
+    # 用户要自己想说什么就说什么，输入框只留一句中性的引导。
+    _typed = st.chat_input("输入你想追问的问题", key="chat_q")
     _new_q = (_typed or "").strip()
     if _new_q:
         if len(_new_q) > 500:
@@ -8545,7 +8609,7 @@ def _view_compare():
                             st.rerun()
 
         # 4) 输入框（最下）
-        _cmp_q = st.chat_input("例如：这几家公司哪一家更值得投资？", key="cmp_chat_q")
+        _cmp_q = st.chat_input("输入你想追问的问题", key="cmp_chat_q")
         _cmp_new = (_cmp_q or "").strip()
         if _cmp_new:
             if not DEEPSEEK_API_KEY:
@@ -8831,7 +8895,9 @@ else:
 _topbar_slot.markdown(_topbar_html(), unsafe_allow_html=True)
 
 st.divider()
-st.markdown(
-    '<p class="footer-note">💡 <b>金融智能投研 Agent</b> · 第二届全国人工智能应用创新大赛参赛作品 · 分析结果仅供参考，不构成投资建议</p>',
-    unsafe_allow_html=True,
-)
+# 【v19 · 用户第 7 条】登录后的页脚免责声明删除：用户在登录页已看过一次
+# 「不构成投资建议」，页内右下角这句重复出现显得啰嗦。登录页的那条保留。
+# st.markdown(
+#     '<p class="footer-note">💡 <b>金融智能投研 Agent</b> · 第二届全国人工智能应用创新大赛参赛作品 · 分析结果仅供参考，不构成投资建议</p>',
+#     unsafe_allow_html=True,
+# )
