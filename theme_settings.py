@@ -73,7 +73,7 @@ def theme_palette(themes: dict, name: str, custom: dict | None = None) -> dict:
 
 
 def render_theme_settings(themes: dict, default: str) -> None:
-    """Draft changes preview locally; apply/reset callbacks run before CSS injection."""
+    """Apply/reset callbacks commit theme settings before CSS injection."""
     state = st.session_state
     if state.get("ui_theme") not in themes:
         state["ui_theme"] = default
@@ -115,22 +115,10 @@ def render_theme_settings(themes: dict, default: str) -> None:
             st.markdown("**自定义配色**")
             left, right = st.columns(2)
             with left:
-                accent = st.color_picker("主题色", key="theme_draft_accent")
+                st.color_picker("主题色", key="theme_draft_accent")
             with right:
-                background = st.color_picker("背景色", key="theme_draft_background")
-            name = state["theme_draft_preset"]
-            draft_colors = {"accent": accent, "background": background}
-            is_custom = draft_colors != {"accent": themes[name]["--accent-bg"], "background": defaults.get(name, "#0A2C66")}
-            draft = theme_palette(themes, name, draft_colors if is_custom else None)
-            st.markdown(
-                f'<div class="theme-preview" style="background:{draft["--grad-page"]};color:{draft["--on-surface"]};'
-                f'border:1px solid {draft["--brd"]};border-radius:12px;padding:16px">'
-                '<div>贵州茅台 · 财务分析</div><small>效果预览 · 年报检索与财务评分</small>'
-                f'<div style="margin-top:12px;background:{accent};color:{_ink(accent)};'
-                'padding:8px 12px;border-radius:8px;text-align:center">开始分析</div></div>',
-                unsafe_allow_html=True,
-            )
-            st.caption("配色实时预览，点击应用后更新整个工作台。")
+                st.color_picker("背景色", key="theme_draft_background")
+            st.caption("选择配色后，点击应用主题更新整个工作台。")
             left, right = st.columns(2)
             left.button("应用主题", key="theme_apply", on_click=apply, use_container_width=True)
             right.button("恢复默认", key="theme_reset", on_click=reset, use_container_width=True)
