@@ -33,6 +33,7 @@ from openai import OpenAI
 
 import data_source as ds
 import workbench_ui as wb
+import login_session as login
 
 # 统一预算计数（原子写入 + 分桶：llm / polish / embed）
 try:
@@ -3010,14 +3011,17 @@ LOGIN_BRAND = (
 
 
 def check_login():
-    if st.session_state.get("authenticated", False):
+    if login.restore_login(APP_USER, APP_PASSWORD,
+                           secret=str(_get_secret("LOGIN_COOKIE_SECRET", "") or ""),
+                           demo_keys=_demo_keys()):
         return True
 
     # ---- 方案1: 免登录链接 (URL 携带 ?key=xxx) ----
     _qp_key = st.query_params.get("key", "")
     if _qp_key and _qp_key in _demo_keys():
-        st.session_state["authenticated"] = True
-        st.session_state["demo_mode"] = True
+        login.start_login(APP_USER, APP_PASSWORD,
+                          secret=str(_get_secret("LOGIN_COOKIE_SECRET", "") or ""),
+                          demo_key=_qp_key)
         st.rerun()
 
     # ---- 登录页（浅色近白）：品牌区 + 居中白卡 ----
@@ -3073,7 +3077,8 @@ def check_login():
             submitted = st.form_submit_button("安全登录", use_container_width=True, type="primary")
             if submitted:
                 if user == APP_USER and pw == APP_PASSWORD:
-                    st.session_state["authenticated"] = True
+                    login.start_login(APP_USER, APP_PASSWORD,
+                                      secret=str(_get_secret("LOGIN_COOKIE_SECRET", "") or ""))
                     st.rerun()
                 else:
                     st.error("账号或密码错误，请检查后重试（区分大小写）。")
@@ -6242,8 +6247,7 @@ with st.sidebar:
         _budget.read(_budget.BUCKET_POLISH), _budget.read(_budget.BUCKET_EMBED)),
         unsafe_allow_html=True)
     if st.button("退出登录", key="logout", use_container_width=True):
-        st.session_state["authenticated"] = False
-        st.session_state["demo_mode"] = False
+        login.logout()
         st.rerun()
     st.markdown(
         '<p class="footer-note">金融智能投研 Agent · 大赛参赛作品</p>',
