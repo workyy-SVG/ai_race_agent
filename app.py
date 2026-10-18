@@ -2655,9 +2655,14 @@ LOGIN_PANELS_R = (
     '<text x="33" y="82" text-anchor="middle" fill="#EAF6FF" font-size="10.5" font-weight="700">盈利</text>'
     '<text x="83" y="82" text-anchor="middle" fill="#EAF6FF" font-size="10.5" font-weight="700">成长</text>'
     '<text x="133" y="82" text-anchor="middle" fill="#EAF6FF" font-size="10.5" font-weight="700">偿债</text>'
-    '<text x="183" y="82" text-anchor="middle" fill="#EAF6FF" font-size="10.5" font-weight="700">营运</text>'
+    '<text x="183" y="82" text-anchor="middle" fill="#EAF6FF" font-size="10.5" font-weight="700">现金</text>'
     '</svg>'
-    '<div class="lp-cap">四维各 10 分：盈利能力 / 成长能力 / 偿债能力 / 营运能力。</div>'
+    # 【B8】第四维原来是「营运 / 营运能力」，而真实评分引擎的四维是
+    # 盈利能力 / 成长性 / 偿债能力 / 现金流质量（见 scoring.py）——
+    # 首页演示与真实输出口径不一致，会让评审误以为评分含"营运能力"（外部测试报告 B8）。
+    # 这里统一成引擎口径，并明确标注"静态示例"。
+    '<div class="lp-cap">四维各 10 分：盈利能力 / 成长性 / 偿债能力 / 现金流质量。'
+    '（静态示例，非真实评分）</div>'
     '</div>'
     '<div class="lb-panel">'
     '<div class="lp-head">风险评分<span class="lp-en">Risk Score</span></div>'
@@ -5490,7 +5495,35 @@ _HIST_FILE = Path(_os.environ.get("ANALYSIS_HISTORY_CACHE")
                   or ".streamlit/_analysis_history_cache.json")
 
 
-def _hist_load() -> list:
+def _hist_sid() -> str:
+    """【B6】浏览器会话身份 —— 用来把共享账号下的分析记录隔开。
+
+    取 Streamlit 运行时真正的 session_id（一个浏览器标签页一个），拿不到时
+    退回进程内随机 id。只用于标记**记录归属**，不含任何用户隐私信息。
+    """
+    try:
+        sid = st.session_state.get("_hist_sid")
+        if sid:
+            return sid
+        sid = ""
+        try:
+            from streamlit.runtime.scriptrunner import get_script_run_ctx  # type: ignore
+            _ctx = get_script_run_ctx()
+            _raw = getattr(_ctx, "session_id", None) if _ctx is not None else None
+            if _raw:
+                sid = str(_raw)
+        except Exception:
+            sid = ""
+        if not sid:
+            import uuid as _uuid
+            sid = _uuid.uuid4().hex[:12]
+        st.session_state["_hist_sid"] = sid
+        return sid
+    except Exception:
+        return ""
+
+
+def _hist_load(only_sid: str = "") -> list:
     try:
         if not _HIST_FILE.exists():
             return []
@@ -5499,10 +5532,19 @@ def _hist_load() -> list:
             return []
         import time as _time
         _now = _time.time()
-        return [h for h in data
+        data = [h for h in data
                 if isinstance(h, dict)
                 and isinstance(h.get("_ts"), (int, float))
                 and _now - h["_ts"] <= _HIST_TTL_SEC]
+        # 【B6】共享账号隔离：外部测试报告实测"能看到别人（其他并发评测用户）
+        # 对山西汾酒、宝钢股份的分析记录"。现在按会话身份过滤。
+        # ⚠️ 只在**确实有两个及以上不同会话**时才启用隔离：一个人用时照旧
+        #    全量显示，保住 v10 的「刷新页面 / 重开会话都不丢记录」。
+        if only_sid:
+            _sids = {h.get("_sid") or "" for h in data}
+            if len(_sids - {""}) > 1:
+                data = [h for h in data if (h.get("_sid") or "") == only_sid]
+        return data
     except Exception:
         return []
 
@@ -5515,9 +5557,19 @@ def _hist_save(lst: list) -> None:
                  if isinstance(h, dict)
                  and isinstance(h.get("_ts"), (int, float))
                  and _now - h["_ts"] <= _HIST_TTL_SEC][-20:]
+        # 【B6】只覆盖**本会话**的记录，其他会话的记录原样留在文件里。
+        # 旧实现把（可能已按会话过滤过的）lst 整份写回 → 等于顺手删掉别人的记录。
+        _sid = _hist_sid()
+        try:
+            _all = _hist_load()
+        except Exception:
+            _all = []
+        _others = [h for h in _all if (h.get("_sid") or "") != _sid]
+        _mine = [h for h in _keep if (h.get("_sid") or "") == _sid]
+        _out = (_others + _mine)[-20:]
         _HIST_FILE.parent.mkdir(parents=True, exist_ok=True)
         _HIST_FILE.write_text(
-            json.dumps(_keep, ensure_ascii=False, default=str), encoding="utf-8"
+            json.dumps(_out, ensure_ascii=False, default=str), encoding="utf-8"
         )
     except Exception:
         pass
@@ -5563,7 +5615,8 @@ def _render_history_list() -> None:
     st.markdown('<div class="hist-head">🕘 分析记录</div>', unsafe_allow_html=True)
     _hist = st.session_state.get("analysis_history")
     if not _hist:
-        _hist = _hist_load()
+        # 【B6】按浏览器会话隔离：多人共用一个演示账号时只看得到自己的记录
+        _hist = _hist_load(_hist_sid())
         if _hist:
             st.session_state["analysis_history"] = _hist
     if not _hist:

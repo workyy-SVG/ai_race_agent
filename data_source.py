@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import datetime
+import os
 import re
 import time
 import json
@@ -54,6 +55,17 @@ _INSECURE_FALLBACKS: List[str] = []
 def insecure_fallbacks() -> List[str]:
     """返回本次运行内发生过明文降级的接口 URL（供 UI 提示数据来源完整性）。"""
     return list(_INSECURE_FALLBACKS)
+
+
+# 【B7】明文降级开关（外部测试报告 B7：取数存在 HTTPS 降级为 HTTP 明文连接）。
+# 默认 **禁止** 明文降级：HTTPS 拿不到就直接判失败，绝不留明文传输金融数据。
+# 只有在确认网络环境确实拦 HTTPS、且能接受明文风险时，才用环境变量打开：
+#     ALLOW_INSECURE_FALLBACK=1
+# 打开后行为与旧版一致（先 https 后 http），但一旦真降级，仍会记录到
+# _INSECURE_FALLBACKS 并在页面上如实提示 —— 降级永远是"可观测"的。
+ALLOW_INSECURE_FALLBACK = str(
+    os.environ.get("ALLOW_INSECURE_FALLBACK", "0") or "0"
+).strip().lower() in ("1", "true", "yes", "on")
 
 # BUG-05（外部测试报告）：巨潮三个接口原来硬编码 http://，取数成功后 UI 会出现
 # 「HTTPS 降级为 HTTP（明文连接）」警告 —— 评委会关注传输安全。实测三个域名
@@ -118,7 +130,9 @@ def _get(url: str, params=None, referer="https://data.eastmoney.com/", tries: in
     """
     if requests is None:
         return None
-    alt = url.replace("https://", "http://", 1) if url.startswith("https://") else None
+    # 【B7】默认不生成 http 备选地址（禁止明文降级）；开关打开时才退回旧行为。
+    alt = (url.replace("https://", "http://", 1)
+           if (ALLOW_INSECURE_FALLBACK and url.startswith("https://")) else None)
     for attempt in range(tries):
         for u in ([url] if not alt else [url, alt]):
             try:

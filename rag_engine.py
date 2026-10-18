@@ -274,8 +274,11 @@ def _embed_batch(
     RETRIES = 2  # 额外重试次数 (共 3 次尝试)
     batches = [texts[i:i + BATCH] for i in range(0, len(texts), BATCH)]
     total = len(batches)
-    # 预算记账：按批次数计入 embed 桶（每批 ≤10 条，与 DashScope 调用口径一致）
-    _budget.bump(_budget.BUCKET_EMBED, total)
+    # 预算记账（B10）：原来在**开跑前**一次性计入 total 批 —— 只要中途超时/失败，
+    # 计数照涨而向量一条都没落地；叠加"每次都整份重建"，实测当日"向量化"
+    # 从个位数飙到 167 批（外部测试报告 B10）。
+    # 现在改成**按真正成功的批次**记账（见下方汇总处），与 DashScope 实际
+    # 成功调用口径一致；失败的批次不占当日额度。
     if progress_cb:
         progress_cb(0, total)
 
@@ -336,9 +339,14 @@ def _embed_batch(
         raise
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
+    # 【B10】只给真正成功的批次记账（results 里缺的就是失败/取消的批）
+    try:
+        _budget.bump(_budget.BUCKET_EMBED, len(results))
+    except Exception:
+        pass
     out: List[List[float]] = []
     for i in range(total):
-        out.extend(results[i])
+        out.extend(results.get(i) or [])
     return out
 
 
