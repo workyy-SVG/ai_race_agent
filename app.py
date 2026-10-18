@@ -1505,6 +1505,10 @@ THEMES = {
         # 生效之后再进一步：底更深（.92→.96 且压暗）、字更亮（#D7E4FA→#EAF3FF）。
         "--surface": "rgba(5,15,38,.96)",
         "--on-surface": "#EAF3FF",
+        "--floating-surface": "#0C2144",
+        "--floating-hover": "#193B69",
+        "--floating-shadow": "0 16px 40px rgba(0,6,22,.32)",
+        "--composer-backdrop": "linear-gradient(180deg,rgba(10,44,102,0) 0%,rgba(10,44,102,.94) 38%,#0A2C66 100%)",
         "--fw-body": "500",     # 正文加粗一档：浅字压深底要更实才看得清
         "--fw-label": "700",    # 控件标签（股票代码/报告期数…）
         "--fw-strong": "800",   # 标题 / 展开条 / 按钮
@@ -1553,6 +1557,10 @@ THEMES = {
         "--accent-tint": "rgba(167,139,250,.14)",
         "--surface": "rgba(12,6,30,.96)",
         "--on-surface": "#F3EDFF",
+        "--floating-surface": "#241541",
+        "--floating-hover": "#3B2863",
+        "--floating-shadow": "0 16px 40px rgba(9,3,24,.34)",
+        "--composer-backdrop": "linear-gradient(180deg,rgba(44,26,98,0) 0%,rgba(44,26,98,.94) 38%,#2C1A62 100%)",
         "--fw-body": "500",
         "--fw-label": "700",
         "--fw-strong": "800",
@@ -1599,6 +1607,10 @@ THEMES = {
         "--accent-tint": "rgba(29,78,216,.07)",
         "--surface": "#FFFFFF",
         "--on-surface": "#334155",
+        "--floating-surface": "#FFFFFF",
+        "--floating-hover": "#EAF1FD",
+        "--floating-shadow": "0 12px 32px rgba(30,58,104,.12)",
+        "--composer-backdrop": "linear-gradient(180deg,rgba(218,230,246,0) 0%,rgba(218,230,246,.94) 38%,#DAE6F6 100%)",
         "--fw-body": "400",     # 浅底深字用常规字重，再粗就糊
         "--fw-label": "600",
         "--fw-strong": "700",
@@ -1739,13 +1751,33 @@ _THEME_NATIVE_RULES = """
     color: var(--on-surface) !important;
     font-weight: var(--fw-body) !important;
   }
-  /* 展开条标题：按用户要求「换色之后再加粗加深」 */
-  [data-testid="stExpander"] summary,
-  [data-testid="stExpander"] summary * {
-    color: var(--tx-strong) !important;
+  /* Expanded summaries use Streamlit's light bgMix by default. Theme the
+     entire header in every state, including its label and disclosure icon. */
+  .stApp [data-testid="stExpander"] summary,
+  .stApp [data-testid="stExpander"] summary * {
+    color: var(--on-surface) !important;
+    -webkit-text-fill-color: var(--on-surface) !important;
     font-weight: var(--fw-strong) !important;
     font-size: 15.5px !important;
     letter-spacing: .2px;
+  }
+  .stApp [data-testid="stExpander"] summary {
+    background: var(--surface) !important;
+  }
+  .stApp [data-testid="stExpander"] details[open] > summary {
+    background: var(--floating-surface) !important;
+  }
+  .stApp [data-testid="stExpander"] details > summary:hover,
+  .stApp [data-testid="stExpander"] details > summary:focus-visible,
+  .stApp [data-testid="stExpander"] details > summary:active {
+    background: var(--floating-hover) !important;
+  }
+  .stApp [data-testid="stExpander"] summary:focus-visible {
+    outline: 2px solid var(--accent) !important;
+    outline-offset: -3px;
+  }
+  .stApp [data-testid="stExpanderDetails"] {
+    border-top-color: var(--brd) !important;
   }
 
   /* ③ 固定高度容器（st.container(height=…)）—— 分析记录 / 多公司对比的滚动框。
@@ -2040,6 +2072,145 @@ section[data-testid="stSidebar"] p {
 }
 """
 
+_THEME_FLOATING_RULES = """
+/* Select menus are rendered in a portal, outside .stApp. Scope by component
+   attributes rather than generated classes; leave virtual row sizes intact. */
+[data-baseweb="popover"]:has([data-testid^="stSelectboxVirtualDropdown"], [role="option"]) {
+  background: transparent !important;
+  border-radius: 14px !important;
+  box-shadow: none !important;
+}
+[data-baseweb="popover"]:has([data-testid^="stSelectboxVirtualDropdown"], [role="option"]) > div {
+  background: var(--floating-surface) !important;
+  border: 1px solid var(--brd) !important;
+  border-radius: 14px !important;
+  box-shadow: var(--floating-shadow) !important;
+  overflow: hidden;
+}
+[data-baseweb="popover"] > div > div:has([data-testid^="stSelectboxVirtualDropdown"]) {
+  border: 0 !important;
+  box-shadow: none !important;
+}
+[data-baseweb="popover"]:has([data-testid^="stSelectboxVirtualDropdown"], [role="option"]) ul {
+  background: var(--floating-surface) !important;
+  color: var(--on-surface) !important;
+  scrollbar-color: var(--brd) var(--floating-surface);
+}
+[data-testid="stSelectboxVirtualDropdownEmpty"],
+[data-testid="stSelectboxVirtualDropdownEmpty"] * {
+  color: var(--tx-dim) !important;
+  -webkit-text-fill-color: var(--tx-dim) !important;
+}
+[data-baseweb="popover"] [role="option"],
+[data-baseweb="popover"] [role="option"] * {
+  color: var(--on-surface) !important;
+  -webkit-text-fill-color: var(--on-surface) !important;
+  font-weight: var(--fw-body) !important;
+}
+[data-baseweb="popover"] [role="option"] > div {
+  background: transparent !important;
+  border-radius: 8px;
+  transition: background-color .15s ease;
+}
+[data-baseweb="popover"] [role="option"]:hover > div {
+  background: var(--floating-hover) !important;
+}
+/* Streamlit also marks the keyboard-active option with aria-selected. */
+[data-baseweb="popover"] [role="option"][aria-selected="true"] > div {
+  background: var(--accent-bg) !important;
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+[data-baseweb="popover"] [role="option"][aria-selected="true"],
+[data-baseweb="popover"] [role="option"][aria-selected="true"] * {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+  font-weight: 600 !important;
+}
+[data-baseweb="popover"] [role="option"][aria-disabled="true"] {
+  opacity: .5;
+}
+
+/* Keep Streamlit's native sticky positioning and content width. Only theme
+   the bottom surface and tighten its vertical spacing. */
+[data-testid="stBottom"]:has([data-testid="stChatInput"]) > div {
+  background: var(--composer-backdrop) !important;
+}
+[data-testid="stBottomBlockContainer"]:has([data-testid="stChatInput"]) {
+  padding-top: 20px !important;
+  padding-bottom: max(22px, env(safe-area-inset-bottom)) !important;
+}
+[data-testid="stChatInput"] > div {
+  background: var(--floating-surface) !important;
+  border: 1px solid var(--brd) !important;
+  border-radius: 18px !important;
+  padding: 12px 14px 12px 20px !important;
+  min-height: 64px;
+  box-shadow: var(--floating-shadow);
+  transition: border-color .18s ease, box-shadow .18s ease;
+}
+[data-testid="stChatInput"] > div:focus-within {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px var(--accent-tint), var(--floating-shadow);
+}
+.stApp [data-testid="stChatInput"] [data-baseweb="textarea"],
+.stApp [data-testid="stChatInput"] [data-baseweb="base-input"],
+.stApp [data-testid="stChatInput"] textarea {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  color: var(--on-surface) !important;
+  -webkit-text-fill-color: var(--on-surface) !important;
+  caret-color: var(--accent) !important;
+}
+.stApp [data-testid="stChatInput"] textarea {
+  font-size: 16px !important;
+  font-weight: 500 !important;
+  line-height: 1.5 !important;
+}
+.stApp [data-testid="stChatInput"] textarea::placeholder {
+  color: var(--tx-dim) !important;
+  -webkit-text-fill-color: var(--tx-dim) !important;
+  font-weight: 400 !important;
+  opacity: 1 !important;
+}
+[data-testid="stChatInputSubmitButton"] {
+  background: var(--accent-bg) !important;
+  color: #FFFFFF !important;
+  border: 1px solid transparent !important;
+  border-radius: 12px !important;
+  width: 38px !important;
+  height: 38px !important;
+  transition: background-color .15s ease, box-shadow .15s ease;
+}
+[data-testid="stChatInputSubmitButton"]:not(:disabled):hover {
+  box-shadow: 0 0 0 3px var(--accent-tint);
+  filter: brightness(1.12);
+}
+[data-testid="stChatInputSubmitButton"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+[data-testid="stChatInputSubmitButton"]:disabled {
+  background: var(--floating-hover) !important;
+  color: var(--tx-dim) !important;
+  opacity: .6;
+}
+@media (max-width: 640px) {
+  [data-testid="stChatInput"] > div {
+    padding: 10px 10px 10px 14px !important;
+    border-radius: 14px !important;
+    min-height: 58px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-testid="stChatInput"] > div,
+  [data-testid="stChatInputSubmitButton"],
+  [data-baseweb="popover"] [role="option"] > div {
+    transition: none;
+  }
+}
+"""
+
 _CSS_CACHE: dict = {}
 
 
@@ -2085,6 +2256,7 @@ def _inject_page_css() -> str:
             + _strip_style_tags(_THEME_NATIVE_RULES)
             + _strip_style_tags(_V18_RULES)
             + _strip_style_tags(_V19_RULES)
+            + _strip_style_tags(_THEME_FLOATING_RULES)
         )
     # 结尾的 \n 让 </style> 独占一行：即便日后又有人往里追加内容，
     # 也不会形成「</style> 后面还跟着东西」的同款陷阱。
