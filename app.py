@@ -2657,9 +2657,10 @@ LOGIN_PANELS_R = (
     '<text x="133" y="82" text-anchor="middle" fill="#EAF6FF" font-size="10.5" font-weight="700">偿债</text>'
     '<text x="183" y="82" text-anchor="middle" fill="#EAF6FF" font-size="10.5" font-weight="700">现金</text>'
     '</svg>'
-    # 【B8】第四维原来是「营运 / 营运能力」，而真实评分引擎的四维是
+    # 【B8】第四维原来写作「营运」，而真实评分引擎的四维是
     # 盈利能力 / 成长性 / 偿债能力 / 现金流质量（见 scoring.py）——
-    # 首页演示与真实输出口径不一致，会让评审误以为评分含"营运能力"（外部测试报告 B8）。
+    # 首页演示与真实输出口径不一致，会让评审误以为评分维度里有"营运"口径
+    # （外部测试报告 B8）。
     # 这里统一成引擎口径，并明确标注"静态示例"。
     '<div class="lp-cap">四维各 10 分：盈利能力 / 成长性 / 偿债能力 / 现金流质量。'
     '（静态示例，非真实评分）</div>'
@@ -5543,7 +5544,11 @@ def _hist_load(only_sid: str = "") -> list:
         if only_sid:
             _sids = {h.get("_sid") or "" for h in data}
             if len(_sids - {""}) > 1:
-                data = [h for h in data if (h.get("_sid") or "") == only_sid]
+                # `_sid` 为空 = 本版本之前写入的老记录（无法归属），一律保留：
+                # 宁可多显示几条老记录，也不能让"刷新之后自己的历史全没了"。
+                # 老记录 2 小时 TTL 到期自动消失，之后就全是带 _sid 的新记录。
+                data = [h for h in data
+                        if (h.get("_sid") or "") in ("", only_sid)]
         return data
     except Exception:
         return []
@@ -5564,8 +5569,11 @@ def _hist_save(lst: list) -> None:
             _all = _hist_load()
         except Exception:
             _all = []
-        _others = [h for h in _all if (h.get("_sid") or "") != _sid]
-        _mine = [h for h in _keep if (h.get("_sid") or "") == _sid]
+        # 没有 _sid 的老记录算"自己的"（写回时一并保留，见 _hist_load 的同款处理）
+        _others = [h for h in _all
+                   if (h.get("_sid") or "") not in ("", _sid)]
+        _mine = [h for h in _keep
+                 if (h.get("_sid") or "") in ("", _sid)]
         _out = (_others + _mine)[-20:]
         _HIST_FILE.parent.mkdir(parents=True, exist_ok=True)
         _HIST_FILE.write_text(
@@ -7847,14 +7855,23 @@ def _view_compare():
         # 「缺什么 + 怎么补」。
         _missing_tips: list = []
         for _s in _cmp_side:
-            if (_s["data"] or "").strip():
-                continue
-            if _s["online"] and not _s["code"]:
-                _missing_tips.append(
-                    f"- **{_s['name']}**：选了「在线取数」但还没取到数据 —— "
-                    "请在上方选好股票代码后点「🔍 获取数据」（或先粘贴财报文本改用手动输入）"
-                )
-            else:
+            _has_data = bool((_s["data"] or "").strip())
+            if _s["online"]:
+                # 在线模式看的是**代码 + 取到的文本**：只填了文本没有代码，
+                # 照样是"选了在线取数却不知道分析谁"。
+                if not _s["code"]:
+                    _missing_tips.append(
+                        f"- **{_s['name']}**：选了「在线取数」但**还没选股票代码** —— "
+                        "请在上方选好公司后点「🔍 获取数据」（或取消勾选改用手动粘贴）"
+                    )
+                elif not _has_data:
+                    _missing_tips.append(
+                        f"- **{_s['name']}**：已选代码 **{_s['code']}** 但还没取到数据 —— "
+                        "请点「🔍 获取数据」"
+                    )
+                else:
+                    continue
+            elif not _has_data:
                 _missing_tips.append(
                     f"- **{_s['name']}**：没有可分析的数据 —— "
                     "请粘贴财报文本，或切换到「🌐 在线取数」并点「🔍 获取数据」"

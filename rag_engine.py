@@ -494,6 +494,37 @@ def _build_index(
     if existing >= len(norm) and _fp_stored == fp:
         logger.info("索引已存在且文档指纹一致 (%s 条), 跳过构建", existing)
         return coll, existing
+
+    # 【B10】增量补齐：指纹一致但块数变少（切片策略微调 / 上次建到一半中断 /
+    # 并发下另一个会话先建了一部分）时，旧实现是 delete 整份重建 ——
+    # 40 万字的年报要重跑几十批 Embedding，这正是"向量化计数增长异常偏快"的主因。
+    # 现在只向量化**缺失的那几块**，已落地的向量一条都不重复算。
+    if existing > 0 and _fp_stored == fp:
+        ids_all = [f"{code}_{year}_{doc_tag or 'd'}_{i:04d}" for i in range(len(norm))]
+        try:
+            _have = set((coll.get(include=[]) or {}).get("ids") or [])
+        except Exception:
+            _have = set()
+        _todo = [(i, n) for i, n in enumerate(norm) if ids_all[i] not in _have]
+        if _todo:
+            logger.info("索引增量补齐 %s/%s 块（跳过已存在的 %s 块）",
+                        len(_todo), len(norm), len(_have))
+            _vecs = _embed_batch([n["text"] for _, n in _todo],
+                                 model=embedding_model, progress_cb=progress_cb)
+            coll.upsert(
+                ids=[ids_all[i] for i, _ in _todo],
+                embeddings=_vecs,
+                documents=[n["text"] for _, n in _todo],
+                metadatas=[{"code": code, "year": year, "chunk_idx": i, "page": n["page"],
+                            "doc_tag": doc_tag or "", "doc_fp": fp} for i, n in _todo],
+            )
+        try:
+            coll.modify(metadata=base_meta)
+        except Exception:
+            logger.warning("写入集合元数据失败，下次可能重建索引", exc_info=True)
+        coll.get(limit=1)
+        return coll, len(norm)
+
     if existing > 0:
         logger.info("文档指纹不一致（旧 %s 条, 新 %s 条）, 重建集合 %s",
                     existing, len(norm), cname)

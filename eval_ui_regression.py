@@ -198,8 +198,11 @@ _check("重复公司时「开始对比分析」禁用", bool(_b) and bool(_b.dis
 at2.session_state["cmp1_online_code"] = ""
 at2.run()
 _w = "\n".join(x.value for x in at2.warning)
-_check("未取到数据 → 警告（无效代码 / 未完成输入）",
-       ("尚未成功取到数据" in _w) or ("输入未完成" in _w), _w[:120])
+# 【B9】这里原来是两条独立告警（"尚未成功取到数据" + "输入未完成"），
+# 同一家公司被说两遍。v17 合并成一条、按公司分点列出原因与处理方式，
+# 断言随之改为：只有**一条**相关告警，且写清了"缺什么 + 怎么补"。
+_check("未取到数据 → 合并为一条告警（B9）", _w.count("暂无可分析的数据") == 1, _w[:160])
+_check("告警里分点写明补全方式", "🔍 获取数据" in _w or "粘贴财报文本" in _w, _w[:160])
 
 # ---------------------------------------------------------------------------
 print("=== P1-03 对比口径与导出（3 家）===")
@@ -1213,9 +1216,112 @@ _at_n = _boot()
 _at_n.session_state["ui_theme"] = "🔮 星云紫"
 _at_n.run()
 _INJ = "".join(m.value for m in _at_n.markdown if m.value and ":root{" in m.value)
+# ⚠️ 别把 --surface 的具体色值写死在这里：v17 为了修「深主题白底白字」把
+#    surface 压得更深、on-surface 提得更亮，一改就误报。改成跟 THEMES 对照。
 _check("运行时：原生层随主题进入页面（stFileUploaderDropzone / stAlertContainer 都在）",
        "stFileUploaderDropzone" in _INJ and "stAlertContainer" in _INJ
-       and "--surface:rgba(24,14,54,.92)" in _INJ)
+       and "--surface:" in _INJ
+       and _THEMES["🔮 星云紫"]["--surface"].replace(" ", "") in _INJ.replace(" ", ""))
+
+# =====================================================================
+# v17 · 外部测试报告 B1~B10 修复固化
+# =====================================================================
+print("\n=== v17 外部测试报告 B1~B10 ===")
+import re as _re17
+
+# —— B1：CSS 必须整段包在**一个** <style> 里 ——
+# 根因实测：_THEME_BASE_RULES / _THEME_NATIVE_RULES 原来是拼在 CUSTOM_CSS 的
+# </style> **之后** → 既没生效（深主题一直白底白字），又被浏览器当正文渲染出来。
+_check("B1：注入前先剥掉内层 <style>（避免两段并存的嵌套）",
+       '_body.replace("<style>", "").replace("</style>", "")' in SRC)
+_check("B1：三层 CSS 统一包进一个 <style>",
+       '"<style>" + _body + _THEME_BASE_RULES + _THEME_NATIVE_RULES + "</style>"'
+       in SRC.replace("\n", "").replace("            ", "")
+       or "<style>\" + _body + _THEME_BASE_RULES + _THEME_NATIVE_RULES + \"</style>" in SRC)
+
+def _leak_of(atx) -> list:
+    """把 <style>…</style> 抠掉后还剩下的可见文本 = 泄漏到正文的 CSS。"""
+    out = []
+    for m in atx.markdown:
+        v = str(getattr(m, "value", "") or "")
+        if "<style>" not in v:
+            continue
+        rest = _re17.sub(r"<[^>]+>", "", _re17.sub(r"<style>.*?</style>", "", v, flags=_re17.S))
+        if rest.strip():
+            out.append(rest.strip()[:120])
+    return out
+
+_at_l = AppTest.from_file(APP, default_timeout=240)
+_at_l.run()
+_check("B1：登录页正文里没有 CSS 泄漏", not _leak_of(_at_l), "|".join(_leak_of(_at_l)))
+_B1BAD = []
+for _th17 in ("🌌 深空蓝", "🔮 星云紫", "☁️ 浅色雅蓝"):
+    _at_l.session_state["authenticated"] = True
+    _at_l.session_state["main_view"] = "🏢"
+    _at_l.session_state["ui_theme"] = _th17
+    _at_l.run()
+    if _leak_of(_at_l):
+        _B1BAD.append(_th17)
+_check("B1：三套主题下主界面都没有 CSS 泄漏", not _B1BAD, ",".join(_B1BAD))
+
+# —— B2：按钮禁用必须自带原因 ——
+_check("B2：未取数时给出禁用原因（不再静默灰按钮）",
+       "两个按钮当前不可用" in SRC)
+# —— B3：研报占位与正文互斥 ——
+_check("B3：研报页签按 report 是否存在二选一渲染",
+       'report = st.session_state.get("report")' in SRC
+       and "还没有研报" in SRC
+       and SRC.index('if not report:') < SRC.index('st.subheader("📝 完整投研报告")'))
+# —— B4：下拉 + 手动输入合并成一个取数入参 ——
+_check("B4：do_fetch 用「输入框 or 下拉代码」合并入参",
+       '_kw = (kw or "").strip() or (_code or "").strip()' in SRC)
+# —— B5：分析记录按唯一键覆盖更新 ——
+_check("B5：写记录前按 _sig 去重（同股不再堆雷同记录）",
+       '_hist = [h for h in _hist if (h.get("_sig") or "") != _sig]' in SRC)
+# —— B6：共享账号会话隔离 ——
+_check("B6：记录带会话 id + 读取按会话过滤 + 写回保留他人记录",
+       '"_sid": _hist_sid(),' in SRC
+       and "def _hist_load(only_sid" in SRC
+       and "_others = [h for h in _all" in SRC)
+# —— B7：禁止明文降级开关 ——
+_DS17 = io.open(os.path.join(_HERE, "data_source.py"), encoding="utf-8").read()
+_check("B7：明文降级改为开关控制，默认关闭（ALLOW_INSECURE_FALLBACK=0）",
+       "ALLOW_INSECURE_FALLBACK" in _DS17
+       and "ALLOW_INSECURE_FALLBACK and url.startswith" in _DS17
+       and 'os.environ.get("ALLOW_INSECURE_FALLBACK", "0")' in _DS17)
+# —— B8：登录页演示四维与引擎口径一致 ——
+_check("B8：登录演示第四维改为「现金」并标注静态示例",
+       ">现金</text>" in SRC and "静态示例，非真实评分" in SRC
+       and "营运能力" not in SRC)
+# —— B10：向量化只记成功批次 + 索引增量补齐 ——
+_RG17 = io.open(os.path.join(_HERE, "rag_engine.py"), encoding="utf-8").read()
+_check("B10：embed 只在成功后记账（不再开跑前预记 total 批）",
+       "_budget.bump(_budget.BUCKET_EMBED, len(results))" in _RG17
+       and "_budget.bump(_budget.BUCKET_EMBED, total)" not in _RG17)
+_check("B10：指纹一致但块数不足时增量补齐，不整份重建",
+       "索引增量补齐" in _RG17)
+
+# —— v17 用户第 ⑤(a) 条：深主题侧栏与主区必须分得开 ——
+_check("v17：三套主题都给了 --side-edge（侧栏分界色）",
+       all("--side-edge" in t for t in _THEMES.values()))
+_check("v17：侧栏有右边框 + 投影（不再与主区同色糊成一片）",
+       'section[data-testid="stSidebar"]' in SRC
+       and "var(--side-edge)" in SRC
+       and "box-shadow: 6px 0 26px" in SRC)
+# —— v17 用户第 ④ 条：多公司选齐后才一次性取数 ——
+_check("v17：多公司有「选齐判断 + 批量取数」两个函数",
+       "def _cmp_targets()" in SRC and "def _cmp_all_filled()" in SRC
+       and "def _run_batch_fetch()" in SRC)
+_check("v17：热门下拉在多公司页只登记目标、不再单独自动取数",
+       "cmp" in SRC and "_prefix.startswith(\"cmp\")" in SRC.replace("'", '"')
+       or 'startswith("cmp")' in SRC)
+_check("v17：批量取数有目标指纹记账（选齐后只跑一次，rerun 不重复）",
+       "cmp_batch_tried" in SRC and "_cmp_sig_targets" in SRC)
+# —— v17 用户第 ⑥ 条：一键建索引不再自相矛盾 ——
+_check("v17：索引状态文案统一（就绪 / 未建立 二选一）",
+       "年报索引已就绪" in SRC and "当前尚未建立年报索引" in SRC)
+_check("v17：紧凑模式不再重复渲染两套建索引按钮",
+       "_compact_pdf_body" in SRC)
 
 print()
 if FAILS:
