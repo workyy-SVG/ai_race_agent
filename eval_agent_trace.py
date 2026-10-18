@@ -79,13 +79,41 @@ def main() -> int:
     at = at2
     ck(not at.exception, "注入分析结果后无异常", [e.value for e in at.exception])
 
-    # AppTest 会把一组 tabs 展平成 N 个 tab 对象，每个 label 是单独的字符串
-    _labels = ["".join(t.label) for t in at.tabs]
-    print("  页签：", _labels)
-    ck(len(_labels) == 5, "结果区共 5 个页签（原 4 个 + 新增轨迹页）", len(_labels))
-    ck(any("Agent 轨迹" in s for s in _labels), "出现「🤖 Agent 轨迹」页签", _labels)
+    # 【v18 · 用户第 1 条】结果区不再用 st.tabs（它不保存选中态，页签内换控件必跳回
+    # 第一个），改成 st.radio 承载的「工作台分段」：labels 落在 radios 的选项里，
+    # 选中值存在 session_state["__wk_tab"]，rerun 回来还停在原地。
+    _labels = []
+    for _r in at.radio:
+        try:
+            _opts = list(_r.options)
+        except Exception:
+            _opts = []
+        if _opts and "📊 分析概览" in _opts:      # 只认工作台那一组 radio
+            _labels = _opts
+            break
+    print("  分段：", _labels)
+    ck(len(_labels) == 5, "结果区共 5 个分段（原 4 个 + 新增轨迹段）", len(_labels))
+    ck(any("Agent 轨迹" in s for s in _labels), "出现「🤖 Agent 轨迹」分段", _labels)
     ck(bool(_labels) and _labels[-1].endswith("Agent 轨迹"),
-       "轨迹页排在最后一位", _labels[-1] if _labels else "")
+       "轨迹段排在最后一位", _labels[-1] if _labels else "")
+    def _ssg(key, default=None):
+        # AppTest 的 session_state 是 SafeSessionState，没有 .get() -> 只能 try 读
+        try:
+            return at.session_state[key]
+        except Exception:
+            return default
+
+    _wk = _ssg("__wk_tab")
+    ck(_wk is not None, "分段选中值持久化在 session_state['__wk_tab']", str(_wk))
+    # 切到「Agent 轨迹」并 rerun：必须停在这一段（这正是用户报的"跳转丢失"）
+    if _labels:
+        at.session_state["__wk_tab"] = _labels[-1]
+        at.run()
+        ck(not at.exception, "切到轨迹段后无异常",
+           [str(e.value)[:160] for e in at.exception])
+        ck(_ssg("__wk_tab") == _labels[-1],
+           "切到轨迹段 rerun 后仍在轨迹段（不再跳回分析概览）",
+           str(_ssg("__wk_tab")))
 
     # ---- 台账模块自洽性 ----
     import agent_trace  # noqa: E402

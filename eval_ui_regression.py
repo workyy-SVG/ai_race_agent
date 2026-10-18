@@ -107,7 +107,13 @@ at.session_state["analysis"] = {
 at.run()
 _check("无异常", not [str(e.value)[:200] for e in at.exception],
        str([str(e.value)[:200] for e in at.exception]))
+# 【v18 · 用户第 1 条】工作台页签改成 radio 承载后，**一次只渲染选中的那一段**，
+# 所以测时间轴必须先切过去 —— 顺带这也把「切出新段」本身验了一遍。
+at.session_state["__wk_tab"] = "🗓️ 年度时间轴"
+at.run()
 _c = _cap(at)
+_check("切到「年度时间轴」分段后无异常", not [str(e.value)[:200] for e in at.exception],
+       str([str(e.value)[:200] for e in at.exception]))
 _check("出现「年度时间轴」区块", "年度时间轴" in _c)
 _check("年份范围筛选器存在", at.get("select_slider") is not None
        and len(at.get("select_slider")) > 0)
@@ -146,11 +152,21 @@ if "timeline_year" in _sb:
     _check("切到 2021 年后卡片同步为 100", _r21 is not None and "100" in str(_r21.value),
            f"value={getattr(_r21, 'value', None)}")
     _check("切换年份后无异常", not [str(e.value)[:200] for e in at.exception])
-# 切换指标 → 图重绘
+# 切换指标 → 图重绘（【v18 · 用户第 1 条】原来这一步会一头跳回「分析概览」）
 if "timeline_metric" in _rd:
     _rd["timeline_metric"].set_value("net_profit").run()
     _check("切换指标为「归母净利润」后仍有图", _imgs(at) >= 1)
     _check("切换指标后无异常", not [str(e.value)[:200] for e in at.exception])
+    # —— 用户报的那个 bug：切完指标人还在「年度时间轴」里，没有被弹回概览 ——
+    _rd2 = {r.key: r for r in at.radio}
+    _check("v18①：切换指标后仍停在「年度时间轴」（不再跳回分析概览）",
+           "timeline_metric" in _rd2 and str(_rd2["timeline_metric"].value) == "net_profit",
+           str([k for k in _rd2 if k.startswith("timeline")]))
+    _check("v18①：切换后的分段选中值仍落在 __wk_tab 会话键里（页签状态被持久化）",
+           _ss(at, "__wk_tab") == "🗓️ 年度时间轴", str(_ss(at, "__wk_tab")))
+    _sb2 = {s.key: s for s in at.selectbox}
+    _check("v18①：切换指标后年份选择器也还在（整段时间轴都没丢）", "timeline_year" in _sb2,
+           str([k for k in _sb2 if k.startswith("timeline")]))
 
 # ---------------------------------------------------------------------------
 print("=== P1-02 多公司对比：2 → 3 → 5 家动态增删 ===")
@@ -1019,16 +1035,68 @@ _check("三套主题的变量键完全一致（缺键会导致切主题时串色
        len(_keysets) == 1, f"keysets={len(_keysets)}")
 _check("主题切换器挂在侧边栏、key=ui_theme（选中即生效，不用二次刷新）",
        'key="ui_theme"' in SRC and 'with st.sidebar:' in SRC
-       and "_theme_style()" in SRC and "_custom_css_themed()" in SRC)
-# 注意：要找的是「调用点」而不是 def 那一行 —— def _theme_style() 与
-# def _custom_css_themed() 都出现在注入点之前，直接 index() 会命中定义，
-# 断言永远为真、失去意义。所以只在"真正注入的那一行"里比前后顺序。
+       and "_inject_page_css()" in SRC)
+# ———【v18 · 用户第 6 条】页面上曾经凭空多出几屏 CSS 源码（font-size / config.toml /
+#     选择器注释被当正文渲染），同时深主题下的原生层样式一直没生效 —— 同一个根因的两副面孔：
+#     旧写法 `st.markdown(_theme_style() + _custom_css_themed())` 把**两个** <style>
+#     拼在同一行，而 `st.markdown(unsafe_allow_html)` 走的是 CommonMark 解析：
+#     type-1 原始 HTML 块的结束条件是「遇到**含有** </style> 的那一行」，于是第二个
+#     <style> 之后的所有 CSS 被降级成普通段落 → 既印成可见正文、又永远不生效。
+#     根治办法：全站合并成唯一一个 <style>，且 </style> 独占最后一行。
 _INJL = [l for l in SRC.split("\n")
-         if "st.markdown(" in l and "_custom_css_themed()" in l]
-_check("主题变量先注入、再注入变量化 CSS（顺序反了变量不生效）",
-       len(_INJL) == 1 and "_theme_style()" in _INJL[0]
-       and _INJL[0].index("_theme_style()") < _INJL[0].index("_custom_css_themed()"),
-       str(_INJL[:1]))
+         if "st.markdown(" in l and "_inject_page_css()" in l]
+_check("v18：整站只有一处 CSS 注入点（旧的『两个 style 拼一行』写法已删除）",
+       len(_INJL) == 1
+       and "def _theme_style(" not in SRC and "def _custom_css_themed(" not in SRC,
+       str(_INJL))
+_INJ_SRC = SRC.split("def _inject_page_css() -> str:", 1)[1]
+_i_ret = _INJ_SRC.index('    return "<style>"')
+_INJ_FN = _INJ_SRC[:_INJ_SRC.index("\n", _i_ret)]        # 含 return 那一行本身
+# ⚠️ 必须先把 docstring 和行注释都抠掉：这两处为了讲清原理反复提到 `<style>…</style>`
+#    字样，不抠的话"说明里的标签"会被算进 count，断言永久失真。
+_INJ_BODY = __import__("re").sub(r'""".*?"""', "", _INJ_FN,
+                                 flags=__import__("re").S)
+_INJ_BODY = __import__("re").sub(r"(?m)^\s*#.*$", "", _INJ_BODY)
+_check("v18：注入串只有一个 <style> / 一个 </style>，且 </style> 前有独占一行的换行",
+       _INJ_BODY.count("<style>") == 1 and _INJ_BODY.count("</style>") == 1
+       and __import__("re").search(r'return "<style>".*?\\n</style>"', _INJ_BODY,
+                                   __import__("re").S),
+       f"<style>x{_INJ_BODY.count('<style>')} </style>x{_INJ_BODY.count('</style>')}")
+_check("v18：每段行内 CSS 先过 _strip_style_tags（漏一个就等于又造出一个收尾点）",
+       all(f"_strip_style_tags({v})" in _INJ_BODY
+           for v in ("_apply_theme_vars(CUSTOM_CSS)", "_THEME_BASE_RULES",
+                     "_THEME_NATIVE_RULES", "_V18_RULES")),
+       str([v for v in ("_apply_theme_vars(CUSTOM_CSS)", "_THEME_BASE_RULES",
+                        "_THEME_NATIVE_RULES", "_V18_RULES")
+            if f"_strip_style_tags({v})" not in _INJ_BODY]))
+# 功能性硬校验：真的把三套主题各生成一次 HTML，逐条验「只有一个 style 块、收尾干净」
+# ⚠️ 上面 `_ns` 那次 exec 用的是「globals / locals 分离」写法，函数闭包捕获的是只装了
+#    re 的 globals —— 直接调 _ns["_inject_page_css"]() 会 NameError: THEMES。
+#    判和维护性都要求「能真的跑」，所以这里用同一个 dict 兼作 globals 再 exec 一次。
+_ns_css = {"re": __import__("re")}
+# ⚠️ 起点必须是 CUSTOM_CSS 而不是 DEFAULT_THEME：_inject_page_css 里要用到 CUSTOM_CSS，
+#    而它定义在更靠前的位置（不在 THEMES 那一段里），少了它就 NameError。
+exec(compile(_src[_src.index("CUSTOM_CSS = "):_i1], "app_css", "exec"), _ns_css)
+_CHECKStype = type("StubST", (), {"session_state": {"ui_theme": "🌌 深空蓝"}})
+_ns_css["st"] = _CHECKStype
+_V18BAD = []
+for _th18 in ("🌌 深空蓝", "🔮 星云紫", "☁️ 浅色雅蓝"):
+    _CHECKStype.session_state = {"ui_theme": _th18}
+    _h18 = _ns_css["_inject_page_css"]()
+    _tail_ok = _h18.rstrip().endswith("\n</style>")
+    _inside18 = (">" if _h18.count("<style>") == 1 and _h18.count("</style>") == 1
+                 and _tail_ok else "✗#" + str((_h18.count("<style>"),
+                                               _h18.count("</style>"), _tail_ok)))
+    if _inside18 != ">":
+        _V18BAD.append(f"{_th18}{_inside18}")
+        continue
+    # 抠掉唯一的 style 块后，剩下的东西必须为空（非空 = 又泄漏成正文了）
+    _rest18 = __import__("re").sub(r"<style>.*?</style>", "", _h18,
+                                   flags=__import__("re").S).strip()
+    if _rest18:
+        _V18BAD.append(f"{_th18}残留{len(_rest18)}字符:{_rest18[:60]}")
+_check("v18：三套主题生成的 HTML 都只有 1 个 style 块、且块外没有任何残留文本",
+       not _V18BAD, "|".join(_V18BAD))
 
 # —— 对比度硬校验：文字 vs 卡片底，两套深色主题 + 浅色主题都要 ≥4.5:1 ——
 # 深色主题的卡片是半透明 rgba(12,32,70,.82) 压在页面渐变上，这里取渐变首色作保守底。
@@ -1135,10 +1203,12 @@ _check("v16：单公司视图首屏第一个容器就是第 1 步（sg-r1），�
 # 根因：Streamlit 原生组件的配色来自 config.toml 的 [theme]，不吃 :root 变量。
 # =====================================================================
 _NATIVE = _ns["_THEME_NATIVE_RULES"]
-_check("v16 原生层已接入注入（_custom_css_themed 里三层 CSS 拼在一起）",
-       "_THEME_BASE_RULES + _THEME_NATIVE_RULES" in SRC)
+# v18 起四层 CSS 都进 _inject_page_css 的 cache body，层序在这里卡（见上面 v18 断言）
+_check("v16 原生层已接入注入（四层 CSS 全部拼进 _inject_page_css 的缓存体）",
+       all(v in _INJ_FN for v in ("CUSTOM_CSS", "_THEME_BASE_RULES",
+                                  "_THEME_NATIVE_RULES", "_V18_RULES")))
 _check("v16 原生层层序正确：兜底层在前、原生层在后（原生层要压 emotion 样式）",
-       0 < SRC.index("_THEME_BASE_RULES + _THEME_NATIVE_RULES"))
+       _INJ_FN.index("_THEME_BASE_RULES") < _INJ_FN.index("_THEME_NATIVE_RULES"))
 _check("v16 原生层覆盖：输入框 / 展开面板 / 定高容器 / 上传区 / 表格 / 提示条",
        all(k in _NATIVE for k in (
            ".stApp input,", '[data-testid="stExpanderDetails"]',
@@ -1232,12 +1302,16 @@ import re as _re17
 # —— B1：CSS 必须整段包在**一个** <style> 里 ——
 # 根因实测：_THEME_BASE_RULES / _THEME_NATIVE_RULES 原来是拼在 CUSTOM_CSS 的
 # </style> **之后** → 既没生效（深主题一直白底白字），又被浏览器当正文渲染出来。
+# 【v18 重写】v17 只做到"拼进一个 style"；真正踩到的坑是 CommonMark type-1 HTML 块
+# 在「含有 </style> 的那一行」就收尾，所以碎片还必须剥干净、收尾标签还得独占一行。
+# 这里不再 match 拼接字符串（一改变量名就失效），而是直接调用真实函数产出 HTML 再验。
 _check("B1：注入前先剥掉内层 <style>（避免两段并存的嵌套）",
-       '_body.replace("<style>", "").replace("</style>", "")' in SRC)
-_check("B1：三层 CSS 统一包进一个 <style>",
-       '"<style>" + _body + _THEME_BASE_RULES + _THEME_NATIVE_RULES + "</style>"'
-       in SRC.replace("\n", "").replace("            ", "")
-       or "<style>\" + _body + _THEME_BASE_RULES + _THEME_NATIVE_RULES + \"</style>" in SRC)
+       'return (s or "").replace("<style>", "").replace("</style>", "")' in SRC)
+_check("B1：四层 CSS 由单点 _inject_page_css 统一包成一个 <style>",
+       "def _inject_page_css() -> str:" in SRC
+       and 'return "<style>" + _root + _CSS_CACHE["body"] + "\\n</style>"' in SRC
+       and len([l for l in SRC.split("\n")
+                if "st.markdown(" in l and "_inject_page_css()" in l]) == 1)
 
 def _leak_of(atx) -> list:
     """把 <style>…</style> 抠掉后还剩下的可见文本 = 泄漏到正文的 CSS。"""
@@ -1322,6 +1396,82 @@ _check("v17：索引状态文案统一（就绪 / 未建立 二选一）",
        "年报索引已就绪" in SRC and "当前尚未建立年报索引" in SRC)
 _check("v17：紧凑模式不再重复渲染两套建索引按钮",
        "_compact_pdf_body" in SRC)
+
+# =====================================================================
+# v18 六条（本轮用户反馈的新一轮修复）
+# =====================================================================
+# —— 第 1 条：年度时间轴里换指标 → 回到了「分析概览」 ——
+# 根因：st.tabs **不保存选中态**，tab 内任何控件交互都会 rerun，rerun 回来的
+# tab 永远是第 1 个。改成用 st.radio 做「工作台分段」：选中值落在 session_state，
+# rerun 后仍然停在原处。
+_check("v18①：工作台不再用 st.tabs（它不保存选中态，换控件必跳回第一个页签）",
+       "st.tabs(" not in SRC)
+_check("v18①：工作台分段用 radio + session_state 持久化（key=__wk_tab）",
+       'key="__wk_tab"' in SRC and '__wk_tab") not in _WK_TAB_LABELS' in SRC
+       and 'with st.container(key="wkbody")' in SRC)
+_check("v18①：五个分段都还在（概览/时间轴/评分/研报/轨迹），只是换了承载方式",
+       all(k in SRC for k in ("📊 分析概览", "🗓️ 年度时间轴",
+                              "🧮 评分与依据", "📝 研报", "🤖 Agent 轨迹")))
+_check("v18①：分段条/内容区都带 key（CSS 要靠 st-key-* 命中才能排版成页签）",
+       'st.container(key="wktabbar")' in SRC and "st-key-wktabbar" in SRC)
+
+# —— 第 2 条：追问的「图表辅助」是一张碎图 ——
+# 根因：st.image(bytes) 走 /media/<hash>.png 端点，被浏览器/代理/会话校验拦掉
+# 就只剩占位符。改成内联 base64（show_png），不产生任何额外请求。
+_VIZCALL = [l for l in SRC.split("\n") if "_viz_png" in l or "_vz_png" in l]
+_check("v18②：追问图表走 show_png 内联 base64（不再用会碎图的 st.image）",
+       not any("st.image(" in l for l in _VIZCALL)
+       and 'show_png(_viz_png' in SRC and 'show_png(_vz_png' in SRC,
+       str(_VIZCALL[:3]))
+
+# —— 第 3 条：5 家公司的雷达图只剩一堆散点、没有轮廓 ——
+# 根因两条：① 评分值可能不是 float（"7.5分" 这类串）→ 整家被判缺 → 什么都不画；
+#           ② 旧代码要求"全部维度都有值"才画闭合轮廓，缺一个就整条线都没了。
+_check("v18③：雷达图逐段连线（相邻两维都有值就连，缺口留白而不是整条不画）",
+       "for _j in range(N):" in SRC and "_j2 = (_j + 1) % N" in SRC
+       and "if vals[_j] is None or vals[_j2] is None:\n                continue" in SRC)
+_check("v18③：缺失维度不再把整条轮廓抹掉（有 draw 兜底 + 散点补顶点）",
+       "_drew = False" in SRC
+       and "label=_lab if not _drew else None" in SRC
+       and "if all(v is not None for v in vals):" in SRC)
+_check("v18③：评分值统一过 _cmp_num 收敛成 float（串/NaN/inf 不再让线消失）",
+       "def _cmp_num(" in SRC and "f != f or f in (float(\"inf\")" in SRC)
+_check("v18③：缺数据的维度要在标题里点名（留白不能被读成 0 分）",
+       "无数据 → 该段留白，不画 0" in SRC)
+
+# —— 第 4 条：可视化子图太小（图被压成一条横带）——
+# 根因不是字号而是**宽高比**：显示高度 = disp_w × (H / W)，W 随公司数涨到 11.5
+# 英寸而 H 死守 3.3 ⇒ 570px 列里只剩 160px 高。现在：宽封顶 12 + 高度按 _fig_h 算。
+_check("v18④：画布宽度封顶 12 英寸（旧值 15 / 甚至 28 会把字按 disp_w/W 压没）",
+       SRC.count("min(max(6.2, 1.5 * n + 4.0), 12.0)") >= 3
+       and "min(max(6.2, 0.62 * len(years) * n + 3.2), 12.0)" in SRC)
+_check("v18④：画布高度由 _fig_h 按宽高比反推（不再写死 3.3，避免细横条）",
+       "def _fig_h(" in SRC and "_MAX_FIG_ASPECT = 2.05" in SRC
+       and SRC.count("H = _fig_h(W") >= 4)
+_check("v18④：柱顶数字在放不下时竖排（90°），不再挤成一团黑",
+       "def _cmp_bar_px(" in SRC and "rotation=_rot" in SRC)
+_check("v18④：≥4 家公司时图表整行排（二分栏 ~480px 装不下 5 家）",
+       "_vnc = 1 if len(_names) >= 4 else 2" in SRC
+       and "_vdw = _ROW_W if _vnc == 1 else _COL_W" in SRC)
+_check("v18④：每张图都显式传了 disp_w（漏传就会退回默认值，字号算错）",
+       SRC.count("disp_w=_vdw") >= 4 and "disp_w=_COL_W" in SRC
+       and "disp_w=_ROW_W" in SRC)
+_check("v18④：图冗余出竖向余量给标注（margins(y=0.18) + tight_layout）",
+       SRC.count("ax.margins(y=0.18)") >= 4)
+
+# —— 第 5 条：推荐问题只有两家之间的（选 3~5 家时其他几家在推荐区消失）——
+_check("v18⑤：推荐问题按公司数分流（2 家走两两口径，≥3 家走整体口径）",
+       "_nv = len(_cnames)" in SRC and "if _nv == 2:" in SRC
+       and "_cmp_sugs = [" in SRC
+       and 0 < SRC.index("_nv = len(_cnames)") < SRC.index("if _nv == 2:"))
+_check("v18⑤：≥3 家时推荐问题里出现全部公司名（不再写死前两家）",
+       "_all = \"、\".join(_cnames)" in SRC
+       and "f\"{_all} 这 {_nv} 家公司" in SRC)
+_check("v18⑤：≥3 家追加一条「评分最高 vs 最低」的捉对问题（按真实评分动态取）",
+       "_ranked = sorted(" in SRC
+       and "_hi, _lo = _ranked[0][\"name\"], _ranked[-1][\"name\"]" in SRC)
+_check("v18⑤：推荐区标注当前对比了几家（避免误以为还是两家）",
+       "f\"当前对比 {_nv} 家：{_all}" in SRC)
 
 print()
 if FAILS:

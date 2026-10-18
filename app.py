@@ -1500,7 +1500,8 @@ THEMES = {
         #      "白底" 撞上兜底层的浅色正文 = 1.2:1，就是用户看到的"根本看不清"。
         #      下面这组变量 + _THEME_NATIVE_RULES 把原生层也拉进主题体系。 ----
         # 【v17 · 用户第 ③ 条】输入框/展开面板/原始数据框"白底白字"：
-        # 原生层之前被拼在 </style> 外面根本没生效（见 _custom_css_themed），
+        # 原生层之前被拼在第二个 <style> 里导致整段被 markdown 降级成正文、
+        # 根本没生效（见 _inject_page_css），
         # 生效之后再进一步：底更深（.92→.96 且压暗）、字更亮（#D7E4FA→#EAF3FF）。
         "--surface": "rgba(5,15,38,.96)",
         "--on-surface": "#EAF3FF",
@@ -1940,39 +1941,83 @@ def _apply_theme_vars(css: str) -> str:
     return css
 
 
+# ============ 【v18】工作台分段条（radiotab）+ N 公司图表可读性 ============
+# 为什么要自己写分段条而不用 st.tabs：st.tabs **不保存选中状态**，
+# 任何控件交互触发 rerun 后都会回到第一个页签 —— 表现就是「在年度时间轴里
+# 把指标从营业收入切到归母净利润，页面立刻弹回分析概览」（用户第 1 条）。
+# radiotab 的选中值存在 session_state 里，rerun 后仍停在原分段。
+_V18_RULES = """
+/* 分段条：让 radio 看起来是一排页签（方角 + 选中项走蓝底白字） */
+[class*="st-key-wktabbar"] div[role="radiogroup"] {
+    gap: 6px; padding-bottom: 2px;
+}
+[class*="st-key-wktabbar"] div[role="radiogroup"] label {
+    border-radius: 9px; padding: 7px 13px; margin: 0;
+    font-weight: 700; font-size: 14.5px; letter-spacing: .2px;
+    white-space: nowrap;
+}
+[class*="st-key-wktabbar"] div[role="radiogroup"] label:has(input:checked) {
+    box-shadow: 0 3px 12px rgba(29, 78, 216, .28);
+}
+/* 分段下方的正文兜一层卡片底色，视觉上就是"页签内容区" */
+[class*="st-key-wkbody"] {
+    background: var(--bg-card);
+    border: 1px solid var(--brd);
+    border-radius: 12px;
+    padding: 14px 16px 10px 16px;
+    margin-top: -6px;
+    box-shadow: 0 2px 10px rgba(15, 35, 70, .045);
+}
+"""
+
 _CSS_CACHE: dict = {}
 
 
-def _custom_css_themed() -> str:
-    """变量化 CUSTOM_CSS + 兜底层 + 原生组件层（进程内只算一次）。
+def _strip_style_tags(s: str) -> str:
+    """脱掉行内片段自带的 <style>/</style> —— 全站只保留**一个** style 标签。"""
+    return (s or "").replace("<style>", "").replace("</style>", "")
 
-    三层顺序不能换：
-      ① CUSTOM_CSS（项目自己写的卡片/徽章/进度条…）
-      ② _THEME_BASE_RULES     主题兜底（Streamlit 自带 p/li/h/井号/tooltip/字重）
-      ③ _THEME_NATIVE_RULES   原生组件层（input/expander/滚动框/表格…）
-    —— ③ 必须最后：它压的是 emotion 生成的组件样式，只有放在最后才盖得住。
+
+def _inject_page_css() -> str:
+    """整站样式（:root 主题变量 + 项目样式 + 主题兜底层 + 原生组件层）。
+
+    ⚠️【v18 · 用户第 6 条】返回值必须是**唯一一个** `<style>…</style>`，
+    且 `</style>` 只能出现在字符串最末尾。原因链：
+
+      ① `st.markdown(html, unsafe_allow_html=True)` 不是直接塞 HTML ——
+         它先走 CommonMark 解析（micromark + rehype-raw）；
+      ② CommonMark 的 **type-1 原始 HTML 块**（`<style>` 开头）的结束条件是
+         「遇到**含有** `</style>` 的那一行」，注意是"行"不是"位置"；
+      ③ 于是只要字符串里出现第二个 `<style>`（形如 `…</style><style>…`，
+         且两段挨在同一行），第一个 HTML 块就在这行结束，**剩下的 CSS 全部
+         降级成普通段落** —— 浏览器把它当正文渲染出来。
+
+    表现就是：页面上凭空多出好几屏 `/* ===== v15 主题兜底层 … */` 这样的 CSS 源码，
+    把整整几千行注释/选择器印成正文，用户得一路往下划才摸到底（页面还因此变长）；
+    而与此同时，被"降级"的那几层样式**从来没生效过** —— 深主题下原生控件一直是
+    白底白字（"根本看不清"的真正根因 —— 同一个 bug 的两副面孔）。
+
+    旧写法 `st.markdown(_theme_style() + _custom_css_themed(), …)` 正好是
+    「两个 <style> 拼在同一行」，必踩这条结束条件 —— 必须整合成一个。
     """
-    if "v" not in _CSS_CACHE:
-        # ⚠️【v17 · 报告 B1】三段必须装在**同一个** <style> 里。
-        # 旧写法是 `CUSTOM_CSS(自带 <style>…</style>) + BASE + NATIVE` ——
-        # 后两段被拼在 </style> **之外**，落到 markdown 里就是两个普通段落，
-        # 浏览器把整段 CSS 当正文渲染出来（"页面上一大段 /* ===== v15 主题兜底层… */"），
-        # 而且**这两层样式从来没生效过** —— 深主题下原生控件一直白底白字，
-        # 用户反馈的"根本看不清"就是这么来的。
-        # 做法：先把 CUSTOM_CSS 自带的 <style>/</style> 脱掉，最后统一再包一层。
-        _body = _apply_theme_vars(CUSTOM_CSS)
-        _body = _body.replace("<style>", "").replace("</style>", "")
-        _CSS_CACHE["v"] = (
-            "<style>" + _body + _THEME_BASE_RULES + _THEME_NATIVE_RULES + "</style>"
-        )
-    return _CSS_CACHE["v"]
-
-
-def _theme_style() -> str:
-    """当前主题的 :root 变量注入（必须放在 CUSTOM_CSS 之前）。"""
     _t = THEMES.get(st.session_state.get("ui_theme") or DEFAULT_THEME) or THEMES[DEFAULT_THEME]
-    _body = ";".join(f"{k}:{v}" for k, v in _t.items())
-    return f"<style>:root{{{_body};}}</style>"
+    _root = ":root{" + ";".join(f"{k}:{v}" for k, v in _t.items()) + ";}"
+    if "body" not in _CSS_CACHE:
+        # 三层顺序不能换：
+        #   ① CUSTOM_CSS（项目自己写的卡片/徽章/进度条…）
+        #   ② _THEME_BASE_RULES   主题兜底（Streamlit 自带 p/li/h/井号/tooltip/字重）
+        #   ③ _THEME_NATIVE_RULES 原生组件层（input/expander/滚动框/表格…）
+        # —— ③ 必须最后：它压的是 emotion 生成的组件样式，只有放最后才盖得住。
+        # —— _root 必须最前：② ③ 都引用 var(--…)，变量必须先声明。
+        _CSS_CACHE["body"] = (
+            _strip_style_tags(_apply_theme_vars(CUSTOM_CSS))
+            + _strip_style_tags(_THEME_BASE_RULES)
+            + _strip_style_tags(_THEME_NATIVE_RULES)
+            + _strip_style_tags(_V18_RULES)
+        )
+    # 结尾的 \n 让 </style> 独占一行：即便日后又有人往里追加内容，
+    # 也不会形成「</style> 后面还跟着东西」的同款陷阱。
+    return "<style>" + _root + _CSS_CACHE["body"] + "\n</style>"
 
 
 # ============ 页面与登录 ============
@@ -1985,7 +2030,7 @@ st.set_page_config(
 )
 # ---- v15：主题切换（侧边栏最顶部；登录前侧栏被 LOGIN_CSS 隐藏，不影响登录页）----
 # 先建控件再注入样式：radio 执行时立刻写入 session_state，紧接着的
-# _theme_style() 读到的就是本次选择，主题"点一下就变"，不用再刷一次。
+# _inject_page_css() 读到的就是本次选择，主题"点一下就变"，不用再刷一次。
 if "ui_theme" not in st.session_state:
     st.session_state["ui_theme"] = DEFAULT_THEME
 with st.sidebar:
@@ -1996,7 +2041,7 @@ with st.sidebar:
         horizontal=True,
         help="一键切换整套配色：背景、卡片、边框与文字颜色全部联动。",
     )
-st.markdown(_theme_style() + _custom_css_themed(), unsafe_allow_html=True)
+st.markdown(_inject_page_css(), unsafe_allow_html=True)
 
 # ---------------------------------------------------------------
 # 登录页（v6：深蓝科技版，按用户给的登录页模板）
@@ -3144,6 +3189,70 @@ else:
 _HAS_CJK = _picked is not None
 
 
+# ============ 【v18 · 用户第 4 条】N 公司图「越画越小」的根治 ============
+# 现象：公司数越多，图上的柱子/数字/坐标就越小，最后小成一条看不清的细带。
+# 推导（关键结论：**与 dpi 无关**）：
+#   PDF/PNG 上一段 n 磅字 = n/72 英寸宽，画布 fig_w 英寸、页面上占 disp_w 像素
+#   ⇒ 屏幕上的字号（px）= (n / 72) × (disp_w / fig_w)
+#   ① dpi 在分子分母里同进同出 —— 调 dpi 只能改清晰度，**改变不了屏幕字号**；
+#   ② 分母里的 fig_w 才是元凶：本项目为了方便排 n 家公司的柱子，画布宽度会
+#      随公司数线性膨胀（可为 6.2 → 11.5 → 甚至 28 英寸），而页面宽度是固定的，
+#      于是同样的 9pt 字，被按 (disp_w / fig_w) 一路缩到只剩几个像素；
+#   ③ 二分栏更狠：可用宽度直接减半，等于再缩 50%。
+_REF_FIG_W = 6.2      # 设计基线画布宽（英寸）：9pt 字在 600px 列宽里 ≈ 12px
+_REF_DISP_W = 600.0   # 设计基线显示宽（像素）：标定值，改它等于改全站字号基准
+_COL_W = 570.0        # 二分栏单列实测可用宽（1320px 容器 - 左右留白 - 列间距再除 2）
+_ROW_W = 1160.0       # 整行实测可用宽
+_DISP_FULL_ROW = _ROW_W   # 旧名兼容
+# 画布宽高比上限。**这才是"图变成一条细带"的真正开关**：
+#   PNG 按栏位宽度等比缩放 ⇒ 显示高度(px) = disp_w × (H / W)
+#   W 一路涨到 11.5 英寸而 H 死守 3.3 英寸时，570px 列里只剩 160px ——
+#   用户截图里那条"看不清的横带"就是这么来的。
+# 既然绘图时已经知道这张图会落在多宽的栏位里（disp_w），索性**直接按目标显示
+# 高度反算画布高度**：H = target_px × W / disp_w。比"限制宽高比"更准 ——
+# 同一个 target_px 在半栏 / 整行下都成立，而固定宽高比在两种栏宽下会差一倍。
+_TARGET_FIG_PX = 330.0    # 一张图落到页面上至少要有这么高（px），低于它就会显小
+
+
+def _fig_h(W: float, disp_w: float, target_px: float = _TARGET_FIG_PX,
+           min_h: float = 3.0) -> float:
+    """按「想让这张图在页面上显示多高」反推画布高度（英寸）。"""
+    try:
+        _h = float(target_px) * float(W) / max(float(disp_w), 1.0)
+    except Exception:
+        return min_h
+    return max(min_h, round(_h, 2))
+
+
+def _cmp_bar_px(disp_w: float, n_series: int, n_group: int,
+                total: float = 0.82) -> float:
+    """一根柱子落到屏幕上大概多宽（px）—— 用来决定柱顶数字要不要竖排。
+
+    柱子组的总宽占轴的 82%（total_w=0.82），再除以"几家"和"几个分组"，
+    轴本身约占画布宽的 0.85，故再乘 0.85。竖排的成本是难读，好处是不重叠，
+    所以只在横排真的放不下（< 26px）时才竖。
+    """
+    try:
+        return float(disp_w) * 0.85 * float(total) / max(1, int(n_series) * int(n_group))
+    except Exception:
+        return 40.0
+
+
+def _fig_font(base_pt: float, fig_w: float, disp_w: float,
+              lo: float = 8.0, hi: float = 22.0) -> float:
+    """把「设计稿字号」换算到当前画布宽 / 当前列宽下的真实点字号。
+
+    目标：不管画了几家公司、放在半栏还是整行，落到屏幕上的字号都≈同一个
+    可读档位（12px）。策略是「只放大，不缩小」：画布被挤扁时把字号同比放大，
+    画布本来就很小时维持设计字号（避免标题反而变小）。
+    """
+    try:
+        _k = (float(fig_w) / _REF_FIG_W) * (_REF_DISP_W / float(disp_w))
+    except Exception:
+        return base_pt
+    return max(base_pt * 0.95, min(round(base_pt * _k, 2), float(hi)))
+
+
 def _fig_to_png_bytes(fig, dpi=140) -> bytes:
     buf = BytesIO()
     fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight",
@@ -3405,8 +3514,13 @@ def _cmp_series_color(i: int) -> str:
     return _CMP_SERIES_COLORS[i % len(_CMP_SERIES_COLORS)]
 
 
-def fig_compare_group_n(mets: list, names: list, group: list, title: str) -> bytes | None:
-    """N 家公司分组柱状图：只画「至少一家有值」的指标，缺失项柱顶写 N/A（不画 0）。"""
+def fig_compare_group_n(mets: list, names: list, group: list, title: str,
+                        disp_w: float = _REF_DISP_W) -> bytes | None:
+    """N 家公司分组柱状图：只画「至少一家有值」的指标，缺失项柱顶写 N/A（不画 0）。
+
+    disp_w = 这张图最终在页面上可用的像素宽度（整行 / 半栏），用于反推字号，
+    见 _fig_font 的推导：画布越宽、列越窄，同样的 pt 号在屏幕上就越小。
+    """
     n = len(names)
     if n < 2 or len(mets) != n:
         return None
@@ -3421,8 +3535,16 @@ def fig_compare_group_n(mets: list, names: list, group: list, title: str) -> byt
     x = np.arange(len(rows))
     total_w = 0.82
     w = total_w / n
-    fig, ax = plt.subplots(figsize=(max(6.2, 1.5 * n + 4.0), 3.3), facecolor=_PAL["card"])
+    # 画布宽度随公司数增长，但必须封顶 + 高度跟着走：
+    #   · 封顶 12 英寸：再宽下去每根柱子的相对位置没变化，只会把文字按 (disp_w/W) 压没；
+    #   · 高度按 _fig_h(W, disp_w) 反算到"页面上 330px 高"：公司数多时图**变高而不是变扁**，
+    #     这是"用户第 4 条：5 个公司的小图太小了"的主 corrective —— 之前 H 固定 3.3，
+    #     5 家时 W=11.5 ⇒ 570px 列里只剩 160px 高的一条横带。
+    W = min(max(6.2, 1.5 * n + 4.0), 12.0)
+    H = _fig_h(W, disp_w)
+    fig, ax = plt.subplots(figsize=(W, H), facecolor=_PAL["card"])
     ax.set_facecolor(_PAL["card"])
+    _rot = 90 if _cmp_bar_px(disp_w, n, len(rows)) < 26 else 0
     for i in range(n):
         offs = x - total_w / 2 + w * (i + 0.5)
         vals = [0.0 if rows[j][1][i] is None else float(rows[j][1][i]) for j in range(len(rows))]
@@ -3430,21 +3552,30 @@ def fig_compare_group_n(mets: list, names: list, group: list, title: str) -> byt
         for b, raw in zip(bars, [rows[j][1][i] for j in range(len(rows))]):
             ax.annotate("N/A" if raw is None else f"{raw:g}",
                         (b.get_x() + b.get_width() / 2, b.get_height()),
-                        ha="center", va="bottom", fontsize=7, color=_PAL["text"],
-                        xytext=(0, 2), textcoords="offset points")
+                        ha="center" if not _rot else "left",
+                        va="bottom" if not _rot else "center",
+                        rotation=_rot,
+                        fontsize=_fig_font(8, W, disp_w), color=_PAL["text"],
+                        xytext=(0 if not _rot else 2, 2 if not _rot else 0),
+                        textcoords="offset points")
     ax.set_xticks(x)
-    ax.set_xticklabels(labels, color=_PAL["text"], fontsize=9)
+    ax.set_xticklabels(labels, color=_PAL["text"], fontsize=_fig_font(9, W, disp_w))
     ax.grid(axis="y", color="#E2E8F0", linewidth=0.6, alpha=0.8)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.tick_params(axis="y", labelcolor=_PAL["text"], labelsize=9)
-    ax.legend(frameon=False, labelcolor=_PAL["text"], fontsize=8,
+    ax.tick_params(axis="y", labelcolor=_PAL["text"],
+                   labelsize=_fig_font(9, W, disp_w))
+    ax.legend(frameon=False, labelcolor=_PAL["text"], fontsize=_fig_font(8, W, disp_w),
               ncol=min(n, 3), loc="upper right")
-    ax.set_title(title, color=_PAL["title"], fontsize=12, fontweight="bold", pad=10)
+    ax.set_title(title, color=_PAL["title"], fontsize=_fig_font(12, W, disp_w),
+                 fontweight="bold", pad=10)
+    ax.margins(y=0.18)          # 给竖排/横排的柱顶数字留出不被裁掉的空间
+    fig.tight_layout()
     return _fig_to_png_bytes(fig)
 
 
-def fig_compare_dims_n(score_list: list, names: list) -> bytes | None:
+def fig_compare_dims_n(score_list: list, names: list,
+                       disp_w: float = _REF_DISP_W) -> bytes | None:
     """N 家公司四维评分分组柱状图（维度取并集；缺失维度写 N/A）。"""
     n = len(names)
     if n < 2 or len(score_list) != n:
@@ -3459,8 +3590,11 @@ def fig_compare_dims_n(score_list: list, names: list) -> bytes | None:
     x = np.arange(len(dims))
     total_w = 0.82
     w = total_w / n
-    fig, ax = plt.subplots(figsize=(max(6.2, 1.5 * n + 4.0), 3.1), facecolor=_PAL["card"])
+    W = min(max(6.2, 1.5 * n + 4.0), 12.0)
+    H = _fig_h(W, disp_w, min_h=2.9)
+    fig, ax = plt.subplots(figsize=(W, H), facecolor=_PAL["card"])
     ax.set_facecolor(_PAL["card"])
+    _rot = 90 if _cmp_bar_px(disp_w, n, len(dims)) < 26 else 0
     for i in range(n):
         offs = x - total_w / 2 + w * (i + 0.5)
         vals = [(score_list[i] or {}).get(d) for d in dims]
@@ -3470,28 +3604,69 @@ def fig_compare_dims_n(score_list: list, names: list) -> bytes | None:
         for b, v in zip(bars, vals):
             ax.annotate("N/A" if not isinstance(v, (int, float)) else f"{v:g}",
                         (b.get_x() + b.get_width() / 2, b.get_height()),
-                        ha="center", va="bottom", fontsize=7, color=_PAL["text"],
-                        xytext=(0, 2), textcoords="offset points")
+                        ha="center" if not _rot else "left",
+                        va="bottom" if not _rot else "center",
+                        rotation=_rot,
+                        fontsize=_fig_font(8, W, disp_w), color=_PAL["text"],
+                        xytext=(0 if not _rot else 2, 2 if not _rot else 0),
+                        textcoords="offset points")
     ax.set_ylim(0, 11)
-    ax.set_ylabel("评分（0-10）", color=_PAL["text"], fontsize=9)
+    ax.set_ylabel("评分（0-10）", color=_PAL["text"], fontsize=_fig_font(9, W, disp_w))
     ax.set_xticks(x)
-    ax.set_xticklabels(dims, color=_PAL["text"], fontsize=9)
+    ax.set_xticklabels(dims, color=_PAL["text"], fontsize=_fig_font(9, W, disp_w))
     ax.grid(axis="y", color="#E2E8F0", linewidth=0.6, alpha=0.8)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.legend(frameon=False, labelcolor=_PAL["text"], fontsize=8,
+    ax.tick_params(axis="y", labelcolor=_PAL["text"], labelsize=_fig_font(9, W, disp_w))
+    ax.legend(frameon=False, labelcolor=_PAL["text"], fontsize=_fig_font(8, W, disp_w),
               ncol=min(n, 3), loc="upper right")
     ax.set_title("四维评分对比（同行业可比；跨行业仅看分布，不作排名依据）",
-                 color=_PAL["title"], fontsize=12, fontweight="bold", pad=10)
+                 color=_PAL["title"], fontsize=_fig_font(12, W, disp_w),
+                 fontweight="bold", pad=10)
+    ax.margins(y=0.18)
+    fig.tight_layout()
     return _fig_to_png_bytes(fig)
 
 
-def fig_compare_radar(score_list: list, names: list) -> bytes | None:
+def _cmp_num(v):
+    """把评分值一律收敛成 float（None / NaN / 非数字串 → None）。
+
+    为什么要自己来：`scores` 里的值来自规则引擎，多数时候是 float，
+    但个别分支写成 `"7.5"` / `"7.5分"` 这类字符串。旧代码只认 int/float，
+    于是那一家公司**所有维度都被判成缺失** → 雷达图上只剩几个孤立散点、
+    轮廓线和填充全都画不出来（用户第 3 条："5 个公司的雷达图变成这样了"）。
+    """
+    if isinstance(v, bool) or v is None:
+        return None
+    if isinstance(v, (int, float)):
+        try:
+            f = float(v)
+        except Exception:
+            return None
+    else:
+        try:
+            f = float(str(v).strip().replace("%", "").replace(",", "").replace("分", ""))
+        except (TypeError, ValueError):
+            return None
+    # NaN / ±inf 会让 plot 整条线消失（表现为"没有轮廓"），必须挡在这里
+    if f != f or f in (float("inf"), float("-inf")):
+        return None
+    return f
+
+
+def fig_compare_radar(score_list: list, names: list,
+                      disp_w: float = _DISP_FULL_ROW) -> bytes | None:
     """N 家公司四维评分**雷达对比图**（v10 新增 · 用户第 3 条反馈）。
 
     柱状图擅长逐维度比高低，雷达图擅长一眼看出"谁强在哪些维度、短板在哪"，
-    两种视图互补。维度取各家评分键的并集（与柱状图同一并集逻辑），
-    缺失维度不连点（画 0 会把"缺数据"伪装成"得 0 分"）。
+    两种视图互补。维度取各家评分键的并集（与柱状图同一并集逻辑）。
+
+    【v18 · 用户第 3 条】缺失维度的画法改成「**逐段连线，缺口留白**」：
+    旧实现要求一家公司**全部维度都有值**才肯闭合画轮廓，否则退化成只有散点 ——
+    于是只要有一家公司在某个维度缺数据（多公司时几乎必然发生），整张图就变成
+    "一堆没有轮廓的散点"，看不出谁是谁。
+    现在：相邻两个维度都有值就连一段，缺数据的那一段留白（既不会因为填 0
+    把"缺数据"伪装成"得 0 分"，也不会因为缺一项就把整条轮廓抹掉）。
     """
     n = len(names)
     if n < 2 or len(score_list) != n:
@@ -3506,42 +3681,65 @@ def fig_compare_radar(score_list: list, names: list) -> bytes | None:
 
     N = len(dims)
     angles = np.linspace(0, 2 * np.pi, N, endpoint=False).tolist()
-    angles += angles[:1]
-    fig = plt.figure(figsize=(5.6, 4.6), facecolor=_PAL["card"])
+    W = 5.6 + max(0.0, (n - 2) * 0.25)
+    fig = plt.figure(figsize=(W, 4.6), facecolor=_PAL["card"])
     ax = fig.add_subplot(111, polar=True)
     ax.set_facecolor(_PAL["card"])
+    _incomplete = []      # [(公司名, [缺的维度...])]
     for i, s in enumerate(score_list):
-        vals = [(s or {}).get(d) for d in dims]
-        nums = [float(v) if isinstance(v, (int, float)) else None for v in vals]
-        xs, ys = [], []
-        for a, v in zip(angles[:-1], nums):
-            if v is not None:
-                xs.append(a)
-                ys.append(v)
-        # 首尾闭合：只有全部维度都有值才闭合，否则只画散点
-        if len(xs) == N:
-            xs.append(xs[0])
-            ys.append(ys[0])
-        if xs:
-            if len(xs) == N + 1:
-                ax.plot(xs, ys, linewidth=1.8, label=names[i], color=_cmp_series_color(i))
-                ax.fill(xs, ys, alpha=0.10, color=_cmp_series_color(i))
-            ax.scatter(xs, ys, s=16, color=_cmp_series_color(i), zorder=3)
-    ax.set_xticks(angles[:-1])
-    ax.set_xticklabels(dims, color=_PAL["text"], fontsize=9)
+        vals = [_cmp_num((s or {}).get(d)) for d in dims]
+        if not any(v is not None for v in vals):
+            continue
+        _col = _cmp_series_color(i)
+        _lab = names[i]
+        _drew = False
+        # ① 逐段连线：相邻两维都有值才连，最后一维与第一维之间也要连（闭合）
+        for _j in range(N):
+            _j2 = (_j + 1) % N
+            if vals[_j] is None or vals[_j2] is None:
+                continue
+            ax.plot([angles[_j], angles[_j2]], [vals[_j], vals[_j2]],
+                    linewidth=2.2, color=_col, solid_capstyle="round", zorder=2,
+                    label=_lab if not _drew else None)
+            _drew = True
+        # ② 全维度齐备才做半透明填充（缺一块的填充会画成一个歪多边形，误导）
+        if all(v is not None for v in vals):
+            ax.fill(angles + [angles[0]], vals + [vals[0]],
+                    alpha=0.10, color=_col, zorder=1)
+        else:
+            _incomplete.append(
+                (names[i], [dims[_j] for _j in range(N) if vals[_j] is None]))
+        # ③ 顶点：让"这一段有数据"可被点名，也让缺角处仍看得出点的位置
+        ax.scatter([angles[_j] for _j in range(N) if vals[_j] is not None],
+                   [vals[_j] for _j in range(N) if vals[_j] is not None],
+                   s=26, color=_col, zorder=3,
+                   label=_lab if not _drew else None)
+    ax.set_xticks(angles)
+    ax.set_xticklabels(dims, color=_PAL["text"], fontsize=_fig_font(9, W, disp_w))
     ax.set_ylim(0, 10)
     ax.set_yticks([2, 4, 6, 8, 10])
-    ax.tick_params(axis="y", labelcolor=_PAL["text"], labelsize=7.5)
+    ax.tick_params(axis="y", labelcolor=_PAL["text"],
+                   labelsize=_fig_font(7.5, W, disp_w))
     ax.grid(color="#E2E8F0", alpha=0.8)
-    ax.set_title("四维评分雷达对比（0-10 分）", color=_PAL["title"],
-                 fontsize=12, fontweight="bold", pad=16)
-    ax.legend(frameon=False, labelcolor=_PAL["text"], fontsize=8,
+    # 有缺项时在标题下方补一行说明，避免留白被读成"这家在这一维得了 0 分"
+    _ttl = "四维评分雷达对比（0-10 分）"
+    if _incomplete:
+        _ttl += "\n" + "；".join(
+            f"{_nm}：{'、'.join(_ds)} 无数据 → 该段留白，不画 0"
+            for _nm, _ds in _incomplete[:3])
+        if len(_incomplete) > 3:
+            _ttl += f"；另有 {len(_incomplete) - 3} 家存在缺项"
+    ax.set_title(_ttl, color=_PAL["title"],
+                 fontsize=_fig_font(12, W, disp_w), fontweight="bold", pad=16)
+    ax.legend(frameon=False, labelcolor=_PAL["text"],
+              fontsize=_fig_font(8, W, disp_w),
               loc="upper right", bbox_to_anchor=(1.28, 1.10))
     fig.tight_layout()
     return _fig_to_png_bytes(fig)
 
 
-def fig_compare_scale_n(mets: list, names: list) -> bytes | None:
+def fig_compare_scale_n(mets: list, names: list,
+                        disp_w: float = _DISP_FULL_ROW) -> bytes | None:
     """N 家公司**规模对比**（营收 / 归母净利润，绝对额亿元；v10 新增）。
 
     盈利/风险两张图都是百分比口径，缺一张"公司体量"的绝对值视角：
@@ -3561,38 +3759,53 @@ def fig_compare_scale_n(mets: list, names: list) -> bytes | None:
     x = np.arange(len(rows))
     total_w = 0.5
     w = total_w / n
-    fig, ax = plt.subplots(figsize=(max(6.2, 1.5 * n + 4.0), 3.3), facecolor=_PAL["card"])
+    W = min(max(6.2, 1.5 * n + 4.0), 12.0)
+    H = _fig_h(W)
+    fig, ax = plt.subplots(figsize=(W, H), facecolor=_PAL["card"])
     ax.set_facecolor(_PAL["card"])
+    _rot = 90 if _cmp_bar_px(disp_w, n, len(rows), total_w) < 34 else 0
     for i in range(n):
         offs = x - total_w / 2 + w * (i + 0.5)
         vals = [0.0 if rows[j][1][i] is None else float(rows[j][1][i]) for j in range(len(rows))]
         bars = ax.bar(offs, vals, w * 0.9, label=names[i], color=_cmp_series_color(i))
         for b, raw in zip(bars, [rows[j][1][i] for j in range(len(rows))]):
+            # 规模值动辄几千亿，横排比百分比长得多，所以这里的竖排阈值放宽到 34px
             ax.annotate("N/A" if raw is None else f"{raw:,.1f}",
                         (b.get_x() + b.get_width() / 2, b.get_height()),
-                        ha="center", va="bottom", fontsize=7.5, color=_PAL["text"],
-                        xytext=(0, 2), textcoords="offset points")
+                        ha="center" if not _rot else "left",
+                        va="bottom" if not _rot else "center",
+                        rotation=_rot,
+                        fontsize=_fig_font(8, W, disp_w), color=_PAL["text"],
+                        xytext=(0 if not _rot else 2, 2 if not _rot else 0),
+                        textcoords="offset points")
     ax.set_xticks(x)
-    ax.set_xticklabels(labels, color=_PAL["text"], fontsize=9)
+    ax.set_xticklabels(labels, color=_PAL["text"], fontsize=_fig_font(9, W, disp_w))
     ax.grid(axis="y", color="#E2E8F0", linewidth=0.6, alpha=0.8)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.tick_params(axis="y", labelcolor=_PAL["text"], labelsize=9)
-    ax.legend(frameon=False, labelcolor=_PAL["text"], fontsize=8,
+    ax.tick_params(axis="y", labelcolor=_PAL["text"],
+                   labelsize=_fig_font(9, W, disp_w))
+    ax.legend(frameon=False, labelcolor=_PAL["text"], fontsize=_fig_font(8, W, disp_w),
               ncol=min(n, 3), loc="upper right")
     ax.set_title("公司规模对比（绝对额 · 缺失写 N/A，不画 0）",
-                 color=_PAL["title"], fontsize=12, fontweight="bold", pad=10)
+                 color=_PAL["title"], fontsize=_fig_font(12, W, disp_w),
+                 fontweight="bold", pad=10)
+    ax.margins(y=0.18)
+    fig.tight_layout()
     return _fig_to_png_bytes(fig)
 
 
 def fig_compare_years_n(rows_map: dict, names: list, pipeline,
-                        mkey: str, mlabel: str) -> bytes | None:
+                        mkey: str, mlabel: str,
+                        disp_w: float = _REF_DISP_W) -> bytes | None:
     """N 家公司**逐年年报对比**分组柱状（v11 新增 · 用户第 12/13/⑧ 条）。
 
     之前对比只有"单一基准年份"一张快照，用户明确要"每一年的都想看看"。
     这张图 X 轴 = 各家披露过的年报年份并集（升序），每个年份下并排 n 家；
     某家某年没披露 → 柱顶标 N/A，**绝不画 0**（缺数据不能伪装成零营收）。
-    年份跨度大时柱会很密：柱宽与画布宽度都按 年份数×家数 自适应。
+    年份跨度大时柱会很密：柱宽按家数自适应，画布宽度按 年份数×家数 增长
+    但必须封顶 —— 5 家 × 8 年会算出 28 英寸宽的画布，塞进页面上不到 700px
+    的二分栏里，所有标注会被等比压到 2~3px（用户第 4 条："下边的小图太小了"）。
     """
     n = len(names)
     if n < 2 or pipeline is None:
@@ -3605,9 +3818,11 @@ def fig_compare_years_n(rows_map: dict, names: list, pipeline,
     x = np.arange(len(years))
     total_w = 0.82
     w = total_w / n
-    fig, ax = plt.subplots(figsize=(max(6.2, 0.62 * len(years) * n + 3.2), 3.3),
-                           facecolor=_PAL["card"])
+    W = min(max(6.2, 0.62 * len(years) * n + 3.2), 12.0)
+    H = _fig_h(W)
+    fig, ax = plt.subplots(figsize=(W, H), facecolor=_PAL["card"])
     ax.set_facecolor(_PAL["card"])
+    _rot = 90 if _cmp_bar_px(disp_w, n, max(1, len(years))) < 30 else 0
     _any = False
     for i, _nm in enumerate(names):
         rows = rows_map.get(i) or []
@@ -3625,21 +3840,29 @@ def fig_compare_years_n(rows_map: dict, names: list, pipeline,
         for b, raw in zip(bars, raws):
             ax.annotate("N/A" if raw is None else f"{raw:,.1f}",
                         (b.get_x() + b.get_width() / 2, b.get_height()),
-                        ha="center", va="bottom", fontsize=6.5, color=_PAL["text"],
-                        xytext=(0, 2), textcoords="offset points", rotation=0)
+                        ha="center" if not _rot else "left",
+                        va="bottom" if not _rot else "center",
+                        rotation=_rot,
+                        fontsize=_fig_font(7.5, W, disp_w), color=_PAL["text"],
+                        xytext=(0 if not _rot else 2, 2 if not _rot else 0),
+                        textcoords="offset points")
     if not _any:
         plt.close(fig)
         return None
     ax.set_xticks(x)
-    ax.set_xticklabels(years, color=_PAL["text"], fontsize=9)
+    ax.set_xticklabels(years, color=_PAL["text"], fontsize=_fig_font(9, W, disp_w))
     ax.grid(axis="y", color="#E2E8F0", linewidth=0.6, alpha=0.8)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.tick_params(axis="y", labelcolor=_PAL["text"], labelsize=9)
-    ax.legend(frameon=False, labelcolor=_PAL["text"], fontsize=8,
+    ax.tick_params(axis="y", labelcolor=_PAL["text"],
+                   labelsize=_fig_font(9, W, disp_w))
+    ax.legend(frameon=False, labelcolor=_PAL["text"], fontsize=_fig_font(8, W, disp_w),
               ncol=min(n, 3), loc="upper right")
     ax.set_title(f"{mlabel} · 逐年年报对比（缺披露年份标 N/A）",
-                 color=_PAL["title"], fontsize=12, fontweight="bold", pad=10)
+                 color=_PAL["title"], fontsize=_fig_font(12, W, disp_w),
+                 fontweight="bold", pad=10)
+    ax.margins(y=0.18)
+    fig.tight_layout()
     return _fig_to_png_bytes(fig)
 
 
@@ -6753,9 +6976,21 @@ def _view_single():
         # 【新增第 5 个页签】把 Agent 的工具调用链摊开。
         # 赛题是「AI Agent」，但前四个页签呈现的都是**结果**；评委想判断"这是
         # 不是真 Agent"，看的是它自主调了哪些工具、按什么顺序、失败后怎么换路。
-        _w1, _w2, _w3, _w4, _w5 = st.tabs(
-            ["📊 分析概览", "🗓️ 年度时间轴", "🧮 评分与依据", "📝 研报", "🤖 Agent 轨迹"]
-        )
+        # 【v18 · 用户第 1 条】**不再用 st.tabs**：它不保存选中状态，
+        # 页签内的任何控件交互（如把年度时间轴的指标从「营业收入」切到
+        # 「归母净利润」）都会触发 rerun，rerun 后又回到**第一个**页签 ——
+        # 用户看到的就是"点一下就跳回分析概览"。
+        # 换成 radiotab：选中值落在 session_state 里，rerun 后原样停在原分段。
+        _WK_TAB_LABELS = ["📊 分析概览", "🗓️ 年度时间轴", "🧮 评分与依据", "📝 研报", "🤖 Agent 轨迹"]
+        if st.session_state.get("__wk_tab") not in _WK_TAB_LABELS:
+            st.session_state["__wk_tab"] = _WK_TAB_LABELS[0]
+        with st.container(key="wktabbar"):
+            st.radio(
+                "工作台分段", _WK_TAB_LABELS,
+                key="__wk_tab", horizontal=True, label_visibility="collapsed",
+                help="一次分析的结果按阅读动线分五段：概览看数字 → 时间轴看多年 "
+                     "→ 评分与依据看证据 → 研报看结论 → Agent 轨迹看调用链。",
+            )
 
     # ⚠️ 下面每个 _tab*_ 函数体**一行渲染逻辑都没改**，只是外面套了一层 def。
     #    之所以不把它们塞进 `if analysis:` 里（那需要整体再缩进一级），
@@ -7282,20 +7517,24 @@ def _view_single():
     # 必须放在「研报生成逻辑」之后：点「📝 生成完整研报」时先把 result 落进
     # session_state，再渲染页签，否则本轮看到的还是上一份旧稿。
     if analysis:
-        with _w1:
-            _tab1_a()
-            _tab1_b()
-            _tab1_c()
-        with _w2:
-            _tab2_e()
-        with _w3:
-            _tab3_a()
-            _tab3_g()
-            _tab3_dh()
-        with _w4:
-            _tab4()
-        with _w5:
-            _tab5_agent_trace()
+        # 【v18】按当前选中的分段渲染**那一段**（不再一次性渲染全部五段）。
+        # 顺带省掉四段的计算：切分段、切段落内的控件，都不会再触发别的分段重画。
+        _wk_sel = st.session_state.get("__wk_tab") or _WK_TAB_LABELS[0]
+        with st.container(key="wkbody"):
+            if _wk_sel == _WK_TAB_LABELS[0]:
+                _tab1_a()
+                _tab1_b()
+                _tab1_c()
+            elif _wk_sel == _WK_TAB_LABELS[1]:
+                _tab2_e()
+            elif _wk_sel == _WK_TAB_LABELS[2]:
+                _tab3_a()
+                _tab3_g()
+                _tab3_dh()
+            elif _wk_sel == _WK_TAB_LABELS[3]:
+                _tab4()
+            else:
+                _tab5_agent_trace()
 
     # ---- 追问对话（多轮，上下文实时更新） ----
     # 【顺序很关键 · 为什么这么排】
@@ -7323,10 +7562,14 @@ def _view_single():
             st.markdown(m["content"])
             # 【v10 · 第 5 条】带 viz 标记的助手回答，重渲染时把辅助图一并还原
             if m.get("role") == "assistant" and m.get("viz"):
+                # 【v18 · 用户第 2 条】原先用 st.image(bytes) —— 它走 Streamlit 的
+                # 媒体端点 /media/<hash>.png，在部分环境下这个请求被拦掉，
+                # 页面上只剩一个碎图占位（等于"图表辅助"整个是坏的）。
+                # 统一改用 show_png 内联 base64，与其它图表同一条渲染链路。
                 _vz_png = _chat_viz_png(m["viz"])
                 if _vz_png:
                     with st.expander("📈 图表辅助 · 一图看懂这轮回答", expanded=False):
-                        st.image(_vz_png)
+                        show_png(_vz_png, alt="追问辅助图")
 
     # 提交时的校验提示：上一轮暂存，这里渲染（否则会掉到输入框下方）
     _chat_notice = st.session_state.pop("_chat_notice", None)
@@ -7405,7 +7648,8 @@ def _view_single():
                 _viz_png = _chat_viz_png(_viz_kind)
                 if _viz_png:
                     with st.expander("📈 图表辅助 · 一图看懂这轮回答", expanded=True):
-                        st.image(_viz_png)
+                        # 同上文：必须用内联 data-URI，不能用 st.image（会出碎图）
+                        show_png(_viz_png, alt="追问辅助图")
             st.session_state["messages"].append(
                 {"role": "assistant", "content": answer,
                  "viz": _viz_kind if _viz_png else ""}
@@ -8052,37 +8296,50 @@ def _view_compare():
         #   ③ 规模柱状（绝对额：营收 / 净利润，百分比看不到"体量"）
         st.markdown("##### 📊 对比可视化")
         _mets = [it["raw"] for it in _items]
-        _vg1, _vg2 = st.columns(2)
-        with _vg1:
-            _png = fig_compare_group_n(_mets, _names, _CMP_GROUP_PROFIT, "盈利与成长对比（%）")
+        # 【v18 · 用户第 4 条】布局跟着公司数变：二分栏把每张图压到 ~480px 宽，
+        # 5 家公司在这么窄的地方塞 5 根柱子，再怎么调字号也读不了 ——
+        # 所以 ≥4 家一律**整行排**（页面会长一点，但每张图都有 1160px 可用宽）。
+        _vnc = 1 if len(_names) >= 4 else 2
+        _vdw = _ROW_W if _vnc == 1 else _COL_W
+        _vg = st.columns(_vnc, gap="large")
+        with _vg[0]:
+            _png = fig_compare_group_n(_mets, _names, _CMP_GROUP_PROFIT,
+                                       "盈利与成长对比（%）", disp_w=_vdw)
             if not show_png(_png, "cmp-profit"):
                 st.caption("各公司均未取到可比的盈利类指标（%），暂不绘制。")
-        with _vg2:
-            _png = fig_compare_group_n(_mets, _names, _CMP_GROUP_RISK, "风险与偿债对比（%）")
+        with _vg[1 % _vnc]:
+            _png = fig_compare_group_n(_mets, _names, _CMP_GROUP_RISK,
+                                       "风险与偿债对比（%）", disp_w=_vdw)
             if not show_png(_png, "cmp-risk"):
                 st.caption("各公司均未取到可比的风险类指标（%），暂不绘制。")
-        _png = fig_compare_dims_n([it["scores"]["scores"] for it in _items], _names)
-        if _png:
-            show_png(_png, "cmp-dims")
-        _png = fig_compare_radar([it["scores"]["scores"] for it in _items], _names)
-        if _png:
-            show_png(_png, "cmp-radar")
-        _png = fig_compare_scale_n(_mets, _names)
+        # 评分柱状 + 雷达永远并排：两张图看的是同一份评分，摆在一起才能互相印证
+        _vd1, _vd2 = st.columns(2, gap="large")
+        with _vd1:
+            _png = fig_compare_dims_n([it["scores"]["scores"] for it in _items],
+                                      _names, disp_w=_COL_W)
+            if _png:
+                show_png(_png, "cmp-dims")
+        with _vd2:
+            _png = fig_compare_radar([it["scores"]["scores"] for it in _items],
+                                     _names, disp_w=_COL_W)
+            if _png:
+                show_png(_png, "cmp-radar")
+        _png = fig_compare_scale_n(_mets, _names, disp_w=_ROW_W)
         if _png:
             show_png(_png, "cmp-scale")
 
         # ---- v11 新增两张（用户第 ⑧/12/13 条）----
         # ① 逐年年报对比：想看哪一年就看哪一年，不再只有"单一基准年份"一张快照
         _rows_map = {_idx: (it.get("annual") or []) for _idx, it in enumerate(_items)}
-        _yg1, _yg2 = st.columns(2)
-        with _yg1:
+        _yg = st.columns(_vnc, gap="large")
+        with _yg[0]:
             _png = fig_compare_years_n(_rows_map, _names, _pipeline,
-                                       "revenue", "营业收入（亿元）")
+                                       "revenue", "营业收入（亿元）", disp_w=_vdw)
             if not show_png(_png, "cmp-years-rev"):
                 st.caption("各公司均未取到多年年报营收数据，暂不绘制。")
-        with _yg2:
+        with _yg[1 % _vnc]:
             _png = fig_compare_years_n(_rows_map, _names, _pipeline,
-                                       "net_profit", "归母净利润（亿元）")
+                                       "net_profit", "归母净利润（亿元）", disp_w=_vdw)
             if not show_png(_png, "cmp-years-np"):
                 st.caption("各公司均未取到多年年报净利润数据，暂不绘制。")
         # ② 估值对比（PE-TTM / PB）：行情走四级兜底链（东财→K线→新浪→腾讯），
@@ -8099,7 +8356,7 @@ def _view_compare():
         _png = fig_compare_group_n(
             _val_mets, _names,
             [("pe_ttm", "市盈率 PE-TTM"), ("pb", "市净率 PB")],
-            "估值对比（PE / PB · 实时行情）")
+            "估值对比（PE / PB · 实时行情）", disp_w=_ROW_W)
         if _png:
             show_png(_png, "cmp-valuation")
 
@@ -8228,20 +8485,56 @@ def _view_compare():
                         {"role": "assistant", "content": _ans})
 
         # 3) 推荐问题（按当前对比公司自动生成）
+        # 【v18 · 用户第 5 条】旧实现写死 _na, _nb = 前两家，选 3~5 家时推荐出来的
+        # 问题仍然只提这两家（"并没有说 5 个公司之间…"）—— 剩下几家在推荐区完全消失。
+        # 现在按**公司数**分流：2 家走两两对比口径，≥3 家一律生成覆盖**全部公司**的
+        # 横向问题（排序 / 分化 / 估值排队 / 只选一家 / 最稳与最险），
+        # 名字全部展开写出来，避免"其他几家呢"的困惑。
         _cmp_sugs = []
-        if len(_cnames) >= 2:
-            _na, _nb = _cnames[0], _cnames[1]
-            _cmp_sugs = [
-                f"{_na} 和 {_nb} 哪家更值得投资？请从盈利、成长、偿债、营运四个维度比较后给出结论。",
-                f"对比 {_na} 与 {_nb} 的营收与净利润，谁的增长质量更高？",
-                f"{_na} 与 {_nb} 目前的估值（PE/PB）谁更便宜？结合基本面说明是否合理。",
-                f"如果只能投资一家，你选 {_na} 还是 {_nb}？请给出理由与主要风险。",
-                f"{_na} 相对 {_nb} 的主要优势与劣势分别是什么？",
-                f"两家公司对比，哪个财务指标差异最大？这个差异说明什么？",
-            ]
+        _nv = len(_cnames)
+        if _nv >= 2:
+            _all = "、".join(_cnames)
+            if _nv == 2:
+                _na, _nb = _cnames[0], _cnames[1]
+                _cmp_sugs = [
+                    f"{_na} 和 {_nb} 哪家更值得投资？请从盈利、成长、偿债、营运四个维度比较后给出结论。",
+                    f"对比 {_na} 与 {_nb} 的营收与净利润，谁的增长质量更高？",
+                    f"{_na} 与 {_nb} 目前的估值（PE/PB）谁更便宜？结合基本面说明是否合理。",
+                    f"如果只能投资一家，你选 {_na} 还是 {_nb}？请给出理由与主要风险。",
+                    f"{_na} 相对 {_nb} 的主要优势与劣势分别是什么？",
+                    f"两家公司对比，哪个财务指标差异最大？这个差异说明什么？",
+                ]
+            else:
+                _cmp_sugs = [
+                    (f"{_all} 这 {_nv} 家公司，综合盈利、成长、偿债、营运四个维度，"
+                     f"哪家最值得投资？请给出从优到次的排序并说明 ranking 依据。"),
+                    (f"请横向对比 {_all} 的营业收入、净利润、ROE、毛利率、资产负债率，"
+                     f"指出规模体量与盈利质量分化最大的是哪几家。"),
+                    (f"把 {_all} 按估值（PE / PB）从便宜到贵排个序，"
+                     f"并逐一说明便宜的原因是基本面偏弱还是被市场错杀。"),
+                    (f"这 {_nv} 家公司里资金只能配置一家，你选谁？"
+                     f"给出核心理由、后续要盯的 2~3 个指标，以及最大的一个风险点。"),
+                    (f"{_all} 在四个维度上的分化最严重的是哪一个维度？"
+                     f"造成这种分化的经营模式差异是什么？"),
+                    (f"这 {_nv} 家里谁的成长性最好、谁的偿债压力最大？"
+                     f"请分别点名并引用具体指标数据，不要泛泛而谈。"),
+                ]
+                # ≥3 家时再加一条"评分最高 vs 最低"的捉对问题 —— 头部也常被问到，
+                # 但要基于真实评分动态取，不能又退化成"永远前两家"。
+                _ranked = sorted(
+                    (it for it in _citems
+                     if isinstance((it.get("scores") or {}).get("total_score"), (int, float))),
+                    key=lambda it: it["scores"]["total_score"], reverse=True)
+                if len(_ranked) >= 2:
+                    _hi, _lo = _ranked[0]["name"], _ranked[-1]["name"]
+                    _cmp_sugs.append(
+                        f"本次评分最高的是 {_hi}、最低的是 {_lo}，请对比这两家："
+                        f"分差主要来自哪些指标？落后的那家有没有追赶的可能？")
         if _cmp_sugs:
             with st.expander("🎯 推荐问题（按当前对比公司自动生成，点击即问；也可手动输入）",
                              expanded=not st.session_state["cmp_messages"]):
+                st.caption(
+                    f"当前对比 {_nv} 家：{_all} —— 以下问题均围绕**这 {_nv} 家整体**展开。")
                 _qc = st.columns(2)
                 for _i, _sq in enumerate(_cmp_sugs[:6]):
                     with _qc[_i % 2]:
