@@ -6207,7 +6207,6 @@ with st.sidebar:
     )
     _render_icon_menu()
     _render_history_list()
-    render_theme_settings(THEMES, DEFAULT_THEME)
     st.markdown("---")
 
     # 双模型开关 (Plan B)
@@ -6227,6 +6226,8 @@ with st.sidebar:
         st.caption("📚 RAG 引擎已加载 · 按页检索 · Top-K=8（分析）/ 6（追问）")
     else:
         st.caption("🟡 rag_engine 模块未加载")
+    st.markdown("---")
+    render_theme_settings(THEMES, DEFAULT_THEME)
     st.markdown("---")
     if st.session_state.get("demo_mode"):
         st.markdown("👤 当前访问：**🎤 评委演示模式（免登录）**")
