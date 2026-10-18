@@ -1022,8 +1022,9 @@ _THEMES = _ns["THEMES"]
 _apply = _ns["_apply_theme_vars"]
 _BASE_RULES = _ns["_THEME_BASE_RULES"]
 
-_check("v15 提供三套可切换主题（浅色雅蓝 / 暖白砂岩 / 淡雾紫）",
-       list(_THEMES) == ["☁️ 浅色雅蓝", "🏖️ 暖白砂岩", "🪻 淡雾紫"],
+_check("提供六套可切换主题，包含薄荷青绿 / 石墨银灰 / 深海墨青",
+       list(_THEMES) == ["☁️ 浅色雅蓝", "🏖️ 暖白砂岩", "🪻 淡雾紫",
+                         "🌿 薄荷青绿", "🩶 石墨银灰", "🌊 深海墨青"],
        str(list(_THEMES)))
 # 变量键必须完全一致：少一个键 → 该属性在某一主题下会继承上一主题的值（串色）
 _keysets = {frozenset(v) for v in _THEMES.values()}
@@ -1167,8 +1168,8 @@ for _tn in _THEMES:
     _at_t.run()
     _v = [m.value for m in _at_t.markdown if m.value and ":root{" in m.value]
     _ROOTS[_tn] = _v[0] if len(_v) == 1 else ""
-_check("运行时切主题：三套 :root 注入各不相同，且每次只注入一份（不重复叠加）",
-       len(set(_ROOTS.values())) == 3 and all(_ROOTS.values()),
+_check("运行时切主题：各套 :root 注入不同，且每次只注入一份（不重复叠加）",
+       len(set(_ROOTS.values())) == len(_THEMES) and all(_ROOTS.values()),
        str({k: len(v) for k, v in _ROOTS.items()}))
 _check("运行时：提示色跟随主题调色板，深浅主题保持可读",
        all(f"--gold:{_THEMES[name]['--gold']}" in root for name, root in _ROOTS.items()))

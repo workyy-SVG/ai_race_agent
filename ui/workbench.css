@@ -132,7 +132,7 @@ section[data-testid="stSidebar"] {
   --bg-card: var(--side-panel); --bg-soft: var(--side-panel);
   --bg-tint: var(--side-active); --accent: var(--side-accent);
   --cyan: var(--side-accent);
-  background: var(--grad-side) !important; color: var(--side-text) !important; color-scheme: light;
+  background: var(--grad-side) !important; color: var(--side-text) !important; color-scheme: var(--color-scheme);
   border-right: 1px solid var(--side-line) !important; box-shadow: none !important;
 }
 /* Streamlit collapses via max-width:0. A permanent min-width overrides that

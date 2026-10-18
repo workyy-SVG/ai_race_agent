@@ -41,6 +41,24 @@ def workbench_themes(original):
             side="#E4DDEE", side_panel="#F5F0FA", side_line="#CEC0DF",
             side_muted="#675676", side_active="#D5C4E8", side_accent="#63418A",
             side_text="#3D2E50", green="#287451", red="#B63D59", gold="#89601F", scheme="light"),
+        "🌿 薄荷青绿": dict(page="#EDF7F3", panel="#FFFFFF", soft="#F4FAF7",
+            field="#FFFFFF", line="#D3E5DD", text="#163C32", body="#31574B",
+            muted="#526F64", accent="#136D58", button="#136D58", tint="#E3F3EC",
+            side="#DCECE4", side_panel="#F1F8F4", side_line="#BDD4C7",
+            side_muted="#496757", side_active="#C2DECF", side_accent="#135B45",
+            side_text="#193E31", green="#19734C", red="#B93848", gold="#916316", scheme="light"),
+        "🩶 石墨银灰": dict(page="#F1F3F5", panel="#FFFFFF", soft="#F6F7F9",
+            field="#FFFFFF", line="#DADFE5", text="#202A36", body="#3C4959",
+            muted="#606C7B", accent="#41536A", button="#41536A", tint="#E8EDF3",
+            side="#E0E5EB", side_panel="#F1F4F7", side_line="#C7D0DA",
+            side_muted="#4E5E71", side_active="#C7D2E0", side_accent="#334B69",
+            side_text="#25374E", green="#19734C", red="#B93848", gold="#846018", scheme="light"),
+        "🌊 深海墨青": dict(page="#081D26", panel="#102E3A", soft="#153845",
+            field="#0D2733", line="#355461", text="#EFF9FC", body="#D2E7ED",
+            muted="#A4C3CE", accent="#73D6CF", button="#166D74", tint="#163F4A",
+            side="#06171F", side_panel="#0D2530", side_line="#2C4B57",
+            side_muted="#A0BEC9", side_active="#1A404D", side_accent="#8ADFD8",
+            side_text="#E2F2F7", green="#7CDEAB", red="#FF9BA8", gold="#E9C879", scheme="dark"),
     }
     result = {}
     for name, p in palettes.items():
@@ -123,7 +141,7 @@ def chart_palette(theme):
               if dark else ["#355FE5", "#B8751E", "#168879", "#8B5CCD", "#CC5F67"])
     if theme["--page-bg"] == "#F3F0F7":
         series[0], series[3] = series[3], series[0]
-    elif theme["--page-bg"] == "#F5F2ED":
+    elif theme["--page-bg"] in ("#F5F2ED", "#EDF7F3", "#F1F3F5", "#081D26"):
         series[0] = theme["--accent"]
     return dict(purple=series[0], blue=series[0], gold=series[1],
                 up=theme["--bad-tx"], down=theme["--ok-tx"],

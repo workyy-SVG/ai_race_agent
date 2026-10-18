@@ -71,7 +71,10 @@ def run():
         at.toggle(key="use_dual_model").set_value(False).run()
         for theme, page_color in (("☁️ 浅色雅蓝", "#EDF2F9"),
                                   ("🏖️ 暖白砂岩", "#F5F2ED"),
-                                  ("🪻 淡雾紫", "#F3F0F7")):
+                                  ("🪻 淡雾紫", "#F3F0F7"),
+                                  ("🌿 薄荷青绿", "#EDF7F3"),
+                                  ("🩶 石墨银灰", "#F1F3F5"),
+                                  ("🌊 深海墨青", "#081D26")):
             at.selectbox(key="ui_theme").select(theme).run()
             check_app(at)
             assert at.text_input(key="cmp0_name").value == "保留的公司名"
