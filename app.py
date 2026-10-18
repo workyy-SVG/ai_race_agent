@@ -2290,7 +2290,8 @@ st.set_page_config(
 )
 # Theme callbacks commit the draft before the full-page CSS is generated.
 from theme_settings import render_theme_settings
-render_theme_settings(THEMES, DEFAULT_THEME)
+if st.session_state.get("ui_theme") not in THEMES:
+    st.session_state["ui_theme"] = DEFAULT_THEME
 st.markdown(_inject_page_css(), unsafe_allow_html=True)
 
 # ---------------------------------------------------------------
@@ -6198,6 +6199,7 @@ with st.sidebar:
     )
     _render_icon_menu()
     _render_history_list()
+    render_theme_settings(THEMES, DEFAULT_THEME)
     st.markdown("---")
 
     # 双模型开关 (Plan B)
