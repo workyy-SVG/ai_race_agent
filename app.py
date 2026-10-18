@@ -700,31 +700,13 @@ CUSTOM_CSS = """
     margin-bottom: 14px;
   }
 
-  /* ===== 页面大标题（每个视图顶部一条）=====
-     原来是"进来就是一堆编号方块"，没有一句"这是什么页面"。
-     现在每个视图先给一个大标题 + 一句说明 + 一条蓝色短横。
-     v7：右侧补一块**科技徽记**（同心环 + 六边形 + 迷你折线），
-         解决"页面顶部一大片空白、看着太空旷"。 */
-  .page-head {
-    display: flex; align-items: flex-start; gap: 18px;
-    margin: 4px 0 18px 0;
-    padding-bottom: 14px;
-    border-bottom: 1px solid #E1EAF6;
-  }
-  .page-head .ph-text { flex: 1 1 auto; min-width: 0; }
-  .page-head .ph-deco { flex: 0 0 auto; opacity: .9; margin-top: 2px; }
-  .page-head .ph-title {
-    font-size: 30px; font-weight: 800; color: #0B1F3A !important;
-    letter-spacing: .6px; line-height: 1.28;
-  }
-  .page-head .ph-title em { color: #1D4ED8 !important; font-style: normal; }
-  .page-head .ph-rule {
-    display: block; width: 52px; height: 3px; border-radius: 2px;
-    background: #1D4ED8; margin: 11px 0 10px 0;
-  }
-  .page-head .ph-note {
-    display: block; font-size: 14px; color: #3B4A5F !important; line-height: 1.9;
-  }
+  /* ===== 【v16】页面大标题（.page-head）整块删除 =====
+     用户原话：「这个地方完全没有存在的必要，然后整体给我上移」。
+     30px 标题 + 一句副说明 + 右侧 SVG 徽记，信息和侧栏导航/卡片说明重复，
+     却吃掉顶部约 110px，把首屏操作区整屏往下压。
+     ⚠️ 连带删除：page_head() 函数、三处调用、以及这里的 .page-head 全部规则。
+        若以后要恢复，必须三处一起回（CSS + 函数 + 调用），只回一处会渲染出
+        没有样式的裸 div。 */
 
   /* ===== 小节标题（多公司对比：1. 对比公司管理 / 2. 开始对比分析）=====
      与卡片内表头（.step-head）刻意拉开一档：小节标题 21px，
@@ -1503,6 +1485,28 @@ THEMES = {
         "--bad-bg": "rgba(220,38,38,.16)",
         "--warn-bg": "rgba(217,164,65,.18)",
         "--accent-tint": "rgba(90,162,255,.12)",
+        # ---- v16 原生组件层：Streamlit 原生控件（input / expander 正文 /
+        #      container(height=) 滚动框 / 表格）不吃 :root 变量，它们读的是
+        #      config.toml 里的 [theme]（写死 base="light"）。深主题下这块
+        #      "白底" 撞上兜底层的浅色正文 = 1.2:1，就是用户看到的"根本看不清"。
+        #      下面这组变量 + _THEME_NATIVE_RULES 把原生层也拉进主题体系。 ----
+        "--surface": "rgba(9,26,58,.92)",
+        "--on-surface": "#D7E4FA",
+        "--fw-body": "500",     # 正文加粗一档：浅字压深底要更实才看得清
+        "--fw-label": "700",    # 控件标签（股票代码/报告期数…）
+        "--fw-strong": "800",   # 标题 / 展开条 / 按钮
+        # 表格（Glide Data Grid 的 --gdg-* 是它唯一对外暴露的配色口子；
+        #   我们自己存的叫 --gd-*，避免 --gdg-x: var(--gdg-x) 自引用死循环）
+        "--gd-cell": "#0A1E42",
+        "--gd-cell2": "#123059",
+        "--gd-head": "#16386F",
+        "--gd-tx": "#D7E4FA",
+        "--gd-tx2": "#A9C0E6",
+        "--gd-tx3": "#8FA9D4",
+        "--gd-tx-head": "#FFE9A8",
+        "--gd-brd": "rgba(148,184,240,.28)",
+        "--gd-brd2": "rgba(148,184,240,.20)",
+        "--gd-accent": "#7FE9FF",
     },
     "🔮 星云紫": {
         "--grad-page": "linear-gradient(180deg,#080518 0%,#180D3E 45%,#2C1A62 100%)",
@@ -1532,6 +1536,21 @@ THEMES = {
         "--bad-bg": "rgba(244,63,94,.16)",
         "--warn-bg": "rgba(217,164,65,.18)",
         "--accent-tint": "rgba(167,139,250,.14)",
+        "--surface": "rgba(24,14,54,.92)",
+        "--on-surface": "#E4DCFA",
+        "--fw-body": "500",
+        "--fw-label": "700",
+        "--fw-strong": "800",
+        "--gd-cell": "#1A0F3C",
+        "--gd-cell2": "#241553",
+        "--gd-head": "#2E1B66",
+        "--gd-tx": "#E4DCFA",
+        "--gd-tx2": "#B9A8E8",
+        "--gd-tx3": "#9C86D8",
+        "--gd-tx-head": "#FFE9A8",
+        "--gd-brd": "rgba(190,160,255,.28)",
+        "--gd-brd2": "rgba(190,160,255,.20)",
+        "--gd-accent": "#67E8F9",
     },
     "☁️ 浅色雅蓝": {
         "--grad-page": "linear-gradient(180deg,#EDF3FC 0%,#E3EDF9 48%,#DAE6F6 100%)",
@@ -1561,6 +1580,21 @@ THEMES = {
         "--bad-bg": "rgba(220,38,38,.10)",
         "--warn-bg": "rgba(217,164,65,.15)",
         "--accent-tint": "rgba(29,78,216,.07)",
+        "--surface": "#FFFFFF",
+        "--on-surface": "#334155",
+        "--fw-body": "400",     # 浅底深字用常规字重，再粗就糊
+        "--fw-label": "600",
+        "--fw-strong": "700",
+        "--gd-cell": "#FFFFFF",
+        "--gd-cell2": "#F8FAFC",
+        "--gd-head": "#EEF3FE",
+        "--gd-tx": "#0B1F3A",
+        "--gd-tx2": "#334155",
+        "--gd-tx3": "#64748B",
+        "--gd-tx-head": "#1D4ED8",
+        "--gd-brd": "#E4EAF2",
+        "--gd-brd2": "#EDF2F8",
+        "--gd-accent": "#1D4ED8",
     },
 }
 
@@ -1578,13 +1612,17 @@ _THEME_BASE_RULES = """
   .stApp [data-testid="stCaptionContainer"],
   .stApp [data-testid="stCaptionContainer"] p { color: var(--tx-cap) !important; }
   .stApp a { color: var(--cyan); }
-  /* 井号（标题 hover 锚点）→ 黄色 */
-  [data-testid="stHeadingActionElements"],
-  [data-testid="stHeadingActionElements"] a,
-  [data-testid="stHeadingActionElements"] svg {
+  /* 井号（标题 hover 锚点）→ 黄色
+     ⚠️ 正确的 testid 是 stHeaderActionElements —— v15 写成了 stHeadingActionElements，
+        而后者在 1.57 的前端 bundle 里根本不存在，所以黄色一直没生效（截图里井号还是灰的）。
+        该容器同时包着 help ⓘ 图标和 href="#xxx" 的锚点 a，所以 a / svg 都要点名。 */
+  [data-testid="stHeaderActionElements"],
+  [data-testid="stHeaderActionElements"] a,
+  [data-testid="stHeaderActionElements"] svg {
     color: var(--gold) !important;
+    fill: var(--gold) !important;
     stroke: var(--gold);
-    opacity: .9;
+    opacity: .95;
   }
   /* 问号提示（help ⓘ）→ 深底亮黄字，彻底告别黑字混蓝底 */
   [data-testid="stTooltipContent"] {
@@ -1595,6 +1633,149 @@ _THEME_BASE_RULES = """
   }
   [data-testid="stTooltipContent"], [data-testid="stTooltipContent"] * {
     color: #FFE066 !important;
+  }
+  /* 字重也随主题走 —— 用户：「字体的颜色，粗细那些并没有随着主题的改变而改变」 */
+  .stApp p, .stApp li, .stApp td, .stApp th { font-weight: var(--fw-body); }
+  .stApp [data-testid="stWidgetLabel"] p {
+    font-weight: var(--fw-label);
+    letter-spacing: .2px;
+  }
+  .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6 {
+    font-weight: var(--fw-strong);
+  }
+"""
+
+# ---------------------------------------------------------------
+# 【v16】原生组件层 —— 这一层是用户第 ③④⑤ 条反馈的真正根因
+#
+# 症状：深主题下「在线取数 / 手动输入」「获取解析文档」「多公司对比」几处
+#       **白色底 + 看不清的字**，而且"改主题它也不跟着变"。
+# 根因：Streamlit 原生组件（input / textarea / select / expander 正文 /
+#       st.container(height=) 滚动框 / dataframe）的颜色**不是**从我们注入的
+#       :root 变量来的，而是从 `.streamlit/config.toml` 的 [theme] 来的
+#       （那份配置写死 base="light"、secondaryBackgroundColor="#FFFFFF"）。
+#       它们由 emotion 在 JS 里生成样式，CSS 变量化对它们**完全无效** ——
+#       于是深主题下这一层永远是"白底"，而 v15 的兜底层又把正文刷成浅色
+#       （--tx-body #D7E4FA），1.2:1，肉眼等于没有字。
+# 修法：给每个原生面显式压一层 --surface / --on-surface（全部 !important），
+#       表格走 Glide 唯一对外暴露的 --gdg-* 变量口子。
+# ---------------------------------------------------------------
+_THEME_NATIVE_RULES = """
+  /* ===== v16 原生组件层（变量驱动；追加在兜底层之后，优先级最高） ===== */
+
+  /* ① 输入框 / 文本域 / 下拉框 / 数字框 —— 在线取数「手动输入」那条 */
+  .stApp input,
+  .stApp textarea,
+  .stApp [data-baseweb="input"],
+  .stApp [data-baseweb="textarea"],
+  .stApp [data-baseweb="base-input"],
+  .stApp [data-baseweb="select"] > div,
+  .stApp [data-testid="stNumberInputContainer"] > div > div {
+    background: var(--surface) !important;
+    color: var(--on-surface) !important;
+    -webkit-text-fill-color: var(--on-surface) !important;
+    border-color: var(--brd) !important;
+    caret-color: var(--on-surface) !important;
+  }
+  .stApp input::placeholder,
+  .stApp textarea::placeholder {
+    color: var(--tx-dim) !important;
+    opacity: 1 !important;   /* Safari 默认会把 placeholder 压到 0.4，等于隐形 */
+  }
+  /* 控件标签（"股票代码或名称…" / "报告期数"）：加粗 + 主题色 */
+  .stApp [data-testid="stWidgetLabel"] p,
+  .stApp [data-testid="stWidgetLabel"] label {
+    color: var(--tx-body) !important;
+    font-weight: var(--fw-label) !important;
+  }
+
+  /* ② 展开面板（expander）正文 —— 「获取解析文档 / 查看原始数据」就是它。
+        CUSTOM_CSS 里 details 是 background:transparent，于是透出 config 的白底。 */
+  [data-testid="stExpander"] details,
+  [data-testid="stExpanderDetails"],
+  [data-testid="stExpander"] details > div {
+    background: var(--surface) !important;
+    color: var(--on-surface) !important;
+  }
+  /* 展开条标题：按用户要求「换色之后再加粗加深」 */
+  [data-testid="stExpander"] summary,
+  [data-testid="stExpander"] summary * {
+    color: var(--tx-strong) !important;
+    font-weight: var(--fw-strong) !important;
+    font-size: 15.5px !important;
+    letter-spacing: .2px;
+  }
+
+  /* ③ 固定高度容器（st.container(height=…)）—— 分析记录 / 多公司对比的滚动框。
+        ⚠️ 别用 stVerticalBlockBorderWrapper：这个 testid 在 1.57 的 bundle 里
+           命中 0（老版本的遗留名字），写了等于没写。
+           真正稳定的挂钩是 Streamlit 给带 key 容器生成的 `st-key-<key>` 类名，
+           所以下面直接用 key 名点名（容器都带 key，见 app.py 里的两处调用）。 */
+  [class*="st-key-raw-scroll"],
+  [class*="st-key-khist-scroll"],
+  [data-testid="stVerticalBlock"][style*="overflow"],
+  [data-testid="stVerticalBlock"][style*="height"] {
+    background: var(--surface) !important;
+    color: var(--on-surface) !important;
+    border: 1px solid var(--brd) !important;
+    border-radius: 10px;
+  }
+
+  /* ③-b 提示条（st.info / success / warning / error）—— 底色同样来自 config，
+        深主题下 info 是浅蓝底 + 深蓝字，撞上兜底层的浅字就糊了。 */
+  [data-testid="stAlertContainer"] {
+    background: var(--bg-tint) !important;
+    color: var(--on-surface) !important;
+  }
+  [data-testid="stAlertContainer"] * { color: var(--on-surface) !important; }
+
+  /* ③-c 标签页 / 按钮文字（baseweb 组件不吃 :root 变量，逐个点名） */
+  .stApp [data-baseweb="tab"] { color: var(--tx-body) !important; }
+  .stApp [data-baseweb="tab-highlight"] { background: var(--accent) !important; }
+  .stApp [data-testid="stBaseButton-secondary"] {
+    background: var(--bg-tint) !important;
+    color: var(--tx-body) !important;
+    border-color: var(--brd) !important;
+  }
+
+  /* ④ 文件上传区 */
+  [data-testid="stFileUploaderDropzone"],
+  [data-testid="stFileUploaderDropzoneInstructions"],
+  [data-testid="stFileUploaderDropzoneInstructions"] * {
+    background: var(--surface) !important;
+    color: var(--on-surface) !important;
+    border-color: var(--brd) !important;
+  }
+
+  /* ⑤ 表格（Glide Data Grid）—— 它只认 --gdg-* 这一组变量 */
+  [data-testid="stDataFrameGlideDataEditor"],
+  [data-testid="stDataFrame"] {
+    --gdg-bg-cell: var(--gd-cell);
+    --gdg-bg-cell-medium: var(--gd-cell2);
+    --gdg-bg-header: var(--gd-head);
+    --gdg-text-dark: var(--gd-tx);
+    --gdg-text-medium: var(--gd-tx2);
+    --gdg-text-light: var(--gd-tx3);
+    --gdg-text-header: var(--gd-tx-head);
+    --gdg-border-color: var(--gd-brd);
+    --gdg-horizontal-border-color: var(--gd-brd2);
+    --gdg-accent-color: var(--gd-accent);
+    background: var(--surface) !important;
+    color: var(--on-surface) !important;
+  }
+
+  /* ⑥ 多选标签 / 下拉已选项小胶囊 */
+  .stApp [data-baseweb="tag"] {
+    background: var(--bg-tint) !important;
+    color: var(--tx-body) !important;
+  }
+  .stApp [data-baseweb="tag"] span { color: var(--tx-body) !important; }
+
+  /* ⑦ 滑块 / 开关 / 复选框旁边的说明文字 */
+  .stApp [data-testid="stCheckbox"] label span,
+  .stApp [data-testid="stToggle"] label span,
+  .stApp [role="slider"] + div {
+    color: var(--tx-body) !important;
   }
 """
 
@@ -1709,9 +1890,18 @@ _CSS_CACHE: dict = {}
 
 
 def _custom_css_themed() -> str:
-    """变量化 + 追加兜底层后的 CUSTOM_CSS（进程内只算一次）。"""
+    """变量化 CUSTOM_CSS + 兜底层 + 原生组件层（进程内只算一次）。
+
+    三层顺序不能换：
+      ① CUSTOM_CSS（项目自己写的卡片/徽章/进度条…）
+      ② _THEME_BASE_RULES     主题兜底（Streamlit 自带 p/li/h/井号/tooltip/字重）
+      ③ _THEME_NATIVE_RULES   原生组件层（input/expander/滚动框/表格…）
+    —— ③ 必须最后：它压的是 emotion 生成的组件样式，只有放在最后才盖得住。
+    """
     if "v" not in _CSS_CACHE:
-        _CSS_CACHE["v"] = _apply_theme_vars(CUSTOM_CSS) + _THEME_BASE_RULES
+        _CSS_CACHE["v"] = (
+            _apply_theme_vars(CUSTOM_CSS) + _THEME_BASE_RULES + _THEME_NATIVE_RULES
+        )
     return _CSS_CACHE["v"]
 
 
@@ -2755,40 +2945,15 @@ def step_head(num: str, title: str, note: str = "", tag: str = "") -> None:
     )
 
 
-# ============ 页面大标题 / 小节标题 / 卡片容器（v5 结构层） ============
-# 这三个组件解决的是同一个问题：**读者不知道"我在哪、这堆东西是什么"**。
-#   page_head → 我在哪个视图（"单公司深度分析"）
+# ============ 小节标题 / 卡片容器（v5 结构层 · v16 去掉 page_head） ============
+# 这两个组件解决的是同一个问题：**读者不知道"我在哪、这堆东西是什么"**。
 #   sec_head  → 我在这个视图的第几段（"1. 对比公司管理"）
-#   card      → 这一段的内容从哪到哪（白卡边界）
-def page_head(title: str, note: str = "", tag: str = "") -> None:
-    """视图顶部的大标题（30px 深墨色）+ 副说明 + 品牌蓝短横 + 右侧科技徽记。
-
-    v7 加的 `.ph-deco` 是右侧那块"同心环 + 六边形 + 迷你折线"的 SVG：
-    用户反馈"页面太空旷"，而纯文字标题旁边正好有一大片空白。
-    全部用内联 SVG 画（不引图片素材），透明度压到 0.9 以内不抢视线。
-    """
-    _tag = f' <span class="sh-tag">{tag}</span>' if tag else ""
-    _note = f'<span class="ph-note">{note}</span>' if note else ""
-    st.markdown(
-        f'<div class="page-head">'
-        f'<div class="ph-text"><div class="ph-title">{title}{_tag}</div>'
-        f'<span class="ph-rule"></span>{_note}</div>'
-        f'<svg class="ph-deco" width="168" height="94" viewBox="0 0 168 94" fill="none" '
-        f'xmlns="http://www.w3.org/2000/svg" aria-hidden="true">'
-        f'<circle cx="84" cy="47" r="43" stroke="#C3D7F2" stroke-width="1" stroke-dasharray="5 7"/>'
-        f'<circle cx="84" cy="47" r="29" stroke="#D5E3F7" stroke-width="1"/>'
-        f'<path d="M84 18 L106 31 L106 63 L84 76 L62 63 L62 31 Z" stroke="#93B4E8" stroke-width="1.5"/>'
-        f'<path d="M66 58 L75 45 L83 51 L93 34 L103 41" stroke="#1D4ED8" stroke-width="2.2" '
-        f'stroke-linecap="round" stroke-linejoin="round" opacity="0.75"/>'
-        f'<circle cx="75" cy="45" r="2.8" fill="#38BDF8"/>'
-        f'<circle cx="93" cy="34" r="2.8" fill="#38BDF8"/>'
-        f'<circle cx="62" cy="31" r="2.2" fill="#93B4E8"/>'
-        f'<circle cx="106" cy="63" r="2.2" fill="#93B4E8"/>'
-        f'<circle cx="84" cy="76" r="2.2" fill="#93B4E8"/>'
-        f'</svg>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
+#   card      → 这一段的内容从哪到哪（卡片边界）
+# （原 page_head「我在哪个视图」已于 v16 删除 —— 视图身份由侧栏导航选中态表达。）
+# 【v16 · 用户第 ① 条】page_head()（视图顶部 30px 大标题 + 副说明 + 右侧 SVG 徽记）
+# 已整块删除：三处调用、.page-head 的 CSS 规则、以及这个函数本身。
+# 恢复时必须 CSS / 函数 / 调用三处一起回，否则会渲染出无样式的裸 div。
+# 视图身份改由侧边栏导航的选中态表达，不再占主区首屏高度。
 
 
 def sec_head(num: str, title: str, note: str = "", tag: str = "") -> None:
@@ -4892,7 +5057,13 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
         if not text:
             st.caption("（尚未取到数据 —— 选好上方股票后取数，这里会显示原始文本）")
         else:
-            with st.container(height=220):
+            # v16：加 key —— Streamlit 会给带 key 的容器生成稳定的 `st-key-*` 类名，
+            # 原生层 CSS 才能点名给它压主题底色（否则深主题下这里是 config 的白底）。
+            # ⚠️ key 必须带 key_prefix：多公司对比页会为每家公司各渲染一份这个面板，
+            #    写死 "raw-scroll" 会触发 DuplicateWidgetID（3 家公司 = 3 个同名 key），
+            #    整个对比页直接崩。CSS 用的是 `[class*="st-key-raw-scroll"]` 前缀匹配，
+            #    带后缀一样命中。
+            with st.container(height=220, key=f"raw-scroll-{key_prefix}"):
                 st.markdown(text[:20000])
         st.divider()
         if not code:
@@ -5534,11 +5705,11 @@ _single_code = st.session_state.get("single_online_code", "")
 _single_grid = None        # ① ② ③（模块级建，纵向三连容器）
 _single_grid_r2 = None     # ④ ⑤（在 _view_single 里、③ 渲染完之后创建）
 if _cur_view == "🏢":
-    page_head(
-        "单公司深度分析",
-        "输入一家上市公司 → 在线取数（行情 / 多期财务指标 / 年报原文）→ 规则引擎四维评分 → "
-        "年报按页引用 → 一键生成研报。五个步骤自上而下逐行操作即可。",
-    )
+    # 【v16 · 用户第 ① 条】视图顶部那块「大标题 + 副说明 + 右侧 SVG 徽记」整块删掉。
+    # 它的信息量 = 侧边栏导航已经说过的视图名 + 一句和卡片内说明重复的流程串，
+    # 却吃掉顶部 ~110px 的高度，把 5 张操作卡整体往下压了一屏。
+    # 删掉后：正文直接从第 1 步卡片开始，一进页面就能操作。
+    # ⚠️ 不要改成"折叠"或"缩小"——用户原话是「完全没有存在的必要」。
     _single_grid = [
         st.container(key="sg-r1"),
         st.container(key="sg-r2"),
@@ -7119,11 +7290,8 @@ def _view_single():
 # 视图 2：多公司对比（2~5 家）
 # ---------------------------------------------------------------
 def _view_compare():
-    page_head(
-        "多公司对比",
-        "2~5 家公司各自在线取数（或手动输入财报），按**各自所属行业**的基准分别评分，"
-        "由程序生成对照表、差额与对比图（同一份数据永远同一分数），可导出 CSV 与对比报告。",
-    )
+    # 【v16 · 用户第 ① 条】顶部大标题区整块删除（与单公司页同一处理）。
+    # 顶部直接就是「1. 对比公司管理」小节标题 + 增删按钮，少一屏空白。
 
     # ===== 第 1 段：对比公司管理（增删公司 + 每家一张卡片）=====
     sec_head("1", "对比公司管理",
@@ -7846,12 +8014,7 @@ def _view_compare():
 # 视图 3：使用说明
 # ---------------------------------------------------------------
 def _view_help():
-    page_head(
-        "使用说明",
-        "这套工作台一共三个入口：单公司深度分析 / 多公司对比 / 使用说明（都在左侧边栏）。"
-        "第一次使用，照着下面第 1 张卡片的 4 步走一遍即可。",
-    )
-
+    # 【v16 · 用户第 ① 条】顶部大标题区整块删除（三视图统一）。
     # 使用说明页的卡片是"分类"而不是"步骤"，所以不编号，只用卡片表头 + 一条分隔线。
     # 【v10 · 第 9 条】先给一张总流程图：全部文字说明太密，一张图先建立全局印象，
     # 后面逐卡片的文字说明就有了"挂靠点"。

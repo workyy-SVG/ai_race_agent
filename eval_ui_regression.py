@@ -347,7 +347,9 @@ _check("紧凑模式用自定义状态块（不再用窄卡里会缩水的 st.su
 # 3) 切到使用说明：原侧边栏「快速上手」4 步并入这里，内容不丢
 at4.session_state["main_view"] = "📖"
 at4.run()
-_check("切到「使用说明」后渲染说明正文", "使用说明" in _md(at4))
+# v16：大标题删了，"使用说明" 这四个字不再出现在主区（它现在只在侧栏导航里）。
+# 改断言"说明页自己的正文"——否则会误判成页面没渲染。
+_check("切到「使用说明」后渲染说明正文", "🗺️ 全流程一图看懂" in _md(at4))
 _check("「使用说明」承接了快速上手 4 步（内容没丢，只是换了地方）",
        "快速上手" in _md(at4))
 _check("使用说明页同样不出现单公司取数/行业选择器",
@@ -409,8 +411,22 @@ _check("单公司流程 1~5 步齐备（先行业 → 再数据来源 → 取数
             if k not in SRC]))
 
 # 6c) v5 结构层：页面大标题 + 真正的卡片（用户：主界面还是很乱 → 要一个合理规划）
-_check("页面大标题组件存在（page_head：25px 标题 + 品牌蓝短横 + 灰说明）",
-       "def page_head(" in SRC and 'class="page-head"' in SRC)
+# 【v16 · 用户第 ① 条】页面大标题（page_head）整块删除 —— 改成**反向断言**。
+# 恢复时必须 CSS(.page-head) + 函数(def page_head) + 三处调用一起回，
+# 只回一处会渲染出没有样式的裸 div，所以这里三处都要断言"不存在"。
+# ⚠️ 删掉的东西仍然会在"说明为什么删"的注释里被提到，所以不能做纯子串判断。
+#    必须剥掉两类注释：Python 的 # 注释 **和** CSS 的 /* */ 注释 ——
+#    CUSTOM_CSS 里那段「⚠️ 连带删除：page_head() 函数…」就写在 /* */ 里，
+#    只剥 # 注释照样误报（CSS 注释行以空格开头，不可能是 # 开头）。
+_CODE = __import__("re").sub(
+    r"/\*.*?\*/", "",
+    "\n".join(l for l in SRC.split("\n") if not l.lstrip().startswith("#")),
+    flags=__import__("re").S)
+_check("v16 已删除页面大标题组件（page_head 函数 / .page-head CSS / 调用点 三处都不存在）",
+       "def page_head(" not in _CODE
+       and 'class="page-head"' not in _CODE
+       and 'class="ph-deco"' not in _CODE
+       and "page_head(" not in _CODE)
 _check("小节标题组件存在（sec_head：19px + 左侧蓝竖条，用于页面级分段）",
        "def sec_head(" in SRC and 'class="sec-head"' in SRC)
 _check("卡片容器组件存在（card：st.container(key=kcard-*) → 一步一张白卡）",
@@ -421,8 +437,10 @@ _check("卡片不用已失效的 testid 挂钩（stVerticalBlockBorderWrapper �
        'data-testid="stVerticalBlockBorderWrapper"' not in SRC)
 _check("step-head 降级成卡片内表头（去底色描边、只留一条分隔线 → 不盒子里套盒子）",
        "border-bottom: 1px solid #EDF2F8" in SRC)
-_check("三个视图都有页面大标题（单公司 / 多公司 / 使用说明）",
-       all(t in SRC for t in ('"单公司深度分析",', '"多公司对比",', '"使用说明",')))
+_check("v16：三个视图都不再渲染页面大标题（视图身份交给侧栏导航选中态）",
+       SRC.count('"单公司深度分析",') == 0
+       and SRC.count('"多公司对比",\n        "2~5') == 0
+       and SRC.count('"使用说明",\n        "这套工作台') == 0)
 _check("多公司对比做了页面级分段（1. 对比公司管理 / 2. 开始对比分析）",
        'sec_head("1", "对比公司管理"' in SRC and 'sec_head("2", "开始对比分析"' in SRC)
 _check("对比页每家公司一张白卡（三列各一张，卡片边界即公司边界）",
@@ -469,9 +487,9 @@ print("=== P2-04 v7：字体放大 / 可读性 / 图形装饰 / 侧栏选中态 
 _check("config.toml 抬高了根字号 baseFontSize（原生组件整体放大）",
        "baseFontSize = 17" in _CFG,
        "（config.toml 里没找到 baseFontSize）")
+# v16：.ph-title 30px 随 page_head 一起删了，字号断言改用仍在用的两处自定义类。
 _check("自定义类的 px 字号同步上调（px 不随根字号变，必须手改）",
-       "font-size: 30px; font-weight: 800; color: #0B1F3A !important;" in SRC   # .ph-title
-       and ".step-head .sh-title { font-size: 17px;" in SRC
+       ".step-head .sh-title { font-size: 17px;" in SRC
        and "width: 23px; height: 23px; border-radius: 7px;" in SRC)              # .sh-num
 _check("登录页字号同步放大（标题 48px / 按钮 21px）",
        ".login-brand .lb-title {" in SRC and "font-size: 48px" in SRC
@@ -504,10 +522,11 @@ _check("旧的 button[kind=primary] 仍保留为兼容兜底（同色，不冲�
        'section[data-testid="stSidebar"] .stButton > button[kind="primary"],' in SRC
        and '[data-testid="stBaseButton-primary"]' in SRC)
 
-# ④ 界面太空旷 → 主区补图形（页面徽记 / 顶栏六边形 / 侧栏底纹 / 空状态插图）
-_check("页面大标题右侧有科技徽记（同心环 + 六边形 + 迷你折线，纯内联 SVG）",
-       'class="ph-deco"' in SRC and 'class="page-head"' in SRC
-       and "M84 18 L106 31 L106 63 L84 76 L62 63 L62 31 Z" in SRC)
+# ④ 界面太空旷 → 主区补图形（顶栏六边形 / 侧栏底纹 / 空状态插图）
+# v16：页面徽记（.ph-deco）随 page_head 一起删除，改断言"不存在"。
+_check("v16 已删除页面大标题右侧的科技徽记（.ph-deco 随 page_head 一起删）",
+       'class="ph-deco"' not in SRC
+       and "M84 18 L106 31 L106 63 L84 76 L62 63 L62 31 Z" not in SRC)
 _check("顶栏左侧用纯 CSS 六边形徽标替代 emoji（.tb-logo）",
        'class="tb-logo"' in SRC and ".tb-logo {" in SRC
        and "clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)" in SRC)
@@ -542,14 +561,12 @@ _check("手动模式的 ③ 也进了第 3 个纵向容器（与在线模式同�
 
 # 标题被第一张卡压在下面 → 整页看上去还是"一堆卡片摊着"（用户：布局没变）。
 # 第 1 步「行业财务基准库」在模块级先渲染，所以标题必须也提到模块级、且在容器之前。
-_check("单公司页面大标题移到模块级（否则渲染顺序变成「卡 1 → 标题 → 卡 2…」）",
-       SRC.index('"单公司深度分析",') < SRC.index('st.container(key="sg-r1")')
-       and SRC.count('"单公司深度分析",') == 1)
-_check("纵向容器在标题之后创建（标题必须是最上面的元素）",
-       SRC.index('page_head(\n        "单公司深度分析"')
-       < SRC.index('st.container(key="sg-r1")'))
-_check("_view_single 内部不再重复渲染页面标题（避免出现两个大标题）",
-       '"单公司深度分析",' not in SRC.split("def _view_single()", 1)[1].split("def _view_compare", 1)[0])
+# 【v16】大标题删掉后不再有"标题 vs 卡 1"的顺序问题，改断言首屏就是操作区：
+# 单公司视图第一个渲染出来的就是第 1 步的容器，不再有 page_head 夹在前面。
+_check("v16：单公司视图首屏直接是操作区（sg-r1 之前没有 page_head；注释里的不算）",
+       "page_head" not in _CODE[:_CODE.index('st.container(key="sg-r1")')])
+_check("_view_single 内部不渲染页面标题（v16 已整块删除，避免出现裸 div）",
+       'page_head' not in _CODE.split("def _view_single()", 1)[1].split("def _view_compare", 1)[0])
 
 # 7) 布局搬迁的结构性守卫（这两条是最容易踩的坑）
 _check("导航/记录函数定义在其调用点之前（模块级调用先于定义会 NameError）",
@@ -1053,9 +1070,13 @@ _check("问号提示改深底 + 亮黄字（不再黑字压蓝底看不清）",
        and _ratio("#FFE066", "#060F24") >= 4.5,
        f"ratio={_ratio('#FFE066', '#060F24'):.1f}")
 # —— 用户点名③：井号（标题 hover 锚点）→ 黄色 ——
+# ⚠️ v15 这里写的是 stHeadingActionElements —— 该 testid 在 1.57 前端 bundle 里
+#    命中 0，黄色一直没生效。正确名字是 stHeaderActionElements（它同时包着
+#    help ⓘ 和 href="#xxx" 的锚点 a）。这条断言要连"错误名字不能出现"一起卡。
 _check("井号（标题锚点 #）改黄色 --gold（用户点名）",
-       'data-testid="stHeadingActionElements"' in _BASE_RULES
-       and "color: var(--gold) !important;" in _BASE_RULES)
+       'data-testid="stHeaderActionElements"' in _BASE_RULES
+       and "color: var(--gold) !important;" in _BASE_RULES
+       and 'data-testid="stHeadingActionElements"' not in SRC)
 # —— 分析记录说明文字 ——
 _check("分析记录说明文字改用 --tx-cap 变量（不再写死暗蓝 #475569）",
        'color:var(--tx-cap) !important;' in SRC and "color:#475569" not in SRC)
@@ -1091,8 +1112,110 @@ _check("运行时：深色主题井号走亮黄 #FFD84D，浅色主题自动转�
        and "--gold:#FFD84D" in _ROOTS["🔮 星云紫"]
        and "--gold:#B45309" in _ROOTS["☁️ 浅色雅蓝"])
 _check("运行时：井号黄 + 问号 tooltip 兜底确实进了页面（不是只写在源码里）",
-       all("stHeadingActionElements" in v and "stTooltipContent" in v
+       all("stHeaderActionElements" in v and "stTooltipContent" in v
            for v in _ROOTS.values()))
+
+# =====================================================================
+# v16 ① 删除顶部大标题区（用户：「完全没有存在的必要，然后整体给我上移」）
+# =====================================================================
+_check("v16：单公司 / 多公司 / 使用说明三个视图都没有 page_head 调用",
+       not __import__("re").search(r"^\s*page_head\(", _CODE, __import__("re").M),
+       "还有 page_head( 调用")
+_check("v16：.page-head 的 CSS 规则已全部删掉（只留说明性注释）",
+       ".page-head .ph-title" not in _CODE and ".page-head .ph-deco" not in _CODE)
+# 删掉 ~110px 的大标题后，首屏第一个元素应该是操作区容器而不是空白
+_check("v16：单公司视图首屏第一个容器就是第 1 步（sg-r1），中间不再夹大标题",
+       0 < _CODE.index('st.container(key="sg-r1")') < _CODE.index('card("fetch"'))
+
+# =====================================================================
+# v16 ②③④⑤ 原生组件层（用户：「白底字看不清 / 改主题它也不跟着变」）
+# 根因：Streamlit 原生组件的配色来自 config.toml 的 [theme]，不吃 :root 变量。
+# =====================================================================
+_NATIVE = _ns["_THEME_NATIVE_RULES"]
+_check("v16 原生层已接入注入（_custom_css_themed 里三层 CSS 拼在一起）",
+       "_THEME_BASE_RULES + _THEME_NATIVE_RULES" in SRC)
+_check("v16 原生层层序正确：兜底层在前、原生层在后（原生层要压 emotion 样式）",
+       0 < SRC.index("_THEME_BASE_RULES + _THEME_NATIVE_RULES"))
+_check("v16 原生层覆盖：输入框 / 展开面板 / 定高容器 / 上传区 / 表格 / 提示条",
+       all(k in _NATIVE for k in (
+           ".stApp input,", '[data-testid="stExpanderDetails"]',
+           '[class*="st-key-raw-scroll"]', '[class*="st-key-khist-scroll"]',
+           '[data-testid="stFileUploaderDropzone"]',
+           '[data-testid="stDataFrame"]',
+           '[data-testid="stAlertContainer"]')))
+# ⚠️ stVerticalBlockBorderWrapper 在 1.57 的 bundle 里命中 0（老版本遗留名），
+#    原生层里出现它就等于"写了个永远不生效的规则"（上面那条老断言会拦）。
+_NATIVE_NC = __import__("re").sub(r"/\*.*?\*/", "", _NATIVE, flags=__import__("re").S)
+_check("原生层不用已失效的 testid（stVerticalBlockBorderWrapper 在 1.57 命中 0）",
+       "stVerticalBlockBorderWrapper" not in _NATIVE_NC)
+_check("两个定高滚动容器都带了 key（否则生成不出 st-key-* 类名，CSS 点不到）",
+       'st.container(height=220, key=f"raw-scroll-{key_prefix}")' in SRC
+       and 'st.container(height=210, key="khist-scroll")' in SRC)
+# ⚠️ raw-scroll 的 key 必须带 key_prefix：多公司页会为每家公司各渲染一份，
+#    写死同名 key 会触发 DuplicateWidgetID，整个对比页直接崩（3 家公司必现）。
+_check("raw-scroll 的 key 带 key_prefix（多公司页 3 份同面板，写死同名 key 会崩）",
+       'key=f"raw-scroll-{key_prefix}"' in SRC
+       and 'st.container(height=220, key="raw-scroll")' not in SRC)
+# ⚠️ 表格变量自引用陷阱：--gdg-bg-cell: var(--gdg-bg-cell) 是死循环（值恒为空），
+#    表格会退回默认白底。自己存的变量必须叫别的名字（这里是 --gd-*）。
+_check("表格变量不自引用（--gdg-x 必须指向 --gd-x，不能指向自己）",
+       not __import__("re").search(r"--gdg-[a-z-]+:\s*var\(--gdg-", _NATIVE)
+       and "--gdg-bg-cell: var(--gd-cell);" in _NATIVE)
+_check("v16 每套主题都给了原生层变量（少一个 → 该组件在切主题时串色）",
+       all(all(k in t for k in ("--surface", "--on-surface",
+                                "--fw-body", "--fw-label", "--fw-strong",
+                                "--gd-cell", "--gd-tx"))
+           for t in _THEMES.values()))
+# —— 原生层对比度硬校验：--on-surface 压 --surface（合成后）≥4.5:1 ——
+_BAD_N = []
+
+
+def _solid(val: str, grad: str) -> str:
+    """把半透明 surface 与页面渐变首色合成成实际底色。"""
+    if not val.startswith("rgba"):
+        return val
+    _n = [float(x) for x in __import__("re").findall(r"[\d.]+", val)]
+    _c, _a = _n[:3], _n[3]
+    _b0 = grad[grad.index("#"):grad.index("#") + 7]
+    _b = [int(_b0[1 + i * 2:3 + i * 2], 16) for i in range(3)]
+    return "#%02X%02X%02X" % tuple(round(x * _a + y * (1 - _a))
+                                   for x, y in zip(_c, _b))
+
+
+for _tn, _tv in _THEMES.items():
+    _sf = _solid(_tv["--surface"], _tv["--grad-page"])
+    _r = _ratio(_tv["--on-surface"], _sf)
+    if _r < 4.5:
+        _BAD_N.append(f"{_tn}={_r:.2f}")
+    # 表格正文 / 表头 压表格单元底 也要够
+    for _k in ("--gd-tx", "--gd-tx-head"):
+        _r2 = _ratio(_tv[_k], _tv["--gd-cell"])
+        if _r2 < 4.5:
+            _BAD_N.append(f"{_tn}{_k}={_r2:.2f}")
+_check("v16 原生层对比度：on-surface / 表格正文 / 表头 压各自底色 ≥4.5:1（三套主题）",
+       not _BAD_N, ",".join(_BAD_N))
+# —— 字重随主题变（用户：「粗细那些并没有随着主题的改变而改变」）——
+# 两套深色主题共用一组字重（都是"浅字压深底"），浅色主题单独一组
+# （"深字压白底"，再粗就糊）。所以期望是 **2 组**，不是 3 组 —— 断言写成 ==3 会误报。
+_check("v16 字重随主题变（深色主题更粗 500/700/800，浅色主题 400/600/700 不糊）",
+       _THEMES["🌌 深空蓝"]["--fw-body"] == "500"
+       and _THEMES["🔮 星云紫"]["--fw-body"] == "500"
+       and _THEMES["☁️ 浅色雅蓝"]["--fw-body"] == "400"
+       and int(_THEMES["☁️ 浅色雅蓝"]["--fw-body"])
+       < int(_THEMES["🌌 深空蓝"]["--fw-body"])
+       and len({(t["--fw-body"], t["--fw-label"], t["--fw-strong"])
+                for t in _THEMES.values()}) == 2)
+_check("v16 展开条标题按用户要求「换色之后再加粗加深」（--fw-strong）",
+       '[data-testid="stExpander"] summary' in _NATIVE
+       and "font-weight: var(--fw-strong) !important;" in _NATIVE)
+# —— 运行时：原生层确实进了页面 ——
+_at_n = _boot()
+_at_n.session_state["ui_theme"] = "🔮 星云紫"
+_at_n.run()
+_INJ = "".join(m.value for m in _at_n.markdown if m.value and ":root{" in m.value)
+_check("运行时：原生层随主题进入页面（stFileUploaderDropzone / stAlertContainer 都在）",
+       "stFileUploaderDropzone" in _INJ and "stAlertContainer" in _INJ
+       and "--surface:rgba(24,14,54,.92)" in _INJ)
 
 print()
 if FAILS:
