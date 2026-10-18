@@ -2241,7 +2241,9 @@ def _inject_page_css() -> str:
     旧写法 `st.markdown(_theme_style() + _custom_css_themed(), …)` 正好是
     「两个 <style> 拼在同一行」，必踩这条结束条件 —— 必须整合成一个。
     """
-    _t = THEMES.get(st.session_state.get("ui_theme") or DEFAULT_THEME) or THEMES[DEFAULT_THEME]
+    from theme_settings import theme_palette
+    _t = theme_palette(THEMES, st.session_state.get("ui_theme") or DEFAULT_THEME,
+                       st.session_state.get("ui_theme_custom"))
     _root = ":root{" + ";".join(f"{k}:{v}" for k, v in _t.items()) + ";}"
     if "body" not in _CSS_CACHE:
         # 三层顺序不能换：
@@ -2271,19 +2273,9 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-# ---- v15：主题切换（侧边栏最顶部；登录前侧栏被 LOGIN_CSS 隐藏，不影响登录页）----
-# 先建控件再注入样式：radio 执行时立刻写入 session_state，紧接着的
-# _inject_page_css() 读到的就是本次选择，主题"点一下就变"，不用再刷一次。
-if "ui_theme" not in st.session_state:
-    st.session_state["ui_theme"] = DEFAULT_THEME
-with st.sidebar:
-    st.radio(
-        "🎨 界面主题",
-        list(THEMES),
-        key="ui_theme",
-        horizontal=True,
-        help="一键切换整套配色：背景、卡片、边框与文字颜色全部联动。",
-    )
+# Theme callbacks commit the draft before the full-page CSS is generated.
+from theme_settings import render_theme_settings
+render_theme_settings(THEMES, DEFAULT_THEME)
 st.markdown(_inject_page_css(), unsafe_allow_html=True)
 
 # ---------------------------------------------------------------

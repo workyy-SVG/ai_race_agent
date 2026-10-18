@@ -1033,8 +1033,12 @@ _check("v15 提供三套可切换主题（深空蓝 / 星云紫 / 浅色雅蓝�
 _keysets = {frozenset(v) for v in _THEMES.values()}
 _check("三套主题的变量键完全一致（缺键会导致切主题时串色）",
        len(_keysets) == 1, f"keysets={len(_keysets)}")
-_check("主题切换器挂在侧边栏、key=ui_theme（选中即生效，不用二次刷新）",
-       'key="ui_theme"' in SRC and 'with st.sidebar:' in SRC
+_THEME_SETTINGS_SRC = io.open(os.path.join(_HERE, "theme_settings.py"), encoding="utf-8").read()
+_check("主题设置挂在侧边栏，支持预览、应用与恢复默认",
+       "render_theme_settings(THEMES, DEFAULT_THEME)" in SRC
+       and "with st.sidebar:" in _THEME_SETTINGS_SRC
+       and 'key="theme_apply"' in _THEME_SETTINGS_SRC
+       and 'key="theme_reset"' in _THEME_SETTINGS_SRC
        and "_inject_page_css()" in SRC)
 # ———【v18 · 用户第 6 条】页面上曾经凭空多出几屏 CSS 源码（font-size / config.toml /
 #     选择器注释被当正文渲染），同时深主题下的原生层样式一直没生效 —— 同一个根因的两副面孔：
