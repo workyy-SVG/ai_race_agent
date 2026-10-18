@@ -1402,13 +1402,12 @@ _check("v18①：分段条/内容区都带 key（CSS 要靠 st-key-* 命中才�
        'st.container(key="wktabbar")' in SRC and "st-key-wktabbar" in SRC)
 
 # —— 第 2 条：追问的「图表辅助」是一张碎图 ——
-# 根因：st.image(bytes) 走 /media/<hash>.png 端点，被浏览器/代理/会话校验拦掉
-# 就只剩占位符。改成内联 base64（show_png），不产生任何额外请求。
-_VIZCALL = [l for l in SRC.split("\n") if "_viz_png" in l or "_vz_png" in l]
-_check("v18②：追问图表走 show_png 内联 base64（不再用会碎图的 st.image）",
-       not any("st.image(" in l for l in _VIZCALL)
-       and 'show_png(_viz_png' in SRC and 'show_png(_vz_png' in SRC,
-       str(_VIZCALL[:3]))
+# Native charts carry their data in the page instead of requesting PNG media.
+_FOLLOWUP_SRC = io.open(os.path.join(_HERE, "followup_charts.py"), encoding="utf-8").read()
+_check("v18②：追问使用原生交互图表和当轮数据快照，不依赖图片媒体请求",
+       'st.vega_lite_chart(' in _FOLLOWUP_SRC and '"chart_bundle": _chart_bundle' in SRC
+       and '_render_followup_charts(m["chart_bundle"])' in SRC
+       and 'st.image(' not in _FOLLOWUP_SRC)
 
 # —— 第 3 条：5 家公司的雷达图只剩一堆散点、没有轮廓 ——
 # 根因两条：① 评分值可能不是 float（"7.5分" 这类串）→ 整家被判缺 → 什么都不画；

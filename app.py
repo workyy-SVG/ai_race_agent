@@ -34,6 +34,7 @@ from openai import OpenAI
 import data_source as ds
 import workbench_ui as wb
 import login_session as login
+import followup_charts as fcharts
 
 # 统一预算计数（原子写入 + 分桶：llm / polish / embed）
 try:
@@ -4129,33 +4130,81 @@ def fig_compare_years_n(rows_map: dict, names: list, pipeline,
 
 
 # ============ 追问区的图表辅助 / 自动对比取数（v10 · 用户第 5、13 条反馈） ============
-def _chat_viz_png(kind: str):
-    """按 kind 生成追问回答的辅助图表（bytes 或 None）。
-
-    为什么只做两种图：追问场景下用户问的是"营收趋势/哪个维度强"这类
-    已有数据能直接回答的问题 —— 趋势图（营收+净利润双轴）和雷达图
-    （四维评分形状）覆盖了绝大多数追问；为每轮回答临时编新图反而慢。
-    数据一律取自 session 里**已生成的分析结果**，与页面显示同源。
-    """
-    _a = st.session_state.get("analysis")
-    if not isinstance(_a, dict):
-        return None
-    if kind == "radar":
-        _sc = _a.get("scores")
-        if isinstance(_sc, dict) and _sc:
-            return render_score_radar(_sc, _a.get("total_score"))
-        return None
-    _trend = _a.get("trend")
-    if isinstance(_trend, list) and _trend:
-        return render_trend_dual_axis(_trend_chrono(_trend))
-    return None
+def _render_followup_charts(bundle):
+    palette = THEMES.get(st.session_state.get("ui_theme")) or THEMES[DEFAULT_THEME]
+    fcharts.render_bundle(bundle, foreground=palette["--on-surface"], grid=palette["--brd"])
 
 
-def _chat_viz_kind_for(question: str) -> str:
-    q = question or ""
-    if re.search(r"评分|得分|雷达|哪项|优势|短板|强在哪|弱在哪|强项|劣势", q):
-        return "radar"
-    return "trend"
+def _followup_chart_bundle(question, analysis=None, context=None, *, raw_data="", items=None, previous_question=""):
+    """Fetch current-company annual data or use comparison snapshots; never LLM numbers."""
+    stamp = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+    companies, notices = [], []
+    if (not fcharts.requested_metrics(question) and not fcharts.requested_metrics(previous_question)
+            and not re.search(r"评分|得分|雷达|维度|优势|短板|哪家|值得投|强项|劣势|排序|排名", question)):
+        return fcharts.build_bundle(question, [])
+    if items is not None:
+        for item in items:
+            companies.append({"name": item.get("name"), "code": item.get("code"),
+                              "industry": item.get("industry"), "rows": item.get("annual") or [],
+                              "source": "本次多公司对比的年报数据快照", "fetched_at": stamp})
+    else:
+        ctx = context or {}
+        code = str(ctx.get("code") or "") if ctx.get("source") == "online" else ""
+        primary = {"name": ctx.get("name") or (analysis or {}).get("company") or "当前公司",
+                   "code": code, "industry": st.session_state.get("biz_industry") or "通用",
+                   "finance_kind": st.session_state.get("single_finance_kind") or "", "fetched_at": stamp}
+        if code:
+            primary.update(source="东方财富公开财务指标（年报口径）",
+                           source_url=f"https://data.eastmoney.com/stockdata/{code}.html")
+            try:
+                primary["rows"] = ds.get_financial_indicators(code, periods=10, annual_only=True) or []
+            except Exception:
+                primary["rows"] = []
+                notices.append("当前公司年报指标获取失败，本轮不会使用模型生成的数据替代。")
+            saved = (analysis or {}).get("metrics_raw")
+            if (not primary["rows"] and isinstance(saved, dict)
+                    and str((analysis or {}).get("score_source") or "").startswith("在线财务指标")
+                    and (analysis or {}).get("company") == primary["name"]
+                    and fcharts.annual_rows([saved])):
+                primary["rows"] = [dict(saved)]
+                primary["source"] = "当前分析中已核验的在线年报快照"
+                notices.append("本轮未取得新增年报数据，图表仅使用当前分析中已核验的单期年报快照。")
+        else:
+            # Manual material may contain multiple reporting periods. A scalar regex
+            # extractor cannot safely associate its values with different years.
+            years = set(re.findall(r"(?<!\d)20\d{2}(?!\d)", raw_data or ""))
+            metric_text = re.sub(r"净资产收益率|\broe\b", "ROE", raw_data or "", flags=re.I)
+            row = scoring.extract_metrics_regex(metric_text) if scoring is not None and len(years) <= 1 else {}
+            if row and len(years) == 1 and "年报" in raw_data:
+                row.update(report_name=next(iter(years)) + "年报", report_type="年报")
+            elif row:
+                row.update(_snapshot=True, report_name="材料未确认年报报告期")
+            primary.update(rows=[row] if row else [], source="当前输入材料的程序提取值（非模型生成）")
+        companies.append(primary)
+        targets = fcharts.mentioned_companies(question, POPULAR_STOCKS, code)
+        comparing = bool(re.search(r"对比|比较|相比|比一比|\bpk\b|\bvs\b|和.+比|与.+比", question, re.I))
+        if targets and not comparing:
+            companies = []
+        for other_code, other_name in targets:
+            other = {"code": other_code, "name": other_name or other_code,
+                     "industry": ds.guess_industry(other_name) or "通用", "fetched_at": stamp,
+                     "source": "东方财富公开财务指标（年报口径）",
+                     "source_url": f"https://data.eastmoney.com/stockdata/{other_code}.html"}
+            try:
+                other["rows"] = ds.get_financial_indicators(other_code, periods=10, annual_only=True) or []
+                if other["rows"] and other["rows"][0].get("name"):
+                    other["name"] = other["rows"][0]["name"]
+                    other["industry"] = ds.guess_industry(other["name"]) or "通用"
+            except Exception:
+                other["rows"] = []
+                notices.append(f"{other['name']}年报数据获取失败，暂不生成与其有关的对比图。")
+            companies.append(other)
+        if comparing and len(companies) == 1 and re.search(r"和.+比|与.+比|跟.+比|公司|同行|同业|对手|\bvs\b|\bpk\b", question, re.I):
+            return {"version": 1, "question": question, "charts": [],
+                    "notes": ["尚未识别到另一家公司的有效证券代码；请在问题中写出完整公司名称或六位代码，再生成同年对比图。"]}
+    bundle = fcharts.build_bundle(question, companies, previous_question=previous_question)
+    bundle["notes"].extend(notices)
+    return bundle
 
 
 def _chat_auto_compare(question: str):
@@ -4176,22 +4225,18 @@ def _chat_auto_compare(question: str):
     if not re.search(r"对比|比较|相比|比一比|PK|pk|\bvs\b|VS", q):
         return [], []
     _cache = st.session_state.setdefault("chat_cmp_cache", {})
-    _cur = st.session_state.get("single_online_code", "")
+    _ctx = actx.get() if actx is not None else {}
+    _cur = _ctx.get("code", "") if _ctx.get("source") == "online" else ""
     _blocks, _got = [], []
 
-    _cands = []   # [(代码, 名称)]
-    for _c in dict.fromkeys(re.findall(r"(?<!\d)[0369]\d{5}(?!\d)", q)):
-        if _c != _cur:
-            _cands.append((_c, ""))
-    for s in POPULAR_STOCKS:
-        _nm = s[0].split(" (")[0]
-        if s[2] and s[1] != _cur and len(_nm) >= 3 and _nm in q:
-            _cands.append((s[1], _nm))
+    _cands = fcharts.comparison_targets(q, POPULAR_STOCKS, _cur)
 
     for _cd, _nm in _cands[:2]:
-        if _cd in _cache:
-            _blocks.append(_cache[_cd])
-            _got.append(_nm or _cd)
+        _cached_cmp = _cache.get(_cd)
+        _now_cmp = datetime.datetime.now(datetime.timezone.utc).timestamp()
+        if isinstance(_cached_cmp, dict) and 0 <= _now_cmp - _cached_cmp.get("time", 0) < 300:
+            _blocks.append(_cached_cmp["text"])
+            _got.append(_cached_cmp.get("name") or _nm or _cd)
             continue
         _res = ds.resolve_stock(_cd)
         if not _res.get("ok"):
@@ -4201,7 +4246,7 @@ def _chat_auto_compare(question: str):
             _t = ds.build_summary_text(_cd, name=_res["name"], periods=3)
             if _t:
                 _s.out = f"取到 {len(_t)} 字符摘要"
-                _cache[_cd] = _t
+                _cache[_cd] = {"text": _t, "name": _res["name"], "time": _now_cmp}
                 _blocks.append(_t)
                 _got.append(_res["name"])
     return _blocks, _got
@@ -7782,22 +7827,16 @@ def _view_single():
             if st.button("🗑️ 清空", key="clear_chat", use_container_width=True):
                 st.session_state["messages"] = []
                 st.rerun()
-    st.caption("基于当前财务数据与已生成的分析继续提问，支持连续多轮对话；新回答会出现在输入框上方。")
+    st.caption("按问题匹配真实财务指标和图表，支持连续追问；图表标明报告期、单位与来源，缺失数据不补造。")
 
     # 渲染历史消息。本轮的提问在上一轮提交时就已入队，因此这里会一起渲染 → 位于输入框上方。
     for m in st.session_state["messages"]:
         with st.chat_message(m["role"]):
             st.markdown(m["content"])
-            # 【v10 · 第 5 条】带 viz 标记的助手回答，重渲染时把辅助图一并还原
-            if m.get("role") == "assistant" and m.get("viz"):
-                # 【v18 · 用户第 2 条】原先用 st.image(bytes) —— 它走 Streamlit 的
-                # 媒体端点 /media/<hash>.png，在部分环境下这个请求被拦掉，
-                # 页面上只剩一个碎图占位（等于"图表辅助"整个是坏的）。
-                # 统一改用 show_png 内联 base64，与其它图表同一条渲染链路。
-                _vz_png = _chat_viz_png(m["viz"])
-                if _vz_png:
-                    with st.expander("📈 图表辅助 · 一图看懂这轮回答", expanded=False):
-                        show_png(_vz_png, alt="追问辅助图")
+            if m.get("role") == "assistant" and m.get("chart_bundle"):
+                _render_followup_charts(m["chart_bundle"])
+            elif m.get("role") == "assistant" and m.get("viz"):
+                st.caption("这条旧版回答未保存图表数据快照；重新提问即可生成带来源的新图表。")
 
     # 提交时的校验提示：上一轮暂存，这里渲染（否则会掉到输入框下方）
     _chat_notice = st.session_state.pop("_chat_notice", None)
@@ -7818,7 +7857,10 @@ def _view_single():
             base_context += f"\n\n【已生成的结构化评分与结论】\n{json.dumps(analysis, ensure_ascii=False)[:2000]}"
 
         # 【v10 · 第 13 条】追问里要和别家公司对比 → Agent 自动取对方数据注入上下文
-        _cmp_blocks, _cmp_got = _chat_auto_compare(question)
+        try:
+            _cmp_blocks, _cmp_got = _chat_auto_compare(question)
+        except Exception:
+            _cmp_blocks, _cmp_got = [], []
         if _cmp_blocks:
             base_context += (
                 "\n\n【对比公司财务数据 · 系统自动联网获取】\n"
@@ -7845,11 +7887,16 @@ def _view_single():
 
         # 历史对话 = 除最后一条（本轮提问，已由上面的历史渲染展示）以外的消息，最多最近 3 轮
         history = st.session_state["messages"][:-1]
+        _previous_q = next((m["content"] for m in reversed(history) if m.get("role") == "user"), "")
+        with st.spinner("正在匹配问题与可核验的财务图表……"):
+            _chart_bundle = _followup_chart_bundle(question, analysis, _ctx_now,
+                                                   raw_data=raw_data, previous_question=_previous_q)
+        base_context += fcharts.context_for_model(_chart_bundle)
         history = history[-6:]
         msgs = [{"role": "system", "content": system_prompt_with_kb()}]
         msgs.append({"role": "user", "content": base_context + "\n\n以上是背景资料，请基于它回答后续问题。"})
         msgs.append({"role": "assistant", "content": "好的，我已了解该公司的财务数据与行业背景，请提问。"})
-        msgs.extend(history)
+        msgs.extend({"role": m["role"], "content": m["content"]} for m in history)
         msgs.append({"role": "user", "content": question})
 
         # 2) 流式生成回答
@@ -7871,19 +7918,20 @@ def _view_single():
                             "🧭 已由程序校验修正：" + "；".join(_a_fixes[:3])
                             + "（数值变化方向按程序计算，不依赖模型表述）"
                         )
-                # 【v10 · 第 5 条】回答下方直接挂辅助图表，答案不再只有干巴巴的文字
-                _viz_kind = _chat_viz_kind_for(question)
-                _viz_png = _chat_viz_png(_viz_kind)
-                if _viz_png:
-                    with st.expander("📈 图表辅助 · 一图看懂这轮回答", expanded=True):
-                        # 同上文：必须用内联 data-URI，不能用 st.image（会出碎图）
-                        show_png(_viz_png, alt="追问辅助图")
+                _render_followup_charts(_chart_bundle)
             st.session_state["messages"].append(
                 {"role": "assistant", "content": answer,
-                 "viz": _viz_kind if _viz_png else ""}
+                 "chart_bundle": _chart_bundle}
             )
         except Exception as e:
             st.error(f"调用失败：{e}")
+            if _chart_bundle.get("charts"):
+                with st.chat_message("assistant"):
+                    st.markdown("文字解读暂未生成，以下图表来自本轮可核验的财务数据。")
+                    _render_followup_charts(_chart_bundle)
+                st.session_state["messages"].append({
+                    "role": "assistant", "content": "文字解读暂未生成，以下为已核验的财务图表。",
+                    "chart_bundle": _chart_bundle})
 
     # 【智能推荐提问】根据当前公司名称/行业/最新评分结果实时生成，点击即问
     #
@@ -8715,10 +8763,15 @@ def _view_compare():
             for _m in st.session_state["cmp_messages"]:
                 with st.chat_message(_m["role"]):
                     st.markdown(_m["content"])
+                    if _m.get("role") == "assistant" and _m.get("chart_bundle"):
+                        _render_followup_charts(_m["chart_bundle"])
 
             # 2) 本轮回答（答在中）
             _cmp_pending = st.session_state.pop("_cmp_answer_pending", None)
             if _cmp_pending:
+                _prev_cmp_q = next((m["content"] for m in reversed(st.session_state["cmp_messages"][:-1])
+                                    if m.get("role") == "user"), "")
+                _cmp_chart_bundle = _followup_chart_bundle(_cmp_pending, items=_citems, previous_question=_prev_cmp_q)
                 with st.chat_message("assistant"):
                     box = st.empty()
                     with st.spinner("正在结合全部对比公司数据分析……"):
@@ -8732,19 +8785,23 @@ def _view_compare():
                                   "用户问某一年份（如 2022 年）时，优先引用「逐年年报指标」中"
                                   "该年的数据；该年不在可用年份里就如实说明并给出可用年份范围。"
                             )
+                            _prompt += fcharts.context_for_model(_cmp_chart_bundle)
                             _msgs = [{"role": "system", "content": _sys},
                                      {"role": "user", "content": _prompt},
                                      {"role": "assistant", "content": "好的，我已掌握全部对比公司数据，请提问。"}]
-                            _msgs.extend(st.session_state["cmp_messages"][:-1][-6:])
+                            _msgs.extend({"role": m["role"], "content": m["content"]}
+                                         for m in st.session_state["cmp_messages"][:-1][-6:])
                             _msgs.append({"role": "user", "content": _cmp_pending})
                             _ans = llm_stream(_msgs, box, temperature=0.3, action="compare")
                         except Exception as e:
                             box.empty()
                             st.error(f"调用失败：{e}")
                             _ans = ""
-                    if _ans:
+                    _render_followup_charts(_cmp_chart_bundle)
+                    if _ans or _cmp_chart_bundle.get("charts"):
                         st.session_state["cmp_messages"].append(
-                            {"role": "assistant", "content": _ans})
+                            {"role": "assistant", "content": _ans or "文字解读暂未生成，以下为已核验的财务图表。",
+                             "chart_bundle": _cmp_chart_bundle})
 
             # 3) 推荐问题（按当前对比公司自动生成）
             # 【v18 · 用户第 5 条】旧实现写死 _na, _nb = 前两家，选 3~5 家时推荐出来的
