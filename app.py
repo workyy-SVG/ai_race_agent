@@ -2262,7 +2262,22 @@ def _inject_page_css() -> str:
         )
     # 结尾的 \n 让 </style> 独占一行：即便日后又有人往里追加内容，
     # 也不会形成「</style> 后面还跟着东西」的同款陷阱。
-    return "<style>" + _root + _CSS_CACHE["body"] + "\n</style>"
+    # Only the light preset needs darker labels on these pale navigation buttons.
+    # Keep this outside the shared CSS cache so switching themes removes the override.
+    _nav_css = ""
+    if (st.session_state.get("ui_theme") == "☁️ 浅色雅蓝"
+            and not st.session_state.get("ui_theme_custom")):
+        _selectors = []
+        for _icon in ("⚖️", "📖"):
+            for _state in ("on", "off"):
+                _button = (f'section[data-testid="stSidebar"] '
+                           f'[class*="st-key-nav_{_state}_{_icon}"] button')
+                _selectors.extend((_button, _button + " *", _button + ":hover",
+                                   _button + ":focus-visible", _button + ":active"))
+        _nav_css = ",".join(_selectors) + (
+            "{color:#14377A !important;-webkit-text-fill-color:#14377A !important;}"
+        )
+    return "<style>" + _root + _CSS_CACHE["body"] + _nav_css + "\n</style>"
 
 
 # ============ 页面与登录 ============
