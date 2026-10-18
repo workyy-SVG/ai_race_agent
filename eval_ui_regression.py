@@ -1034,7 +1034,7 @@ _check("三套主题的变量键完全一致（缺键会导致切主题时串色
 _THEME_SETTINGS_SRC = io.open(os.path.join(_HERE, "theme_settings.py"), encoding="utf-8").read()
 _check("主题设置挂在侧边栏，支持预览、应用与恢复默认",
        "render_theme_settings(THEMES, DEFAULT_THEME)" in SRC
-       and "with st.sidebar:" in _THEME_SETTINGS_SRC
+       and "with st.sidebar" in _THEME_SETTINGS_SRC
        and 'key="theme_apply"' in _THEME_SETTINGS_SRC
        and 'key="theme_reset"' in _THEME_SETTINGS_SRC
        and "_inject_page_css()" in SRC)

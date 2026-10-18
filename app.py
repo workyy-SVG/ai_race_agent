@@ -2070,6 +2070,23 @@ section[data-testid="stSidebar"] p {
   font-size: 14.5px !important;
   font-weight: 600 !important;
 }
+
+/* Sidebar section headings: strong text on the dark sidebar, with the theme
+   expander using its own surface contrast for both light and dark presets. */
+section[data-testid="stSidebar"] .sidebar-section-heading {
+  font-size: 18px !important;
+  font-weight: 800 !important;
+  line-height: 1.5;
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF !important;
+}
+section[data-testid="stSidebar"] .st-key-sidebar-theme-settings [data-testid="stExpander"] summary,
+section[data-testid="stSidebar"] .st-key-sidebar-theme-settings [data-testid="stExpander"] summary * {
+  font-size: 18px !important;
+  font-weight: 800 !important;
+  color: var(--on-surface) !important;
+  -webkit-text-fill-color: var(--on-surface) !important;
+}
 """
 
 _THEME_FLOATING_RULES = """
@@ -6094,7 +6111,7 @@ def _render_history_list() -> None:
     带 2 小时 TTL：刷新 / 重开会话都能恢复；超过 2 小时自动过期，
     不会无限堆积旧数据，也不依赖任何外部存储（Streamlit Cloud 同样可用）。
     """
-    st.markdown('<div class="hist-head">🕘 分析记录</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hist-head sidebar-section-heading">🕘 分析记录</div>', unsafe_allow_html=True)
     _hist = st.session_state.get("analysis_history")
     if not _hist:
         # 【B6】按浏览器会话隔离：多人共用一个演示账号时只看得到自己的记录
@@ -6185,7 +6202,7 @@ with st.sidebar:
 
     # ---- 工作台导航 + 分析记录（原来在主区占两列，见文件末尾的说明）----
     st.markdown(
-        '<div class="sb-title" style="margin:10px 0 2px 2px;">🧭 工作台导航</div>',
+        '<div class="sb-title sidebar-section-heading" style="margin:10px 0 2px 2px;">🧭 工作台导航</div>',
         unsafe_allow_html=True,
     )
     _render_icon_menu()
@@ -6194,7 +6211,7 @@ with st.sidebar:
     st.markdown("---")
 
     # 双模型开关 (Plan B)
-    st.markdown('<div class="sb-title" style="margin:12px 0 2px 2px;">🤖 双模型协同</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sb-title sidebar-section-heading" style="margin:12px 0 2px 2px;">🤖 双模型协同</div>', unsafe_allow_html=True)
     use_dual_model = st.toggle(
         "启用 千问 润色 + RAG",
         value=True,

@@ -107,7 +107,7 @@ def render_theme_settings(themes: dict, default: str) -> None:
     custom = state.get("ui_theme_custom") or {}
     state.setdefault("theme_draft_accent", custom.get("accent", themes[state["ui_theme"]]["--accent-bg"]))
     state.setdefault("theme_draft_background", custom.get("background", defaults.get(state["ui_theme"], "#0A2C66")))
-    with st.sidebar:
+    with st.sidebar, st.container(key="sidebar-theme-settings"):
         with st.expander("🎨 界面主题", expanded=False):
             current = "自定义配色" if state.get("ui_theme_custom") else state["ui_theme"]
             st.caption(f"当前：{current}")
