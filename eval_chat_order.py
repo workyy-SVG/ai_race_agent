@@ -16,6 +16,8 @@ API 之前就短路返回空串（check_quota 熔断），因此可以确定性�
 import io
 import os
 import sys
+import atexit
+from tempfile import TemporaryDirectory
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -23,6 +25,10 @@ sys.path.insert(0, _HERE)
 os.chdir(_HERE)
 os.environ["PYTHONIOENCODING"] = "utf-8"
 os.environ["DAILY_LLM_LIMIT"] = "0"          # ← 熔断 stub：不真的调 LLM
+os.environ["INDUSTRY_STAT_OFF"] = "1"
+_fixture_dir = TemporaryDirectory(prefix="chat-order-test-")
+atexit.register(_fixture_dir.cleanup)
+os.environ["ANALYSIS_HISTORY_CACHE"] = os.path.join(_fixture_dir.name, "history.json")
 
 from streamlit.testing.v1 import AppTest   # noqa: E402
 
@@ -91,6 +97,10 @@ def order_of_main(at):
 
 def boot():
     at = AppTest.from_file(APP, default_timeout=240)
+    # Explicit fixture secrets: local secrets take precedence over environment
+    # variables, so the environment-only quota stub could call a real provider.
+    at.secrets = {"DAILY_LLM_LIMIT": "0", "APP_USER": "chat-fixture",
+                  "APP_PASSWORD": "fixture-only-password", "DEMO_KEY": "fixture-only-token"}
     at.run()
     at.session_state["authenticated"] = True
     at.run()

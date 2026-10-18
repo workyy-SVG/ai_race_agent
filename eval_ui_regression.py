@@ -175,17 +175,17 @@ _check("页面初始无异常", not [str(e.value)[:200] for e in at2.exception],
        str([str(e.value)[:200] for e in at2.exception]))
 _check("默认对比 2 家", _ss(at2, "cmp_n") == 2,
        f"cmp_n={_ss(at2, 'cmp_n')}")
-_cb = {c.key: c for c in at2.checkbox}
+_cb = {c.key: c for c in at2.selectbox}
 _check("公司 A/B 输入区域存在", ("cmp0_use_online" in _cb) and ("cmp1_use_online" in _cb))
 _sb2 = {s.key: s for s in at2.selectbox}
 _check("两家公司各有独立行业选择器", ("cmp0_ind" in _sb2) and ("cmp1_ind" in _sb2),
-       str([k for k in _sb2 if k.startswith("cmp")]))
+       str([k for k in _sb2 if (k or "").startswith("cmp")]))
 _add = _btn(at2, "cmp_add")
 _check("找到「➕ 添加公司」", _add is not None)
 if _add:
     _add.click().run()
     _check("添加后 3 家", _ss(at2, "cmp_n") == 3)
-    _check("第 3 家输入区域出现", "cmp2_use_online" in {c.key for c in at2.checkbox})
+    _check("第 3 家输入区域出现", "cmp2_use_online" in {c.key for c in at2.selectbox})
     _btn(at2, "cmp_add").click().run()
     _btn(at2, "cmp_add").click().run()
     _check("连续添加后 5 家", _ss(at2, "cmp_n") == 5)
@@ -194,7 +194,7 @@ if _add:
         _btn(at2, "cmp_del").click().run()
     _check("连续移除后回到 2 家", _ss(at2, "cmp_n") == 2)
     _check("第 3 家输入区域已消失（表格/图表随之下线）",
-           "cmp2_use_online" not in {c.key for c in at2.checkbox})
+           "cmp2_use_online" not in {c.key for c in at2.selectbox})
     _check("下限 2 家时「移除」禁用", bool(_btn(at2, "cmp_del").disabled))
 
 # 重复公司 / 无效代码 / 未完成输入
@@ -218,7 +218,7 @@ _w = "\n".join(x.value for x in at2.warning)
 # 同一家公司被说两遍。v17 合并成一条、按公司分点列出原因与处理方式，
 # 断言随之改为：只有**一条**相关告警，且写清了"缺什么 + 怎么补"。
 _check("未取到数据 → 合并为一条告警（B9）", _w.count("暂无可分析的数据") == 1, _w[:160])
-_check("告警里分点写明补全方式", "🔍 获取数据" in _w or "粘贴财报文本" in _w, _w[:160])
+_check("告警里分点写明补全方式", "「取数」" in _w or "粘贴财报文本" in _w, _w[:160])
 
 # ---------------------------------------------------------------------------
 print("=== P1-03 对比口径与导出（3 家）===")
@@ -344,16 +344,16 @@ _check("侧边栏不再摆「快速上手 / 当前版本能力」静态卡片（
 at4.session_state["main_view"] = "⚖️"
 at4.run()
 _check("切到「多公司对比」后出现对比控件",
-       any((c.key or "") == "cmp0_use_online" for c in at4.checkbox),
-       str([c.key for c in at4.checkbox][:6]))
+       any((c.key or "") == "cmp0_use_online" for c in at4.selectbox),
+       str([c.key for c in at4.selectbox][:6]))
 _check("对比视图**不再**出现单公司行业选择器（v4 把这块收进单公司视图）",
        not any((r.key or "") == "industry_widget" for r in at4.radio),
        str([r.key for r in at4.radio]))
 _check("对比视图也不再出现单公司同业对标基准条",
        "同业对标基准（" not in _md(at4))
 # v10-2（用户第 8a 条）：每家卡片必须有"取数进度/状态"块，且字体要大到窄卡里也看得清。
-_wait_n = _md(at4).count('class="cmp-wait"')
-_check("对比页每家卡片都有取数状态块（未取数时显示「尚未取数」占位，不再是一行浅灰小字）",
+_wait_n = _md(at4).count('class="wb-company-state"')
+_check("Demo：每家公司保留简洁的取数状态提示",
        _wait_n == 2, f"wait={_wait_n}")
 _check("取数状态块：公司名 17.5px 深墨字 + 状态 14.5px 深绿字，白底浅绿 8:1 对比度",
        ".cmp-ok {" in SRC and "font-size: 17.5px; font-weight: 800" in SRC
@@ -368,7 +368,7 @@ at4.session_state["main_view"] = "📖"
 at4.run()
 # v16：大标题删了，"使用说明" 这四个字不再出现在主区（它现在只在侧栏导航里）。
 # 改断言"说明页自己的正文"——否则会误判成页面没渲染。
-_check("切到「使用说明」后渲染说明正文", "🗺️ 全流程一图看懂" in _md(at4))
+_check("切到「使用说明」后渲染说明正文", "全流程一图看懂" in _md(at4))
 _check("「使用说明」承接了快速上手 4 步（内容没丢，只是换了地方）",
        "快速上手" in _md(at4))
 _check("使用说明页同样不出现单公司取数/行业选择器",
@@ -386,9 +386,9 @@ try:
 except OSError:
     pass
 at5 = _boot()
-_check("无记录时给出占位说明", "还没有分析记录" in _cap(at5))
+_check("无记录时给出占位说明", "暂无记录" in _cap(at5))
 _check("v10：明确声明本地持久化 2 小时（红色高亮，不再说『刷新即清空』）",
-       ("保留 2 小时" in _md(at5)) and ("刷新页面即清空" not in _md(at5)))
+       ("保留 2 小时" in _cap(at5)) and ("刷新页面即清空" not in _md(at5)))
 at5.session_state["analysis_history"] = [
     {"id": "t1", "code": "600519", "name": "贵州茅台", "industry": "消费",
      "total": 8.5, "ts": "12:00:00", "analysis": {}},
@@ -460,10 +460,11 @@ _check("v16：三个视图都不再渲染页面大标题（视图身份交给侧
        SRC.count('"单公司深度分析",') == 0
        and SRC.count('"多公司对比",\n        "2~5') == 0
        and SRC.count('"使用说明",\n        "这套工作台') == 0)
-_check("多公司对比做了页面级分段（1. 对比公司管理 / 2. 开始对比分析）",
-       'sec_head("1", "对比公司管理"' in SRC and 'sec_head("2", "开始对比分析"' in SRC)
-_check("对比页每家公司一张白卡（三列各一张，卡片边界即公司边界）",
-       'with card(f"cmp{_i}")' in SRC and "st.columns(_n_cmp)" in SRC)
+_check("Demo：公司选择、口径、结果分为三个清晰区域",
+       all(label in SRC for label in ("选择公司", "确认对比口径", "对比结果")))
+_check("Demo：公司使用稳定的两列网格与独立折叠卡片",
+       'key=f"cmp-card-{_i}"' in SRC and 'key=f"cmp-row-{_row}"' in SRC
+       and 'st.columns(2, gap="medium")' in SRC and "st.columns(_n_cmp)" not in SRC)
 _check("结果区四个页签的面板也做成卡片（CSS 补底色，不多包一层容器）",
        '.stTabs [data-baseweb="tab-panel"]' in SRC)
 _check("使用说明页卡片化（5 张分类卡：快速上手/主要能力/基准库/数据来源/技术说明）",
@@ -494,7 +495,7 @@ _check("深底文字全部显式上色且对比度写进注释（深底最怕漏
 _check("侧栏文字选择器没有通配到 span（否则选中态白底白字）",
        'section[data-testid="stSidebar"] span' not in SRC)
 _check("分析记录滚动槽有 key（深底要单独刷凹槽，1.57 没有旧 wrapper testid 可挂）",
-       'st.container(height=210, key="khist-scroll")' in SRC
+       'st.container(height=wb.history_height(len(_hist)), key="khist-scroll")' in SRC
        and '[class*="st-key-khist-scroll"]' in SRC)
 _check("card() 支持 col 参数（挂进某列 = 零缩进改动参与多栏）",
        "def card(" in SRC and "col=None" in SRC and "col.container(key=f\"kcard-{key}\")" in SRC)
@@ -549,9 +550,8 @@ _check("v16 已删除页面大标题右侧的科技徽记（.ph-deco 随 page_he
 _check("顶栏左侧用纯 CSS 六边形徽标替代 emoji（.tb-logo）",
        'class="tb-logo"' in SRC and ".tb-logo {" in SRC
        and "clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)" in SRC)
-_check("侧边栏底部加了同心圆 + 刻度环装饰（pointer-events:none，不挡点击）",
-       'class="sb-deco"' in SRC and ".sb-deco i:nth-child(2)" in SRC
-       and "pointer-events: none" in SRC)
+_check("Demo：侧栏去除额外科技装饰，保留简洁品牌",
+       'class="sb-deco"' not in SRC and 'class="wb-brandmark"' in SRC)
 _check("未取数时展示空状态插图，而不是一行 info（卡片不再空着）",
        'class="empty-art"' in SRC and 'class="ea-title"' in SRC and ".empty-art {" in SRC)
 _check("卡片编号方块改成青蓝渐变 + 外发光（不再是一块死蓝）",
@@ -945,14 +945,11 @@ _check("侧栏历史按钮悬停改纯白 + help 浮层白字（用户第 ② �
        '[data-testid="stSidebar"] button:hover p' in SRC
        and "color: #FFFFFF !important;" in SRC
        and '[data-testid="stSidebar"] [data-testid="stTooltipContent"]' in SRC)
-_check("2 小时警告改琥珀黄加粗 + 深色文字底片（用户第 ⑩ 条：红字看不清）",
-       "#FFE066" in SRC and "border-left:4px solid #FFC53D" in SRC
-       # 只查渲染字符串里的 color:#FF9D9D（源码注释里的旧色值不算）
-       and "color:#FF9D9D" not in SRC)
-# ③ 股票池 + 腾讯接口（接口在 data_source.py，单独读源）：
+_check("Demo：分析记录期限以简洁说明保留，避免重复警告",
+       "记录保留 2 小时，刷新不丢，过期自动清除" in SRC)
 _DS_SRC = open("data_source.py", encoding="utf-8").read()
-_STK_N = SRC.count('", "消费"),') + SRC.count('", "金融"),') + SRC.count('", "新能源"),') \
-    + SRC.count('", "医药"),') + SRC.count('", "互联网"),') + SRC.count('", "通用"),')
+_STK_N = sum(SRC.count(f'", "{industry}"),') for industry in
+             ("消费", "金融", "新能源", "医药", "互联网", "通用"))
 _check("股票池扩容到 100 家以上（用户第 ③ 条：公司太少）",
        _STK_N >= 100, f"stocks={_STK_N}")
 _check("接入腾讯免费行情接口（第四级兜底：东财→K线→新浪→腾讯）",
@@ -971,10 +968,9 @@ _check("多公司对比新增追问区（上下文携带全部对比公司 + 推
        'key="cmp_chat_q"' in SRC and "_cmp_answer_pending" in SRC
        and "🎯 推荐问题（按当前对比公司自动生成" in SRC)
 # ⑦ 架构图：
-_check("帮助页新增三层架构图（数据层/引擎层/展示层）",
-       "🏛️ 系统架构图" in SRC and "_arch_layer" in SRC and "_arch_box" in SRC
-       and "腾讯财经" in SRC and "逐级兜底" in SRC)
-# ⑧/12/13 多年对比与估值图：
+_check("Demo：帮助页保留三层架构与真实数据来源",
+       'aria-label="使用流程图"' in SRC and 'aria-label="系统架构图"' in SRC
+       and "_arch_layer" in SRC and "_arch_box" in SRC)
 _check("对比新增「逐年年报对比」图（想看哪一年就看哪一年）",
        "def fig_compare_years_n" in SRC and "cmp-years-rev" in SRC
        and "cmp-years-np" in SRC and '"annual": list(_annual_rows' in SRC)
@@ -1021,13 +1017,13 @@ _ns = {}
 _src = io.open(APP, encoding="utf-8").read()
 _i0 = _src.index("DEFAULT_THEME = ")
 _i1 = _src.index("# ============ 页面与登录 ============")
-exec(compile(_src[_i0:_i1], "app_theme", "exec"), {"re": __import__("re")}, _ns)
+exec(compile(_src[_i0:_i1], "app_theme", "exec"), {"re": __import__("re"), "wb": __import__("workbench_ui")}, _ns)
 _THEMES = _ns["THEMES"]
 _apply = _ns["_apply_theme_vars"]
 _BASE_RULES = _ns["_THEME_BASE_RULES"]
 
-_check("v15 提供三套可切换主题（深空蓝 / 星云紫 / 浅色雅蓝）",
-       list(_THEMES) == ["🌌 深空蓝", "🔮 星云紫", "☁️ 浅色雅蓝"],
+_check("v15 提供三套可切换主题（浅色雅蓝 / 暖白砂岩 / 淡雾紫）",
+       list(_THEMES) == ["☁️ 浅色雅蓝", "🏖️ 暖白砂岩", "🪻 淡雾紫"],
        str(list(_THEMES)))
 # 变量键必须完全一致：少一个键 → 该属性在某一主题下会继承上一主题的值（串色）
 _keysets = {frozenset(v) for v in _THEMES.values()}
@@ -1073,14 +1069,14 @@ _check("v18：每段行内 CSS 先过 _strip_style_tags（漏一个就等于又�
 # ⚠️ 上面 `_ns` 那次 exec 用的是「globals / locals 分离」写法，函数闭包捕获的是只装了
 #    re 的 globals —— 直接调 _ns["_inject_page_css"]() 会 NameError: THEMES。
 #    判和维护性都要求「能真的跑」，所以这里用同一个 dict 兼作 globals 再 exec 一次。
-_ns_css = {"re": __import__("re")}
+_ns_css = {"re": __import__("re"), "wb": __import__("workbench_ui")}
 # ⚠️ 起点必须是 CUSTOM_CSS 而不是 DEFAULT_THEME：_inject_page_css 里要用到 CUSTOM_CSS，
 #    而它定义在更靠前的位置（不在 THEMES 那一段里），少了它就 NameError。
 exec(compile(_src[_src.index("CUSTOM_CSS = "):_i1], "app_css", "exec"), _ns_css)
-_CHECKStype = type("StubST", (), {"session_state": {"ui_theme": "🌌 深空蓝"}})
+_CHECKStype = type("StubST", (), {"session_state": {"ui_theme": "🏖️ 暖白砂岩"}})
 _ns_css["st"] = _CHECKStype
 _V18BAD = []
-for _th18 in ("🌌 深空蓝", "🔮 星云紫", "☁️ 浅色雅蓝"):
+for _th18 in ("🏖️ 暖白砂岩", "🪻 淡雾紫", "☁️ 浅色雅蓝"):
     _CHECKStype.session_state = {"ui_theme": _th18}
     _h18 = _ns_css["_inject_page_css"]()
     _tail_ok = _h18.rstrip().endswith("\n</style>")
@@ -1134,19 +1130,15 @@ _check("登录页删掉「公司关系网络」「指标摘要」两块装饰面
 _check("删面板后侧列加宽（1.4 : 2 : 1.4，不再是 1.3）",
        "st.columns([1.4, 2, 1.4], gap=\"large\")" in SRC)
 
-# —— 用户点名②：问号提示（help ⓘ tooltip）黑字混蓝底 → 深底亮黄字 ——
-_check("问号提示改深底 + 亮黄字（不再黑字压蓝底看不清）",
+# Approved light palettes: tooltip contrast is checked against each actual surface.
+_check("提示气泡随主题配色，文字对比度达标且长文有宽度约束",
        '[data-testid="stTooltipContent"]' in _BASE_RULES
-       and "color: #FFE066 !important;" in _BASE_RULES
-       and _ratio("#FFE066", "#060F24") >= 4.5,
-       f"ratio={_ratio('#FFE066', '#060F24'):.1f}")
-# —— 用户点名③：井号（标题 hover 锚点）→ 黄色 ——
-# ⚠️ v15 这里写的是 stHeadingActionElements —— 该 testid 在 1.57 前端 bundle 里
-#    命中 0，黄色一直没生效。正确名字是 stHeaderActionElements（它同时包着
-#    help ⓘ 和 href="#xxx" 的锚点 a）。这条断言要连"错误名字不能出现"一起卡。
-_check("井号（标题锚点 #）改黄色 --gold（用户点名）",
+       and "color: var(--tooltip-text) !important;" in _BASE_RULES
+       and "max-width: min(340px, calc(100vw - 32px))" in _BASE_RULES
+       and all(_ratio(t["--tooltip-text"], t["--tooltip-bg"]) >= 4.5 for t in _THEMES.values()))
+_check("标题链接保持中性颜色，保留原生链接选择器",
        'data-testid="stHeaderActionElements"' in _BASE_RULES
-       and "color: var(--gold) !important;" in _BASE_RULES
+       and "color: var(--tx-dim) !important;" in _BASE_RULES
        and 'data-testid="stHeadingActionElements"' not in SRC)
 # —— 分析记录说明文字 ——
 _check("分析记录说明文字改用 --tx-cap 变量（不再写死暗蓝 #475569）",
@@ -1178,11 +1170,9 @@ for _tn in _THEMES:
 _check("运行时切主题：三套 :root 注入各不相同，且每次只注入一份（不重复叠加）",
        len(set(_ROOTS.values())) == 3 and all(_ROOTS.values()),
        str({k: len(v) for k, v in _ROOTS.items()}))
-_check("运行时：深色主题井号走亮黄 #FFD84D，浅色主题自动转深琥珀 #B45309（白底上才看得清）",
-       "--gold:#FFD84D" in _ROOTS["🌌 深空蓝"]
-       and "--gold:#FFD84D" in _ROOTS["🔮 星云紫"]
-       and "--gold:#B45309" in _ROOTS["☁️ 浅色雅蓝"])
-_check("运行时：井号黄 + 问号 tooltip 兜底确实进了页面（不是只写在源码里）",
+_check("运行时：提示色跟随主题调色板，深浅主题保持可读",
+       all(f"--gold:{_THEMES[name]['--gold']}" in root for name, root in _ROOTS.items()))
+_check("运行时：标题链接与主题 tooltip 样式确实进入页面（不是只写在源码里）",
        all("stHeaderActionElements" in v and "stTooltipContent" in v
            for v in _ROOTS.values()))
 
@@ -1221,9 +1211,9 @@ _check("v16 原生层覆盖：输入框 / 展开面板 / 定高容器 / 上传�
 _NATIVE_NC = __import__("re").sub(r"/\*.*?\*/", "", _NATIVE, flags=__import__("re").S)
 _check("原生层不用已失效的 testid（stVerticalBlockBorderWrapper 在 1.57 命中 0）",
        "stVerticalBlockBorderWrapper" not in _NATIVE_NC)
-_check("两个定高滚动容器都带了 key（否则生成不出 st-key-* 类名，CSS 点不到）",
+_check("原始数据和自适应分析记录容器都带了 key（否则生成不出 st-key-* 类名，CSS 点不到）",
        'st.container(height=220, key=f"raw-scroll-{key_prefix}")' in SRC
-       and 'st.container(height=210, key="khist-scroll")' in SRC)
+       and 'st.container(height=wb.history_height(len(_hist)), key="khist-scroll")' in SRC)
 # ⚠️ raw-scroll 的 key 必须带 key_prefix：多公司页会为每家公司各渲染一份，
 #    写死同名 key 会触发 DuplicateWidgetID，整个对比页直接崩（3 家公司必现）。
 _check("raw-scroll 的 key 带 key_prefix（多公司页 3 份同面板，写死同名 key 会崩）",
@@ -1270,20 +1260,15 @@ _check("v16 原生层对比度：on-surface / 表格正文 / 表头 压各自底
 # —— 字重随主题变（用户：「粗细那些并没有随着主题的改变而改变」）——
 # 两套深色主题共用一组字重（都是"浅字压深底"），浅色主题单独一组
 # （"深字压白底"，再粗就糊）。所以期望是 **2 组**，不是 3 组 —— 断言写成 ==3 会误报。
-_check("v16 字重随主题变（深色主题更粗 500/700/800，浅色主题 400/600/700 不糊）",
-       _THEMES["🌌 深空蓝"]["--fw-body"] == "500"
-       and _THEMES["🔮 星云紫"]["--fw-body"] == "500"
-       and _THEMES["☁️ 浅色雅蓝"]["--fw-body"] == "400"
-       and int(_THEMES["☁️ 浅色雅蓝"]["--fw-body"])
-       < int(_THEMES["🌌 深空蓝"]["--fw-body"])
-       and len({(t["--fw-body"], t["--fw-label"], t["--fw-strong"])
-                for t in _THEMES.values()}) == 2)
+_check("Demo：三套主题统一正文/标签/标题的清晰字重层级",
+       all(tuple(t[k] for k in ("--fw-body", "--fw-label", "--fw-strong"))
+           == ("400", "500", "600") for t in _THEMES.values()))
 _check("v16 展开条标题按用户要求「换色之后再加粗加深」（--fw-strong）",
        '[data-testid="stExpander"] summary' in _NATIVE
        and "font-weight: var(--fw-strong) !important;" in _NATIVE)
 # —— 运行时：原生层确实进了页面 ——
 _at_n = _boot()
-_at_n.session_state["ui_theme"] = "🔮 星云紫"
+_at_n.session_state["ui_theme"] = "🪻 淡雾紫"
 _at_n.run()
 _INJ = "".join(m.value for m in _at_n.markdown if m.value and ":root{" in m.value)
 # ⚠️ 别把 --surface 的具体色值写死在这里：v17 为了修「深主题白底白字」把
@@ -1291,7 +1276,7 @@ _INJ = "".join(m.value for m in _at_n.markdown if m.value and ":root{" in m.valu
 _check("运行时：原生层随主题进入页面（stFileUploaderDropzone / stAlertContainer 都在）",
        "stFileUploaderDropzone" in _INJ and "stAlertContainer" in _INJ
        and "--surface:" in _INJ
-       and _THEMES["🔮 星云紫"]["--surface"].replace(" ", "") in _INJ.replace(" ", ""))
+       and _THEMES["🪻 淡雾紫"]["--surface"].replace(" ", "") in _INJ.replace(" ", ""))
 
 # =====================================================================
 # v17 · 外部测试报告 B1~B10 修复固化
@@ -1329,7 +1314,7 @@ _at_l = AppTest.from_file(APP, default_timeout=240)
 _at_l.run()
 _check("B1：登录页正文里没有 CSS 泄漏", not _leak_of(_at_l), "|".join(_leak_of(_at_l)))
 _B1BAD = []
-for _th17 in ("🌌 深空蓝", "🔮 星云紫", "☁️ 浅色雅蓝"):
+for _th17 in ("🏖️ 暖白砂岩", "🪻 淡雾紫", "☁️ 浅色雅蓝"):
     _at_l.session_state["authenticated"] = True
     _at_l.session_state["main_view"] = "🏢"
     _at_l.session_state["ui_theme"] = _th17
@@ -1404,8 +1389,9 @@ _check("v17：紧凑模式不再重复渲染两套建索引按钮",
 # 根因：st.tabs **不保存选中态**，tab 内任何控件交互都会 rerun，rerun 回来的
 # tab 永远是第 1 个。改成用 st.radio 做「工作台分段」：选中值落在 session_state，
 # rerun 后仍然停在原处。
-_check("v18①：工作台不再用 st.tabs（它不保存选中态，换控件必跳回第一个页签）",
-       "st.tabs(" not in SRC)
+_check("单公司分段不变，对比页签有稳定 key，说明恢复完整纵向内容",
+       "st.tabs(" not in SRC[SRC.index("def _view_single()"):SRC.index("def _add_compare_company()")]
+       and 'key="cmp-result-tabs"' in SRC and 'key="help-tabs"' not in SRC)
 _check("v18①：工作台分段用 radio + session_state 持久化（key=__wk_tab）",
        'key="__wk_tab"' in SRC and '__wk_tab") not in _WK_TAB_LABELS' in SRC
        and 'with st.container(key="wkbody")' in SRC)

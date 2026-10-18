@@ -32,6 +32,7 @@ import pandas as pd
 from openai import OpenAI
 
 import data_source as ds
+import workbench_ui as wb
 
 # 统一预算计数（原子写入 + 分桶：llm / polish / embed）
 try:
@@ -1627,12 +1628,12 @@ THEMES = {
     },
 }
 
-# 主题兜底层：追加在变量化 CSS 末尾（只兜"没有自己颜色规则"的元素）。
-# ① 井号（标题锚点 #）→ 黄色 —— 用户点名；
-# ② 问号提示（help ⓘ tooltip）→ 深底 + 亮黄字 —— 用户点名"黑字和蓝色字体混在一起"；
-#    Tooltip 由前端 Portal 挂在 body 下，不能用 .stApp 前缀。
+THEMES = wb.workbench_themes(THEMES)
+DEFAULT_THEME = "☁️ 浅色雅蓝"
+
+# Theme-owned native headings and tooltips. Portal content must not require
+# a .stApp ancestor, because Streamlit mounts tooltip bubbles under body.
 _THEME_BASE_RULES = """
-  /* ===== v15 主题兜底层（变量驱动；追加在所有规则之后） ===== */
   .stApp p, .stApp li, .stApp td, .stApp th { color: var(--tx-body); }
   .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6 {
     color: var(--tx-strong);
@@ -1641,27 +1642,39 @@ _THEME_BASE_RULES = """
   .stApp [data-testid="stCaptionContainer"],
   .stApp [data-testid="stCaptionContainer"] p { color: var(--tx-cap) !important; }
   .stApp a { color: var(--cyan); }
-  /* 井号（标题 hover 锚点）→ 黄色
-     ⚠️ 正确的 testid 是 stHeaderActionElements —— v15 写成了 stHeadingActionElements，
-        而后者在 1.57 的前端 bundle 里根本不存在，所以黄色一直没生效（截图里井号还是灰的）。
-        该容器同时包着 help ⓘ 图标和 href="#xxx" 的锚点 a，所以 a / svg 都要点名。 */
-  [data-testid="stHeaderActionElements"],
   [data-testid="stHeaderActionElements"] a,
-  [data-testid="stHeaderActionElements"] svg {
-    color: var(--gold) !important;
-    fill: var(--gold) !important;
-    stroke: var(--gold);
-    opacity: .95;
+  [data-testid="stHeaderActionElements"] a svg {
+    color: var(--tx-dim) !important;
+    fill: none !important;
+    stroke: currentColor !important;
   }
-  /* 问号提示（help ⓘ）→ 深底亮黄字，彻底告别黑字混蓝底 */
   [data-testid="stTooltipContent"] {
-    background: rgba(6, 15, 36, .97) !important;
-    border: 1px solid rgba(255, 216, 77, .55);
-    border-radius: 10px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, .5);
+    background: var(--tooltip-bg) !important;
+    border: 1px solid var(--tooltip-border) !important;
+    border-radius: 9px;
+    box-shadow: 0 5px 18px rgba(35, 45, 65, .12) !important;
+    padding: 10px 13px !important;
+    max-width: min(340px, calc(100vw - 32px)) !important;
+    width: max-content;
+    box-sizing: border-box;
+    white-space: normal !important;
+    overflow-wrap: anywhere;
   }
   [data-testid="stTooltipContent"], [data-testid="stTooltipContent"] * {
-    color: #FFE066 !important;
+    color: var(--tooltip-text) !important;
+    -webkit-text-fill-color: var(--tooltip-text) !important;
+    font-size: 13px !important;
+    font-weight: 400 !important;
+    line-height: 1.65 !important;
+  }
+  [data-testid="stTooltipContent"] p { margin: 0; }
+  /* Native markdown subtracts its paragraph margin; with compact paragraphs
+     reset that compensation too, otherwise the last line gets clipped. */
+  [data-testid="stTooltipContent"] [data-testid="stMarkdownContainer"] { margin: 0 !important; }
+  [data-testid="stTooltipContent"] :is(b, strong) { font-weight: 600 !important; }
+  [data-testid="stTooltipContent"] a { text-decoration: underline; }
+  [data-baseweb="tooltip"], [data-baseweb="tooltip"] > div {
+    background: transparent !important; box-shadow: none !important; border-radius: 9px;
   }
   /* 字重也随主题走 —— 用户：「字体的颜色，粗细那些并没有随着主题的改变而改变」 */
   .stApp p, .stApp li, .stApp td, .stApp th { font-weight: var(--fw-body); }
@@ -2105,11 +2118,13 @@ _THEME_FLOATING_RULES = """
 [data-baseweb="popover"] [role="option"] * {
   color: var(--on-surface) !important;
   -webkit-text-fill-color: var(--on-surface) !important;
-  font-weight: var(--fw-body) !important;
+  font-size: 14px !important;
+  font-weight: 400 !important;
+  line-height: 1.45 !important;
 }
 [data-baseweb="popover"] [role="option"] > div {
   background: transparent !important;
-  border-radius: 8px;
+  border-radius: 6px;
   transition: background-color .15s ease;
 }
 [data-baseweb="popover"] [role="option"]:hover > div {
@@ -2117,14 +2132,14 @@ _THEME_FLOATING_RULES = """
 }
 /* Streamlit also marks the keyboard-active option with aria-selected. */
 [data-baseweb="popover"] [role="option"][aria-selected="true"] > div {
-  background: var(--accent-bg) !important;
-  box-shadow: inset 3px 0 0 var(--accent);
+  background: var(--accent-tint) !important;
+  box-shadow: none !important;
 }
 [data-baseweb="popover"] [role="option"][aria-selected="true"],
 [data-baseweb="popover"] [role="option"][aria-selected="true"] * {
-  color: #FFFFFF !important;
-  -webkit-text-fill-color: #FFFFFF !important;
-  font-weight: 600 !important;
+  color: var(--accent) !important;
+  -webkit-text-fill-color: var(--accent) !important;
+  font-weight: 500 !important;
 }
 [data-baseweb="popover"] [role="option"][aria-disabled="true"] {
   opacity: .5;
@@ -2257,6 +2272,7 @@ def _inject_page_css() -> str:
             + _strip_style_tags(_V18_RULES)
             + _strip_style_tags(_V19_RULES)
             + _strip_style_tags(_THEME_FLOATING_RULES)
+            + wb.styles()
         )
     # 结尾的 \n 让 </style> 独占一行：即便日后又有人往里追加内容，
     # 也不会形成「</style> 后面还跟着东西」的同款陷阱。
@@ -2272,18 +2288,12 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 # ---- v15：主题切换（侧边栏最顶部；登录前侧栏被 LOGIN_CSS 隐藏，不影响登录页）----
-# 先建控件再注入样式：radio 执行时立刻写入 session_state，紧接着的
-# _inject_page_css() 读到的就是本次选择，主题"点一下就变"，不用再刷一次。
-if "ui_theme" not in st.session_state:
-    st.session_state["ui_theme"] = DEFAULT_THEME
-with st.sidebar:
-    st.radio(
-        "🎨 界面主题",
-        list(THEMES),
-        key="ui_theme",
-        horizontal=True,
-        help="一键切换整套配色：背景、卡片、边框与文字颜色全部联动。",
-    )
+# Keep global preferences even when an earlier action requests a rerun before
+# their sidebar widgets are rendered. Otherwise Streamlit's widget cleanup can
+# reset the palette while the browser still displays the previous selection.
+_saved_theme = wb.normalize_theme(st.session_state.get("ui_theme", DEFAULT_THEME))
+st.session_state["ui_theme"] = _saved_theme if _saved_theme in THEMES else DEFAULT_THEME
+st.session_state["use_dual_model"] = st.session_state.get("use_dual_model", True)
 st.markdown(_inject_page_css(), unsafe_allow_html=True)
 
 # ---------------------------------------------------------------
@@ -3081,6 +3091,13 @@ def check_login():
 if not check_login():
     st.stop()
 
+# Keep editable comparison values across Help/Single navigation. Streamlit
+# otherwise deletes widget-owned keys when a view is temporarily not rendered.
+# Never assign button or file-uploader widget keys.
+for _saved_key in list(st.session_state):
+    if re.fullmatch(r"cmp[0-4]_(kw|pickle|name|text|ind|use_online)|cmp_(periods|auto_fetch|year_mode|base_year)", _saved_key):
+        st.session_state[_saved_key] = st.session_state[_saved_key]
+
 # ============ 工具函数 ============
 def make_client():
     # timeout=60: 单次请求 60 秒上限（流式则约束相邻 chunk 间隔），防网络抽风无限挂起
@@ -3117,7 +3134,7 @@ def log_event(action: str, ok: bool = True, dur: float = 0.0, extra: str = ""):
 #   · polish → 千问润色/审核
 #   · embed  → DashScope Embedding 批次（由 rag_engine 记账）
 # 这样三类调用各有账本，不再是"只有 DeepSeek 进预算"。
-DAILY_LIMIT = int(_get_secret("DAILY_LLM_LIMIT", "100"))
+DAILY_LIMIT = min(100, max(0, int(_get_secret("DAILY_LLM_LIMIT", "100"))))
 DAILY_POLISH_LIMIT = int(_get_secret("DAILY_POLISH_LIMIT", "200"))
 DAILY_EMBED_LIMIT = int(_get_secret("DAILY_EMBED_LIMIT", "600"))
 
@@ -3373,30 +3390,21 @@ import matplotlib.pyplot as plt
 import numpy as np
 from io import BytesIO
 
-# 亮色冷蓝白主题色板（与全站一致）
-_PAL = {
-    "purple": "#1E40AF",   # 兼容旧引用（v3 起语义为「深蓝」）
-    "blue":   "#1E40AF",   # 品牌主色：深蓝（科技投研感）
-    "gold":   "#D9A441",   # 资本金
-    "up":     "#DC2626",   # 涨
-    "down":   "#16A34A",   # 跌
-    "neutral":"#94A3B8",
-    "card":   "#FFFFFF",   # matplotlib 卡片底色（亮色版）
-    "text":   "#334155",   # matplotlib 正文色
-    "title":  "#0B1F3A",   # matplotlib 标题色
-}
+# Charts use the selected workspace palette; calculations stay in the existing renderers.
+_chart_theme = THEMES.get(st.session_state.get("ui_theme"), THEMES[DEFAULT_THEME])
+_PAL = wb.chart_palette(_chart_theme)
 
-# matplotlib 亮色全局设置（含中文字体自动探测）
+# matplotlib 基础设置（含中文字体自动探测）
 plt.rcParams.update({
     "figure.facecolor":  _PAL["card"],
     "axes.facecolor":    _PAL["card"],
-    "axes.edgecolor":    "#D6E0EC",   # 浅色边框
+    "axes.edgecolor":    _PAL["grid"],   # 浅色边框
     "axes.labelcolor":   _PAL["text"],
     "axes.titlecolor":   _PAL["title"],
     "xtick.color":       _PAL["text"],
     "ytick.color":       _PAL["text"],
     "text.color":        _PAL["text"],
-    "grid.color":        "#E2E8F0",   # 浅色网格
+    "grid.color":        _PAL["grid"],   # 浅色网格
     "grid.alpha":        0.6,
     "font.size":         10,
 })
@@ -3502,6 +3510,7 @@ def _fig_font(base_pt: float, fig_w: float, disp_w: float,
 
 
 def _fig_to_png_bytes(fig, dpi=140) -> bytes:
+    wb.polish_chart(fig, _PAL)
     buf = BytesIO()
     fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight",
                 facecolor=fig.get_facecolor())
@@ -3554,8 +3563,8 @@ def render_score_radar(scores: dict, total: float | None = None) -> bytes | None
     ax.set_yticklabels(["2", "4", "6", "8", "10"], color=_PAL["neutral"], fontsize=8)
     ax.set_xticks(angles)
     ax.set_xticklabels(items, color=_PAL["text"], fontsize=11, fontweight="bold")
-    ax.grid(color="#E2E8F0", alpha=0.7)
-    ax.spines["polar"].set_color("#D6E0EC")
+    ax.grid(color=_PAL["grid"], alpha=0.7)
+    ax.spines["polar"].set_color(_PAL["grid"])
 
     ax.plot(angles_c, vals_c, color=_PAL["purple"], linewidth=2.2, marker="o",
             markersize=7, markerfacecolor=_PAL["gold"], markeredgecolor=_PAL["purple"])
@@ -3655,7 +3664,7 @@ def render_trend_dual_axis(trend_rows: list) -> bytes | None:
     ax1.set_xticks(x)
     ax1.set_xticklabels(labels, color=_PAL["text"], fontsize=9)
     ax1.spines["top"].set_visible(False)
-    ax1.grid(axis="y", color="#E2E8F0", linewidth=0.6, alpha=0.8)
+    ax1.grid(axis="y", color=_PAL["grid"], linewidth=0.6, alpha=0.8)
     h1, l1 = ax1.get_legend_handles_labels()
     if has_rev and has_np:
         h2, l2 = ax2.get_legend_handles_labels()
@@ -3714,7 +3723,7 @@ def fig_compare_group(ma: dict, mb: dict, na: str, nb: str,
                         xytext=(0, 2), textcoords="offset points")
     ax.set_xticks(x)
     ax.set_xticklabels(labels, color=_PAL["text"], fontsize=9)
-    ax.grid(axis="y", color="#E2E8F0", linewidth=0.6, alpha=0.8)
+    ax.grid(axis="y", color=_PAL["grid"], linewidth=0.6, alpha=0.8)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.legend(frameon=False, labelcolor=_PAL["text"], fontsize=9, loc="upper right")
@@ -3745,7 +3754,7 @@ def fig_compare_dims(scores_a: dict, scores_b: dict, na: str, nb: str) -> bytes 
     ax.set_ylabel("评分（0-10）", color=_PAL["text"], fontsize=9)
     ax.set_xticks(x)
     ax.set_xticklabels(dims, color=_PAL["text"], fontsize=9)
-    ax.grid(axis="y", color="#E2E8F0", linewidth=0.6, alpha=0.8)
+    ax.grid(axis="y", color=_PAL["grid"], linewidth=0.6, alpha=0.8)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.legend(frameon=False, labelcolor=_PAL["text"], fontsize=9, loc="upper right")
@@ -3755,7 +3764,7 @@ def fig_compare_dims(scores_a: dict, scores_b: dict, na: str, nb: str) -> bytes 
 
 
 # ---- N 公司对比图表（优化清单 P1-02：至少 2 家 / 3 家 / 5 家都能画）----
-_CMP_SERIES_COLORS = ["#1E40AF", "#D9A441", "#0E7490", "#7C3AED", "#B45309"]
+_CMP_SERIES_COLORS = _PAL["series"]
 
 
 def _cmp_series_color(i: int) -> str:
@@ -3808,7 +3817,7 @@ def fig_compare_group_n(mets: list, names: list, group: list, title: str,
                         textcoords="offset points")
     ax.set_xticks(x)
     ax.set_xticklabels(labels, color=_PAL["text"], fontsize=_fig_font(9, W, disp_w))
-    ax.grid(axis="y", color="#E2E8F0", linewidth=0.6, alpha=0.8)
+    ax.grid(axis="y", color=_PAL["grid"], linewidth=0.6, alpha=0.8)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.tick_params(axis="y", labelcolor=_PAL["text"],
@@ -3862,7 +3871,7 @@ def fig_compare_dims_n(score_list: list, names: list,
     ax.set_ylabel("评分（0-10）", color=_PAL["text"], fontsize=_fig_font(9, W, disp_w))
     ax.set_xticks(x)
     ax.set_xticklabels(dims, color=_PAL["text"], fontsize=_fig_font(9, W, disp_w))
-    ax.grid(axis="y", color="#E2E8F0", linewidth=0.6, alpha=0.8)
+    ax.grid(axis="y", color=_PAL["grid"], linewidth=0.6, alpha=0.8)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.tick_params(axis="y", labelcolor=_PAL["text"], labelsize=_fig_font(9, W, disp_w))
@@ -3968,7 +3977,7 @@ def fig_compare_radar(score_list: list, names: list,
     ax.set_yticks([2, 4, 6, 8, 10])
     ax.tick_params(axis="y", labelcolor=_PAL["text"],
                    labelsize=_fig_font(7.5, W, disp_w))
-    ax.grid(color="#E2E8F0", alpha=0.8)
+    ax.grid(color=_PAL["grid"], alpha=0.8)
     # 有缺项时在标题下方补一行说明，避免留白被读成"这家在这一维得了 0 分"
     _ttl = "四维评分雷达对比（0-10 分）"
     if _incomplete:
@@ -4028,7 +4037,7 @@ def fig_compare_scale_n(mets: list, names: list,
                         textcoords="offset points")
     ax.set_xticks(x)
     ax.set_xticklabels(labels, color=_PAL["text"], fontsize=_fig_font(9, W, disp_w))
-    ax.grid(axis="y", color="#E2E8F0", linewidth=0.6, alpha=0.8)
+    ax.grid(axis="y", color=_PAL["grid"], linewidth=0.6, alpha=0.8)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.tick_params(axis="y", labelcolor=_PAL["text"],
@@ -4099,7 +4108,7 @@ def fig_compare_years_n(rows_map: dict, names: list, pipeline,
         return None
     ax.set_xticks(x)
     ax.set_xticklabels(years, color=_PAL["text"], fontsize=_fig_font(9, W, disp_w))
-    ax.grid(axis="y", color="#E2E8F0", linewidth=0.6, alpha=0.8)
+    ax.grid(axis="y", color=_PAL["grid"], linewidth=0.6, alpha=0.8)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.tick_params(axis="y", labelcolor=_PAL["text"],
@@ -4282,11 +4291,11 @@ def render_metric_donut(chart_data: list, title: str = "关键财务指标占比
     wedges, _, autotexts = ax.pie(
         sizes, labels=None, colors=colors, startangle=90,
         wedgeprops=dict(width=0.42, edgecolor=_PAL["card"], linewidth=2),
-        autopct=lambda p: f"{p:.0f}%" if p >= 8 else "",
+        autopct=lambda p: f"{p:.0f}%" if p >= 8 else "", pctdistance=0.79,
         textprops=dict(color=_PAL["text"], fontsize=10),
     )
-    for t in autotexts:
-        t.set_color(_PAL["title"])
+    for wedge, t in zip(wedges, autotexts):
+        t.set_color(wb.chart_label_color(wedge.get_facecolor()))
         t.set_fontweight("bold")
 
     # 中心写最大值
@@ -4325,8 +4334,8 @@ def render_horizontal_bar(chart_data: list) -> bytes | None:
     ax.set_xlabel("数值（亿元）", color=_PAL["neutral"], fontsize=9)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.spines["left"].set_color("#D6E0EC")
-    ax.spines["bottom"].set_color("#D6E0EC")
+    ax.spines["left"].set_color(_PAL["grid"])
+    ax.spines["bottom"].set_color(_PAL["grid"])
     ax.tick_params(axis="y", colors=_PAL["text"], labelsize=10)
     ax.tick_params(axis="x", colors=_PAL["neutral"], labelsize=9)
     for bar, v in zip(bars, vals):
@@ -4499,7 +4508,7 @@ def render_scatter_roe_growth(roe, revenue_yoy, name: str = "本公司",
     ym_t, ym_b = y_hi - (y_hi - grow_line) * 0.32, y_lo + (grow_line - y_lo) * 0.32
     ax.text(xm_r, ym_t, "明星\n高盈利·高增长", color=_PAL["up"], fontsize=9.5,
             ha="center", va="center", fontweight="bold", alpha=0.9)
-    ax.text(xm_l, ym_t, "问题\n低盈利·高增长", color="#1E40AF", fontsize=9.5,
+    ax.text(xm_l, ym_t, "问题\n低盈利·高增长", color=_PAL["blue"], fontsize=9.5,
             ha="center", va="center", fontweight="bold", alpha=0.9)
     ax.text(xm_r, ym_b, "现金牛\n高盈利·低增长", color=_PAL["gold"], fontsize=9.5,
             ha="center", va="center", fontweight="bold", alpha=0.9)
@@ -4512,7 +4521,7 @@ def render_scatter_roe_growth(roe, revenue_yoy, name: str = "本公司",
     ax.annotate(f"{name}\nROE {roe:.1f}% · 增速 {revenue_yoy:+.1f}%",
                 xy=(roe, revenue_yoy), xytext=(10, 12), textcoords="offset points",
                 color=_PAL["title"], fontsize=9.5, fontweight="bold",
-                bbox=dict(boxstyle="round,pad=0.32", fc="#F1F5F9", ec=_PAL["purple"], lw=1.0, alpha=0.95))
+                bbox=dict(boxstyle="round,pad=0.32", fc=_PAL["soft"], ec=_PAL["purple"], lw=1.0, alpha=0.95))
 
     ax.set_xlim(x_lo, x_hi)
     ax.set_ylim(y_lo, y_hi)
@@ -4522,7 +4531,7 @@ def render_scatter_roe_growth(roe, revenue_yoy, name: str = "本公司",
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     for _s in ("left", "bottom"):
-        ax.spines[_s].set_color("#D6E0EC")
+        ax.spines[_s].set_color(_PAL["grid"])
     ax.grid(linestyle=":", alpha=0.25)
     ax.set_title(f"ROE × 营收增速 · 象限定位（{industry}基准）", color=_PAL["title"],
                  fontsize=11.5, pad=10, fontweight="bold")
@@ -4764,8 +4773,8 @@ def render_year_metric_chart(rows: list, key: str, label: str, unit: str) -> byt
                     color=_PAL["text"], fontsize=9)
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
-    ax.grid(axis="y", color="#E2E8F0", linewidth=0.6, alpha=0.8)
-    ax.axhline(0, color="#CBD5E1", linewidth=0.8)
+    ax.grid(axis="y", color=_PAL["grid"], linewidth=0.6, alpha=0.8)
+    ax.axhline(0, color=_PAL["grid"], linewidth=0.8)
     ax.tick_params(axis="both", labelcolor=_PAL["text"], labelsize=9)
     ax.set_title(f"{label}（{unit}）· 年报口径", color=_PAL["title"],
                  fontsize=12, fontweight="bold", pad=10)
@@ -5294,10 +5303,9 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
     - 可从报告列表一键下载年报 PDF 并解析
     结果存入 session_state[key_prefix + "_online"], 避免与手动输入冲突。
 
-    :param compact: 紧凑模式（多公司对比页用，P1-02）。只保留「选代码 + 取数」，
-        去掉报告期数选择器、原始数据展开与年报 PDF 解析面板 ——
-        否则 3~5 家公司并列时，光取数 UI 就把页面撑得无法使用。
-        取数逻辑、防"猜代码"逻辑与完整模式**完全一致**。
+    :param compact: 多公司对比页的紧凑布局。报告期数使用顶部的统一设置；
+        原始数据与年报 PDF 解析收在明确标注的展开区，所有功能保留。
+        取数逻辑、防"猜代码"逻辑与完整模式完全一致。
     """
     # BUG-02（外部测试报告）：报错后输入框残留旧值，用户接着输入会拼接在一起
     # （自动化实测出现「999999999600000」）。失败路径置 _clear_kw 标志并 rerun，
@@ -5305,14 +5313,12 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
     # session key 会抛 StreamlitAPIException，所以必须放在函数最顶部。
     if st.session_state.pop(f"{key_prefix}_clear_kw", False):
         st.session_state[f"{key_prefix}_kw"] = ""
-    if compact:
-        st.markdown('<div class="mini-head">🌐 在线取数</div>', unsafe_allow_html=True)
-    else:
+    if not compact:
         step_head("3", "在线取数",
                   "从交易所公开披露数据自动获取（行情 · 多期财务指标 · 年报原文）",
                   tag="推荐")
     if compact:
-        c1, c3 = st.columns([3, 1])
+        c1 = st.container()
     else:
         c1, c2, c3 = st.columns([2, 1, 1])
     with c1:
@@ -5355,12 +5361,13 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
             if _c:
                 st.session_state[f"{key_prefix}_kw"] = _c
         _choice = st.selectbox(
-            "📋 热门股票（点选无需查代码）",
+            "热门股票" if compact else "📋 热门股票（点选无需查代码）",
             options=_pop_opts,
             index=0,
             key=f"{key_prefix}_pickle",
             on_change=_on_pick,
-            help="选中后立即自动获取数据；股票池外的公司用下方输入框手动输入。"
+            help=("登记对比公司，全部选齐后按自动取数开关执行。" if compact else "选中后立即自动获取数据。")
+                 + "股票池外的公司用下方输入框手动输入。"
                  + (f"当前已按行业「{_pop_ind}」过滤。" if _pop_filtered else ""),
         )
         if _pop_filtered:
@@ -5376,13 +5383,17 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
         if _code and st.session_state.get(_last_pick_key) != _choice:
             st.session_state[_kw_key] = _code
         st.session_state[_last_pick_key] = _choice
-        kw = st.text_input(
-            "股票代码或名称（可编辑；确认后点右侧 🔍 获取数据）",
+        if compact:
+            _kw_owner, c3 = st.columns([3, 1], vertical_alignment="bottom")
+        else:
+            _kw_owner = st
+        kw = _kw_owner.text_input(
+            "股票代码 / 名称" if compact else "股票代码或名称（可编辑；确认后点右侧 🔍 获取数据）",
             key=_kw_key,
             max_chars=20,   # BUG-03：A 股代码 6 位 / 简称 ≤8 字，20 字上限防超长输入撑破布局
             placeholder="例如：600519 或 贵州茅台",
         )
-    periods = 3
+    periods = int(st.session_state.get("cmp_periods", 8)) if compact else 3
     if not compact:
         with c2:
             # v11（用户阶段三第 14 条）：原来最多 8 期 ≈ 只能看到 2 个年度年报，
@@ -5398,9 +5409,10 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
                      "一律固定按「最近一个年报」口径计算，与 N 无关。",
             )
     with c3:
-        st.write("")
-        st.write("")
-        do_fetch = st.button("🔍 获取数据", use_container_width=True, key=f"{key_prefix}_fetch")
+        if not compact:
+            st.write("")
+            st.write("")
+        do_fetch = st.button("取数" if compact else "🔍 获取数据", use_container_width=True, key=f"{key_prefix}_fetch")
     # 【v19 · 用户第 4 条】「报告期数」下方那行说明文字整行删除（用户嫌文字太多显得乱）。
     # 口径说明已挪进滑块的 help 悬浮提示里，鼠标悬上去仍能看到完整解释。
 
@@ -5706,12 +5718,7 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
     elif compact:
         # 没取到数据时也要有"进度"：不然卡片下半截是空的，
         # 用户不知道这家到底取没取（v10-2 · 用户第 8a 条）。
-        st.markdown(
-            '<div class="cmp-wait"><div class="cmp-wait-t">'
-            '⏳ 尚未取数 —— 选好上方股票，再点「⚡ 一键获取全部公司数据」'
-            '</div></div>',
-            unsafe_allow_html=True,
-        )
+        st.markdown('<p class="wb-company-state">尚未取数 · 选好公司后获取数据</p>', unsafe_allow_html=True)
 
     # ------------------ 【B04】原始数据 / 年报 PDF 入口：四种状态都在 ------------------
     # 未取数 / 取数成功 / 缓存命中 / 取数失败 —— 入口一律保留，
@@ -5855,7 +5862,7 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
             _be_now = rag.backend_label() if rag is not None else ""
         except Exception:
             _be_now = ""
-        st.caption(
+        _index_hint = (
             "ℹ️ **当前尚未建立年报索引** —— 分析基于取数文本（含年报开头部分），"
             "**不含「见年报第X页」式页码引用**。点上方「⚡ 一键建立页码索引」"
             "即可自动下载解析最新年报并建库（约 40-80 秒），建好后本行会变成"
@@ -5864,6 +5871,10 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
                if _be_now else
                "⚠️ RAG 模块未加载（rag_engine 与 rag_lite 均不可用），页码引用功能不可用。")
         )
+        if compact:
+            st.caption("页码引用尚未启用 · 在「原始数据 / 年报 PDF」中建立索引", help=_index_hint)
+        else:
+            st.caption(_index_hint)
 
     pdftext = st.session_state.get(f"{key_prefix}_pdftext", "")
     return text, name, pdftext
@@ -5882,6 +5893,12 @@ _topbar_slot = st.empty()
 
 def _topbar_html() -> str:
     """按当前 session_state 生成顶栏 HTML（渲染两次：占位 + 末尾刷新）。"""
+    _view = st.session_state.get("main_view", "🏢")
+    if _view in ("⚖️", "📖"):
+        _label = "多公司对比" if _view == "⚖️" else "使用说明"
+        _login = "演示模式" if st.session_state.get("demo_mode") else "已登录"
+        return (f'<div class="topbar wb-topbar"><span class="wb-breadcrumb">工作台 / {_label}</span>'
+                f'<span class="tb-gap"></span><span class="tb-chip">{_login}</span></div>')
     # 【B02】顶栏的"当前对象"必须读**统一分析上下文**：
     # 旧实现读 single_online_name/code，切到手动材料后这两个键还留着上一只
     # 在线股票 → 顶部一直显示"贵州茅台（600519）"，而下方分析的是另一份材料。
@@ -5918,7 +5935,7 @@ def _topbar_html() -> str:
     return (
         '<div class="topbar">'
         '<span class="tb-logo">AI</span>'
-        '<span class="tb-brand">金融智能投研 <b>Agent</b></span>'
+        '<span class="tb-brand">金融智能投研</span>'
         '<span class="tb-gap"></span>'
         f'<span class="tb-obj">{_tb_obj}</span>'
         f'<span class="tb-chip">{_tb_who}</span>'
@@ -6049,6 +6066,10 @@ def _hist_save(lst: list) -> None:
         pass
 
 
+def _select_workbench_view(view: str) -> None:
+    st.session_state["main_view"] = view
+
+
 def _render_icon_menu() -> None:
     """侧边栏导航菜单（图标 + 文字）。点击切换右侧工作台视图。
 
@@ -6068,14 +6089,14 @@ def _render_icon_menu() -> None:
         _on = (_icon == _cur)
         # key 里带 on/off：key 一变就是"另一个控件"，Streamlit 不会复用旧状态
         # （按钮本来就是无状态的，这样改没有任何副作用）
-        if st.button(
+        st.button(
             f"{_icon} {_label}",
             key=f"nav_{'on' if _on else 'off'}_{_icon}",
             use_container_width=True,
             type="primary" if _on else "secondary",
-        ):
-            st.session_state["main_view"] = _icon
-            st.rerun()
+            on_click=_select_workbench_view,
+            args=(_icon,),
+        )
 
 
 def _render_history_list() -> None:
@@ -6094,23 +6115,13 @@ def _render_history_list() -> None:
         if _hist:
             st.session_state["analysis_history"] = _hist
     if not _hist:
-        st.caption("还没有分析记录。完成一次「🚀 开始结构化分析」后，这里会留下一条，可点回查看。")
-        st.markdown(
-            # v11（用户阶段三第 ⑩ 条）：深蓝侧栏上红字 #FF9D9D 实测看不清，
-            # 用户点名"换成加粗加厚的白色或黄色" → 琥珀黄 15.5px/800 + 深色文字底片。
-            '<div style="background:rgba(67,44,6,.55);border-left:4px solid #FFC53D;'
-            'border-radius:10px;padding:9px 12px;margin:6px 0;">'
-            '<div style="color:#FFE066 !important;font-size:15.5px;font-weight:800;'
-            'line-height:1.7;">⚠️ 记录保留 2 小时：刷新页面不丢；超过 2 小时自动清除。</div></div>',
-            unsafe_allow_html=True,
-        )
+        st.caption("暂无记录")
+        st.caption("完成分析后显示于此。记录保留 2 小时，刷新不丢，过期自动清除。")
         return
     st.caption(f"共 {len(_hist)} 条 · 本地保留 2 小时（刷新不丢）")
-    # 定高容器 → 记录多了这一段自己滚动，不把侧边栏撑得老长。
-    # v6 加了 key：侧栏改深蓝后，这个凹槽要单独刷成"深底半透明槽 + 浅色描边"
-    # （没有 key 就没有 `st-key-*` 类名可挂钩，样式只能靠猜 testid —— 而 1.57 已经没有
-    #  旧的 stVerticalBlockBorderWrapper 了，见 MEMORY 设计约定）。
-    with st.container(height=210, key="khist-scroll"):
+    # One or two records fit their content; longer histories keep a bounded
+    # scroll region. The stored records and restore actions stay unchanged.
+    with st.container(height=wb.history_height(len(_hist)), key="khist-scroll"):
         for _i in range(len(_hist) - 1, -1, -1):
             _h = _hist[_i]
             _on = st.session_state.get("hist_active") == _h.get("id")
@@ -6177,19 +6188,15 @@ def _render_history_list() -> None:
 
 
 with st.sidebar:
-    # 品牌头（金色描边卡片，替代裸标题）
     st.markdown(
-        '<div class="sb-brand">📊 金融智能投研 Agent'
-        '<span class="sb-sub">规则评分引擎 · RAG 按页检索 · 双模型协同</span></div>',
+        '<div class="sb-brand"><span class="wb-brandmark" aria-hidden="true">↗</span>'
+        '<span>金融智能投研</span></div>',
         unsafe_allow_html=True,
     )
 
     # ---- 工作台导航 + 分析记录（原来在主区占两列，见文件末尾的说明）----
-    st.markdown(
-        '<div class="sb-title" style="margin:10px 0 2px 2px;">🧭 工作台导航</div>',
-        unsafe_allow_html=True,
-    )
     _render_icon_menu()
+    st.markdown("---")
     _render_history_list()
     st.markdown("---")
 
@@ -6197,7 +6204,6 @@ with st.sidebar:
     st.markdown('<div class="sb-title" style="margin:12px 0 2px 2px;">🤖 双模型协同</div>', unsafe_allow_html=True)
     use_dual_model = st.toggle(
         "启用 千问 润色 + RAG",
-        value=True,
         help="DeepSeek 出分析 → 千问二次校验并润色。当用户上传了年报 PDF 时，会先做 RAG 检索以提升事实一致性。",
         key="use_dual_model",
     )
@@ -6210,7 +6216,10 @@ with st.sidebar:
         st.caption("📚 RAG 引擎已加载 · 按页检索 · Top-K=8（分析）/ 6（追问）")
     else:
         st.caption("🟡 rag_engine 模块未加载")
+    st.selectbox("界面主题", list(THEMES), key="ui_theme",
+                 help="切换背景、卡片、边框与文字的完整配色。")
     st.markdown("---")
+    st.markdown('<div class="sb-title">账号与额度</div>', unsafe_allow_html=True)
     if st.session_state.get("demo_mode"):
         st.markdown("👤 当前访问：**🎤 评委演示模式（免登录）**")
     else:
@@ -6227,24 +6236,12 @@ with st.sidebar:
             '</div></div>',
             unsafe_allow_html=True,
         )
-    # 额度：数字 + 可视化进度条（金色渐变，用满变红）
-    _used = _read_usage()
-    _ratio = min(_used / max(DAILY_LIMIT, 1), 1.0)
-    _bar_color = "linear-gradient(90deg,#E8B84B,#F5D98B)" if _ratio < 0.8 else "linear-gradient(90deg,#D9662F,#E8B84B)"
-    st.markdown(
-        f'<div class="sb-quota-head">🔋 今日剩余分析额度 <b>{max(DAILY_LIMIT - _used, 0)} / {DAILY_LIMIT}</b></div>'
-        f'<div class="sb-quota-bar"><div style="width:{_ratio * 100:.0f}%;background:{_bar_color};"></div></div>',
-        unsafe_allow_html=True,
-    )
-    # ---- 三类调用统一记账（评审 7.2）：DeepSeek / 千问润色 / Embedding 分开统计 ----
-    _p_used = _budget.read(_budget.BUCKET_POLISH)
-    _e_used = _budget.read(_budget.BUCKET_EMBED)
-    st.markdown(
-        f'<div class="sb-quota-head" style="margin-top:6px;">📊 今日用量 '
-        f'<b>润色 {_p_used}</b> / <b>向量化 {_e_used}</b> 批</div>',
-        unsafe_allow_html=True,
-    )
-    if st.button("退出登录", use_container_width=True):
+    # Refresh this slot after actions, so a completed call is reflected immediately.
+    _quota_slot = st.empty()
+    _quota_slot.markdown(wb.quota_html(_read_usage(), DAILY_LIMIT,
+        _budget.read(_budget.BUCKET_POLISH), _budget.read(_budget.BUCKET_EMBED)),
+        unsafe_allow_html=True)
+    if st.button("退出登录", key="logout", use_container_width=True):
         st.session_state["authenticated"] = False
         st.session_state["demo_mode"] = False
         st.rerun()
@@ -6253,13 +6250,6 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
 
-    # ---- v7：侧栏底部科技装饰（纯 CSS，解决"下半截一片纯深蓝太空旷"）----
-    # 三圈同心圆 + 虚线刻度环 + 一条渐变扫描线，全部 pointer-events:none，
-    # 不占布局高度（absolute 定位），也不会挡住任何控件与文字。
-    st.markdown(
-        '<div class="sb-deco" aria-hidden="true"><i></i><i></i><i></i><b></b></div>',
-        unsafe_allow_html=True,
-    )
 
 # ---- 行业财务基准库：主界面横向按钮（不再藏在侧边栏下拉框里） ----
 # ⚠️ 关键：st.radio 一旦指定 key，index 参数在第二次渲染起会被忽略，
@@ -7961,42 +7951,37 @@ def _view_single():
 # ---------------------------------------------------------------
 # 视图 2：多公司对比（2~5 家）
 # ---------------------------------------------------------------
+def _add_compare_company():
+    """A callback updates count before rendering; no second rerun or remount."""
+    import time
+    count = int(st.session_state.get("cmp_n", 2))
+    if count < 5:
+        st.session_state["cmp_n"] = count + 1
+        st.session_state["cmp_focus_request"] = (count, time.time_ns())
+
+
+def _remove_compare_company():
+    count = int(st.session_state.get("cmp_n", 2))
+    if count <= 2:
+        return
+    # Callbacks run before widgets are instantiated. Clear only the removed
+    # company's inputs and data, plus results that involved that company.
+    prefix = f"cmp{count - 1}_"
+    for key in list(st.session_state):
+        if key.startswith(prefix):
+            st.session_state.pop(key, None)
+    st.session_state["cmp_n"] = count - 1
+    for key in ("cmp_scores", "cmp_report", "cmp_messages", "_cmp_answer_pending",
+                "cmp_batch_tried", "cmp_focus_request"):
+        st.session_state.pop(key, None)
+
+
 def _view_compare():
-    # 【v16 · 用户第 ① 条】顶部大标题区整块删除（与单公司页同一处理）。
-    # 顶部直接就是「1. 对比公司管理」小节标题 + 增删按钮，少一屏空白。
-
-    # ===== 第 1 段：对比公司管理（增删公司 + 每家一张卡片）=====
-    sec_head("1", "对比公司管理",
-             "在线取数或手动输入 · 每家按各自所属行业基准评分", tag="横向对比")
-
-    # ---- 公司数量：动态增删（优化清单 P1-02）----
-    _MAX_CMP = 5
-    if "cmp_n" not in st.session_state:
-        st.session_state["cmp_n"] = 2
-    _nb1, _nb2, _nb3 = st.columns([1, 1, 5])
-    with _nb1:
-        if st.button("➕ 添加公司", key="cmp_add", use_container_width=True,
-                     disabled=st.session_state["cmp_n"] >= _MAX_CMP):
-            st.session_state["cmp_n"] += 1
-            st.rerun()
-    with _nb2:
-        if st.button("➖ 移除末位", key="cmp_del", use_container_width=True,
-                     disabled=st.session_state["cmp_n"] <= 2):
-            _drop = st.session_state["cmp_n"] - 1
-            # 【关键】移除后必须把这家公司的**数据与派生结果**一起清掉：
-            # 只改数量不清理的话，对照表/图表里会继续出现"已经删掉的那家公司"（P1-02 验收）。
-            _panel_clear(f"cmp{_drop}")
-            st.session_state["cmp_n"] = max(2, st.session_state["cmp_n"] - 1)
-            st.session_state.pop("cmp_scores", None)
-            st.session_state.pop("cmp_report", None)
-            _panel_clear(f"cmp{st.session_state['cmp_n']}")
-            st.rerun()
-    with _nb3:
-        st.caption(
-            f"当前对比 **{st.session_state['cmp_n']}** 家（2~{_MAX_CMP} 家）。"
-            "点「➕ / ➖」增删输入区域；**移除公司后对照表、图表与报告会同步更新**。"
-        )
-
+    st.markdown(wb.page_heading("多公司对比", "选择 2–5 家公司，以统一口径对比财务表现。"),
+                unsafe_allow_html=True)
+    st.session_state.setdefault("cmp_n", 2)
+    st.session_state.setdefault("cmp_auto_fetch", True)
+    st.session_state.setdefault("cmp_periods", 8)
     _n_cmp = int(st.session_state["cmp_n"])
 
     # ⚠️ 控件定义顺序：toggle / 期数选择器必须放在「一键取数」按钮**之前** ——
@@ -8016,6 +8001,7 @@ def _view_compare():
     # 才一次性把 N 家全部取回；没登记完就绝不提前跑。
     def _cmp_targets() -> list:
         return [str(st.session_state.get(f"cmp{_bi}_kw", "") or "").strip()
+                if st.session_state.get(f"cmp{_bi}_use_online", True) else ""
                 for _bi in range(_n_cmp)]
 
     def _cmp_all_filled() -> bool:
@@ -8052,15 +8038,16 @@ def _view_compare():
             st.warning(f"公司 {r[0]}：{r[3]}")
         return bool(_bf_ok)
 
-    _bf1, _bf2, _bf3 = st.columns([1, 1, 2])
+    with st.container(key="cmp-toolbar"):
+        _bf3, _bf2, _bf1 = st.columns([1.1, 2, 1.4], vertical_alignment="center")
     with _bf1:
-        if st.button("⚡ 一键获取全部公司数据", key="cmp_batch_fetch",
+        if st.button("获取全部数据", icon=":material/sync:", key="cmp_batch_fetch",
                      use_container_width=True):
             if _run_batch_fetch():
                 st.rerun()
     with _bf2:
         st.toggle(
-            "🚀 选齐后自动取数", key="cmp_auto_fetch", value=True,
+            "全部选齐后自动取数", key="cmp_auto_fetch",
             help="开启后：等**每一家**都选好/填好代码，才一次性把所有公司取回来"
                  "（不会再出现『选了公司A就立刻开跑』的情况）。"
                  "关闭后只在手动点「⚡ 一键获取全部公司数据」时取数。",
@@ -8068,19 +8055,28 @@ def _view_compare():
     with _bf3:
         # 真正的控件渲染；取值已在上方提前读入 _cmp_periods（按钮分支要用）
         st.selectbox(
-            "报告期数（作用于全部对比公司）",
+            "报告期数",
             [3, 4, 6, 8, 12, 16, 20, 24],
-            index=3, key="cmp_periods",
+            key="cmp_periods",
             help="每家公司向东方财富拉取「最近 N 个报告期」。N 越大，可参与对比的"
                  "年报年份越多（N=24 时年报口径约 6 个年度）——想比 2023 / 2024 年就调大它。",
         )
-        _filled_n = sum(1 for _t in _cmp_targets() if _t)
-        st.caption(
-            f"已选 **{_filled_n}/{_n_cmp}** 家。"
-            + ("全部选齐 —— 正在一次性取数。"
-               if _cmp_all_filled() and _cmp_auto_on else
-               "每家都选好之后会**一次性取完全部**；也可以随时点「⚡ 一键获取全部公司数据」。")
-        )
+    _filled_n = sum(bool(st.session_state.get(f"cmp{i}_kw", ""))
+                    if st.session_state.get(f"cmp{i}_use_online", True)
+                    else bool(st.session_state.get(f"cmp{i}_text", "") or st.session_state.get(f"cmp{i}_up"))
+                    for i in range(_n_cmp))
+    with st.container(key="cmp-controls"):
+        _title, _remove, _add = st.columns([3, 1, 1.1], vertical_alignment="center")
+        with _title:
+            st.markdown(f'<div class="wb-company-count"><span class="wb-number">01</span>'
+                        f'<strong>选择公司</strong><span>{_filled_n} / {_n_cmp} 已选择</span></div>',
+                        unsafe_allow_html=True)
+        with _remove:
+            st.button("移除末位", key="cmp_del", use_container_width=True,
+                      disabled=_n_cmp <= 2, on_click=_remove_compare_company)
+        with _add:
+            st.button("添加公司", icon=":material/add:", key="cmp_add", use_container_width=True,
+                      disabled=_n_cmp >= 5, on_click=_add_compare_company)
 
     # ---- 选齐后自动一次性取数（v17 · 用户第 ④ 条）----
     # 触发条件三条同时成立才跑，缺一不可：
@@ -8102,8 +8098,12 @@ def _view_compare():
         if _run_batch_fetch():
             st.rerun()
 
-    _cmp_tags = ["🅰️", "🅱️", "🅲", "🅳", "🅴"]
-    _cmp_cols = st.columns(_n_cmp)
+    # Three stable row containers, each with two columns. Adding C/D/E never
+    # changes the parent columns or identities of the cards already on screen.
+    _cmp_cols = []
+    for _row in range(3):
+        with st.container(key=f"cmp-row-{_row}"):
+            _cmp_cols.extend(st.columns(2, gap="medium"))
     _cmp_side = []          # 每家: dict(i, name, code, online, data, industry, text)
 
     def _cmp_industry_select(key: str, default_val: str) -> str:
@@ -8127,23 +8127,22 @@ def _view_compare():
         return st.selectbox("行业口径", list(INDUSTRY_KB.keys()), key=key, on_change=_onch)
 
     for _i in range(_n_cmp):
+        st.session_state.setdefault(f"cmp{_i}_name", f"公司{chr(65 + _i)}")
         with _cmp_cols[_i]:
-            # 每家一张白卡：三家公司并列时，卡片边界就是"这家 / 那家"的边界
-            with card(f"cmp{_i}"):
-                st.markdown(f'<div class="mini-head">{_cmp_tags[_i]} 公司 {chr(65 + _i)}</div>',
-                            unsafe_allow_html=True)
+            with st.expander(f"{chr(65 + _i)}　公司 {chr(65 + _i)}", expanded=_i < 2,
+                             key=f"cmp-card-{_i}"):
                 # ⚠️ 这个复选框的 key 绝不能叫 f"cmp{_i}_online"：
                 #    online_fetch_panel 内部用 `<prefix>_online` 存放"取到的摘要文本"，
                 #    同名会让布尔值把文本覆盖掉 → len(bool) 直接抛 TypeError。
-                _use_online = st.checkbox("🌐 在线自动取数", key=f"cmp{_i}_use_online", value=True)
+                _use_online = st.selectbox("数据来源", [True, False], key=f"cmp{_i}_use_online",
+                    format_func=lambda value: "在线取数" if value else "手动粘贴 / 上传")
                 _text_i = ""
                 if _use_online:
                     _ot, _on, _op = online_fetch_panel(f"cmp{_i}", compact=True)
-                    _nm = _on or st.text_input("公司名称（可选）", value=f"公司{chr(65 + _i)}",
-                                               key=f"cmp{_i}_name")
+                    _nm = _on or st.text_input("公司名称（可选）", key=f"cmp{_i}_name")
                     _data = (_ot or "").strip()
                 else:
-                    _nm = st.text_input("公司名称", value=f"公司{chr(65 + _i)}", key=f"cmp{_i}_name")
+                    _nm = st.text_input("公司名称", key=f"cmp{_i}_name")
                     _text_i = st.text_area("粘贴财报数据", height=120, key=f"cmp{_i}_text")
                     _up = st.file_uploader("或上传文件（PDF / txt / md）",
                                            type=["pdf", "txt", "md"], key=f"cmp{_i}_up")
@@ -8159,6 +8158,10 @@ def _view_compare():
                     "online": _use_online, "data": _data,
                     "industry": _ind_i, "text": _text_i,
                 })
+
+    _focus = st.session_state.get("cmp_focus_request")
+    if _focus and _focus[0] < _n_cmp:
+        st.html(wb.company_focus_script(*_focus), unsafe_allow_javascript=True)
 
     # 【统一清空】对比对象变化时清空旧对比报告与旧评分对照。
     # 指纹必须包含**数据内容**：只比公司名/代码的话，把 A 的营收从 100 亿改成 900 亿，
@@ -8217,12 +8220,14 @@ def _view_compare():
         _sets = [_years_of(_s["i"]) for _s in _cmp_side]
         _common_years = sorted([y for y in set.intersection(*_sets) if y], reverse=True)
 
+    sec_head("02", "确认对比口径")
+    _basis_box = st.container(key="cmp-basis")
     _MODE_SAME = "📅 同年份对比（默认 · 不同年度不混比）"
     _MODE_OWN = "🆚 各自最新年报（每家用自己的最新年报，期别分别标注）"
     _base_year = ""
     _year_mode = _MODE_SAME
     if _all_online and _pipeline is not None:
-        _year_mode = st.radio(
+        _year_mode = _basis_box.selectbox(
             "对比口径（年份怎么对齐）",
             [_MODE_SAME, _MODE_OWN],
             key="cmp_year_mode",
@@ -8233,14 +8238,14 @@ def _view_compare():
         )
     if _all_online and _pipeline is not None and _year_mode == _MODE_SAME:
         if _common_years:
-            _base_year = st.selectbox(
+            _base_year = _basis_box.selectbox(
                 "对比基准年份（年报口径）",
                 _common_years,
                 key="cmp_base_year",
                 help="只列出**所有公司都披露过**的年报年份，因此可以同年份对比；"
                      "切换年份后重新点「开始对比分析」即按新年份计算。",
             )
-            st.caption(
+            _basis_box.caption(
                 f"✅ 共同年报年份：{'、'.join(_common_years)}"
                 f"（默认取最近一年 **{_base_year}**）。"
                 "所有公司的对照表、差额与图表都按这一年取数 —— **不同年度不混比**。"
@@ -8250,12 +8255,18 @@ def _view_compare():
                 f"{_s['name']}：{'、'.join(sorted(_years_of(_s['i']), reverse=True)) or '无年报数据'}"
                 for _s in _cmp_side
             )
-            st.warning(
+            _basis_box.warning(
                 "⚠️ **两家公司没有共同披露的年报年份**，同年份对比做不了 ——"
                 f"各公司可用年报年份：{_avail}。"
                 "可改用上方「🆚 各自最新年报」口径继续对比（期别分别标注），"
                 "或把报告期数调大到 16~24 期后再试（年报年份覆盖更多）。"
             )
+    elif not _all_online:
+        with _basis_box:
+            _basis1, _basis2 = st.columns(2)
+            _basis1.selectbox("年报口径", ["共同年报年度（推荐）"], disabled=True)
+            _basis2.selectbox("基准年度", ["取数后选择"], disabled=True)
+            st.caption("在线取数后列出共同年度；手动材料按所提供的财报文本分析。每家公司按所属行业基准评分。")
 
     def _annual_table_txt(rows) -> str:
         """把一家公司的多年年报行压成「年份: 指标」文本，供 LLM 直接引用。
@@ -8318,8 +8329,6 @@ def _view_compare():
     _invalid = [_s["name"] for _s in _cmp_side if _s["online"] and not _s["code"]]
 
     # ===== 第 2 段：开始对比分析（校验信息 + 主按钮住同一张卡）=====
-    sec_head("2", "开始对比分析",
-             "所有公司取数完成后点击 —— 生成对照表 / 差额 / 对比图 / CSV")
     with card("cmp-run"):
         _block = False
         if _dup_codes or _dup_names:
@@ -8342,7 +8351,7 @@ def _view_compare():
                 if not _s["code"]:
                     _missing_tips.append(
                         f"- **{_s['name']}**：选了「在线取数」但**还没选股票代码** —— "
-                        "请在上方选好公司后点「🔍 获取数据」（或取消勾选改用手动粘贴）"
+                        "请在上方选好公司后点「取数」（或将数据来源切换为手动粘贴）"
                     )
                 elif not _has_data:
                     _missing_tips.append(
@@ -8483,6 +8492,15 @@ def _view_compare():
                     box.empty()
                     st.error(f"对比分析失败：{e}")
 
+    sec_head("03", "对比结果")
+    _score_tab, _chart_tab, _report_tab, _chat_tab = st.tabs(["评分对照", "图表", "对比报告", "追问"], key="cmp-result-tabs")
+    if not st.session_state.get("cmp_scores"):
+        for _tab, _message in zip((_score_tab, _chart_tab, _report_tab, _chat_tab), (
+            "完成分析后，这里显示各公司的评分对照。", "完成分析后，这里显示柱状图、雷达图与规模对比。",
+            "完成分析后，这里显示对比报告，并支持下载。", "完成分析后，可以针对本次对比继续追问。")):
+            with _tab:
+                st.markdown(f'<div class="wb-empty">{_message}</div>', unsafe_allow_html=True)
+
     # ---- 规则评分对照（程序计算，可复现；不再是"模型读几段文本自由发挥"） ----
     _cs = st.session_state.get("cmp_scores")
     if _cs and (_cs.get("items") or []):
@@ -8521,132 +8539,135 @@ def _view_compare():
         _rec["极差"] = "—"
         _rows.append(_rec)
 
-        st.markdown("##### 📐 规则引擎评分对照（程序计算 · 同一份数据永远同一分数）")
-        _cmp_df = pd.DataFrame(_rows).set_index("维度")
-        st.dataframe(_cmp_df, use_container_width=True)
+        with _score_tab:
+            st.markdown("##### 📐 规则引擎评分对照（程序计算 · 同一份数据永远同一分数）")
+            _cmp_df = pd.DataFrame(_rows).set_index("维度")
+            st.dataframe(_cmp_df, use_container_width=True)
 
-        # ---- 对比可视化（N 家；缺哪家就标 N/A，不画 0 误导）----
-        # v10：从"只有柱状图"扩成三种视角（用户第 3 条反馈）：
-        #   ① 分组柱状（百分比口径：盈利成长 / 风险偿债）
-        #   ② 雷达图（一眼看出各家强弱维度的形状差异）
-        #   ③ 规模柱状（绝对额：营收 / 净利润，百分比看不到"体量"）
-        st.markdown("##### 📊 对比可视化")
-        _mets = [it["raw"] for it in _items]
-        # 【v18 · 用户第 4 条】布局跟着公司数变：二分栏把每张图压到 ~480px 宽，
-        # 5 家公司在这么窄的地方塞 5 根柱子，再怎么调字号也读不了 ——
-        # 所以 ≥4 家一律**整行排**（页面会长一点，但每张图都有 1160px 可用宽）。
-        _vnc = 1 if len(_names) >= 4 else 2
-        _vdw = _ROW_W if _vnc == 1 else _COL_W
-        _vg = st.columns(_vnc, gap="large")
-        with _vg[0]:
-            _png = fig_compare_group_n(_mets, _names, _CMP_GROUP_PROFIT,
-                                       "盈利与成长对比（%）", disp_w=_vdw)
-            if not show_png(_png, "cmp-profit"):
-                st.caption("各公司均未取到可比的盈利类指标（%），暂不绘制。")
-        with _vg[1 % _vnc]:
-            _png = fig_compare_group_n(_mets, _names, _CMP_GROUP_RISK,
-                                       "风险与偿债对比（%）", disp_w=_vdw)
-            if not show_png(_png, "cmp-risk"):
-                st.caption("各公司均未取到可比的风险类指标（%），暂不绘制。")
-        # 评分柱状 + 雷达永远并排：两张图看的是同一份评分，摆在一起才能互相印证
-        _vd1, _vd2 = st.columns(2, gap="large")
-        with _vd1:
-            _png = fig_compare_dims_n([it["scores"]["scores"] for it in _items],
-                                      _names, disp_w=_COL_W)
+        with _chart_tab:
+            # ---- 对比可视化（N 家；缺哪家就标 N/A，不画 0 误导）----
+            # v10：从"只有柱状图"扩成三种视角（用户第 3 条反馈）：
+            #   ① 分组柱状（百分比口径：盈利成长 / 风险偿债）
+            #   ② 雷达图（一眼看出各家强弱维度的形状差异）
+            #   ③ 规模柱状（绝对额：营收 / 净利润，百分比看不到"体量"）
+            st.markdown("##### 📊 对比可视化")
+            _mets = [it["raw"] for it in _items]
+            # 【v18 · 用户第 4 条】布局跟着公司数变：二分栏把每张图压到 ~480px 宽，
+            # 5 家公司在这么窄的地方塞 5 根柱子，再怎么调字号也读不了 ——
+            # 所以 ≥4 家一律**整行排**（页面会长一点，但每张图都有 1160px 可用宽）。
+            _vnc = 1 if len(_names) >= 4 else 2
+            _vdw = _ROW_W if _vnc == 1 else _COL_W
+            _vg = st.columns(_vnc, gap="large")
+            with _vg[0]:
+                _png = fig_compare_group_n(_mets, _names, _CMP_GROUP_PROFIT,
+                                           "盈利与成长对比（%）", disp_w=_vdw)
+                if not show_png(_png, "cmp-profit"):
+                    st.caption("各公司均未取到可比的盈利类指标（%），暂不绘制。")
+            with _vg[1 % _vnc]:
+                _png = fig_compare_group_n(_mets, _names, _CMP_GROUP_RISK,
+                                           "风险与偿债对比（%）", disp_w=_vdw)
+                if not show_png(_png, "cmp-risk"):
+                    st.caption("各公司均未取到可比的风险类指标（%），暂不绘制。")
+            # 评分柱状 + 雷达永远并排：两张图看的是同一份评分，摆在一起才能互相印证
+            _vd1, _vd2 = st.columns(2, gap="large")
+            with _vd1:
+                _png = fig_compare_dims_n([it["scores"]["scores"] for it in _items],
+                                          _names, disp_w=_COL_W)
+                if _png:
+                    show_png(_png, "cmp-dims")
+            with _vd2:
+                _png = fig_compare_radar([it["scores"]["scores"] for it in _items],
+                                         _names, disp_w=_COL_W)
+                if _png:
+                    show_png(_png, "cmp-radar")
+            _png = fig_compare_scale_n(_mets, _names, disp_w=_ROW_W)
             if _png:
-                show_png(_png, "cmp-dims")
-        with _vd2:
-            _png = fig_compare_radar([it["scores"]["scores"] for it in _items],
-                                     _names, disp_w=_COL_W)
-            if _png:
-                show_png(_png, "cmp-radar")
-        _png = fig_compare_scale_n(_mets, _names, disp_w=_ROW_W)
-        if _png:
-            show_png(_png, "cmp-scale")
+                show_png(_png, "cmp-scale")
 
-        # ---- v11 新增两张（用户第 ⑧/12/13 条）----
-        # ① 逐年年报对比：想看哪一年就看哪一年，不再只有"单一基准年份"一张快照
-        _rows_map = {_idx: (it.get("annual") or []) for _idx, it in enumerate(_items)}
-        _yg = st.columns(_vnc, gap="large")
-        with _yg[0]:
-            _png = fig_compare_years_n(_rows_map, _names, _pipeline,
-                                       "revenue", "营业收入（亿元）", disp_w=_vdw)
-            if not show_png(_png, "cmp-years-rev"):
-                st.caption("各公司均未取到多年年报营收数据，暂不绘制。")
-        with _yg[1 % _vnc]:
-            _png = fig_compare_years_n(_rows_map, _names, _pipeline,
-                                       "net_profit", "归母净利润（亿元）", disp_w=_vdw)
-            if not show_png(_png, "cmp-years-np"):
-                st.caption("各公司均未取到多年年报净利润数据，暂不绘制。")
-        # ② 估值对比（PE-TTM / PB）：行情走四级兜底链（东财→K线→新浪→腾讯），
-        #    ds.get_quote 自带本地缓存，同一家公司一轮只打一次接口。
-        _val_mets = []
-        for _it in _items:
-            _q = None
-            try:
-                _q = ds.get_quote(_it.get("code") or "") if _it.get("code") else None
-            except Exception:
+            # ---- v11 新增两张（用户第 ⑧/12/13 条）----
+            # ① 逐年年报对比：想看哪一年就看哪一年，不再只有"单一基准年份"一张快照
+            _rows_map = {_idx: (it.get("annual") or []) for _idx, it in enumerate(_items)}
+            _yg = st.columns(_vnc, gap="large")
+            with _yg[0]:
+                _png = fig_compare_years_n(_rows_map, _names, _pipeline,
+                                           "revenue", "营业收入（亿元）", disp_w=_vdw)
+                if not show_png(_png, "cmp-years-rev"):
+                    st.caption("各公司均未取到多年年报营收数据，暂不绘制。")
+            with _yg[1 % _vnc]:
+                _png = fig_compare_years_n(_rows_map, _names, _pipeline,
+                                           "net_profit", "归母净利润（亿元）", disp_w=_vdw)
+                if not show_png(_png, "cmp-years-np"):
+                    st.caption("各公司均未取到多年年报净利润数据，暂不绘制。")
+            # ② 估值对比（PE-TTM / PB）：行情走四级兜底链（东财→K线→新浪→腾讯），
+            #    ds.get_quote 自带本地缓存，同一家公司一轮只打一次接口。
+            _val_mets = []
+            for _it in _items:
                 _q = None
-            _val_mets.append({"pe_ttm": (_q or {}).get("pe_ttm"),
-                              "pb": (_q or {}).get("pb")})
-        _png = fig_compare_group_n(
-            _val_mets, _names,
-            [("pe_ttm", "市盈率 PE-TTM"), ("pb", "市净率 PB")],
-            "估值对比（PE / PB · 实时行情）", disp_w=_ROW_W)
-        if _png:
-            show_png(_png, "cmp-valuation")
+                try:
+                    _q = ds.get_quote(_it.get("code") or "") if _it.get("code") else None
+                except Exception:
+                    _q = None
+                _val_mets.append({"pe_ttm": (_q or {}).get("pe_ttm"),
+                                  "pb": (_q or {}).get("pb")})
+            _png = fig_compare_group_n(
+                _val_mets, _names,
+                [("pe_ttm", "市盈率 PE-TTM"), ("pb", "市净率 PB")],
+                "估值对比（PE / PB · 实时行情）", disp_w=_ROW_W)
+            if _png:
+                show_png(_png, "cmp-valuation")
 
-        st.caption(
-            "评分基准期："
-            + "；".join(f"{it['name']} = {it['period'] or '未获取'}" for it in _items)
-            + "。总分为各维度均分；覆盖率低于 50% 时不给综合评分。"
-            + (f" 本次统一按 **{_cs.get('base_year')} 年年报**取数（口径：{_cs.get('mode')}）。"
-               if _cs.get("base_year") else f"（口径：{_cs.get('mode')}）")
-        )
-        # 报告期可比性：中期报告是"年初至今累计值"，与年报不可比，
-        # 跨期直接比大小会得出错误结论（优化清单 P1-03：不同年度不混比）。
-        _per_years = {}
-        for _it in _items:
-            _m = re.search(r"(20\d{2})", _it["period"] or "")
-            if _m:
-                _per_years[_it["name"]] = _m.group(1)
-        if len(set(_per_years.values())) > 1:
-            st.warning(
-                "⚠️ 各公司的评分基准期不在同一年（"
-                + "、".join(f"{k}:{v}" for k, v in _per_years.items())
-                + "），**不同年度的数据不可直接比大小**，请先统一到同一报告期后再比较。"
+            st.caption(
+                "评分基准期："
+                + "；".join(f"{it['name']} = {it['period'] or '未获取'}" for it in _items)
+                + "。总分为各维度均分；覆盖率低于 50% 时不给综合评分。"
+                + (f" 本次统一按 **{_cs.get('base_year')} 年年报**取数（口径：{_cs.get('mode')}）。"
+                   if _cs.get("base_year") else f"（口径：{_cs.get('mode')}）")
             )
-        if any(("半年报" in (_it["period"] or "")) or ("季" in (_it["period"] or ""))
-               for _it in _items):
-            st.caption("ℹ️ 有公司使用了中期报告口径（年初至今累计值），与年报不可直接比较。")
+            # 报告期可比性：中期报告是"年初至今累计值"，与年报不可比，
+            # 跨期直接比大小会得出错误结论（优化清单 P1-03：不同年度不混比）。
+            _per_years = {}
+            for _it in _items:
+                _m = re.search(r"(20\d{2})", _it["period"] or "")
+                if _m:
+                    _per_years[_it["name"]] = _m.group(1)
+            if len(set(_per_years.values())) > 1:
+                st.warning(
+                    "⚠️ 各公司的评分基准期不在同一年（"
+                    + "、".join(f"{k}:{v}" for k, v in _per_years.items())
+                    + "），**不同年度的数据不可直接比大小**，请先统一到同一报告期后再比较。"
+                )
+            if any(("半年报" in (_it["period"] or "")) or ("季" in (_it["period"] or ""))
+                   for _it in _items):
+                st.caption("ℹ️ 有公司使用了中期报告口径（年初至今累计值），与年报不可直接比较。")
 
-        # 对照表导出（优化清单 P1-03：支持 CSV 导出，且导出内容与页面一致）
-        st.download_button(
-            "⬇️ 导出评分对照表（CSV）",
-            data=_cmp_df.to_csv().encode("utf-8-sig"),
-            file_name=f"对比评分对照_{'_vs_'.join(_names)}.csv",
-            mime="text/csv",
-            use_container_width=False,
-        )
-        if _cs.get("cross_industry"):
-            st.warning(
-                "⚠️ 本次对比包含**多个行业**（"
-                + "、".join(f"{it['name']}：{it['industry']}" for it in _items)
-                + "），各自按本行业基准线评分 —— **分数不可直接横向比较，也不得作为排名依据**，"
-                "请结合下方文字对比与业务差异一起判断。"
+            # 对照表导出（优化清单 P1-03：支持 CSV 导出，且导出内容与页面一致）
+            _score_tab.download_button(
+                "⬇️ 导出评分对照表（CSV）",
+                data=_cmp_df.to_csv().encode("utf-8-sig"),
+                file_name=f"对比评分对照_{'_vs_'.join(_names)}.csv",
+                mime="text/csv",
+                use_container_width=False,
             )
+            if _cs.get("cross_industry"):
+                st.warning(
+                    "⚠️ 本次对比包含**多个行业**（"
+                    + "、".join(f"{it['name']}：{it['industry']}" for it in _items)
+                    + "），各自按本行业基准线评分 —— **分数不可直接横向比较，也不得作为排名依据**，"
+                    "请结合下方文字对比与业务差异一起判断。"
+                )
 
-    cmp_report = st.session_state.get("cmp_report")
-    if cmp_report:
-        st.markdown("#### 📄 对比分析结论")
-        st.markdown(cmp_report)
-        st.download_button(
-            "⬇️ 下载对比报告（Markdown）",
-            data=cmp_report,
-            file_name="多公司对比报告.md",
-            mime="text/markdown",
-            use_container_width=True,
-        )
+    with _report_tab:
+        cmp_report = st.session_state.get("cmp_report")
+        if cmp_report:
+            st.markdown("#### 📄 对比分析结论")
+            st.markdown(cmp_report)
+            st.download_button(
+                "⬇️ 下载对比报告（Markdown）",
+                data=cmp_report,
+                file_name="多公司对比报告.md",
+                mime="text/markdown",
+                use_container_width=True,
+            )
 
     # ---- 💬 对比追问（v11 · 用户第 ⑥/13 条）----
     # 之前「继续追问」只在单公司页有：对比完想追问"哪家更值得投"，
@@ -8656,129 +8677,130 @@ def _view_compare():
     if _cs_chat and (_cs_chat.get("items") or []):
         _citems = _cs_chat["items"]
         _cnames = [it["name"] for it in _citems]
-        st.markdown("##### 💬 对比追问（基于上方全部对比公司的数据继续提问）")
+        with _chat_tab:
+            st.markdown("##### 💬 对比追问（基于上方全部对比公司的数据继续提问）")
 
-        def _cmp_context() -> str:
-            """把每家公司的指标与评分压成一段可引用的上下文（与评分表同一份取值）。
-            【v12 · 用户阶段四第 ④ 条】追加「逐年年报指标」：追问"2022 年谁更强"
-            这类跨年问题，模型必须能直接拿到对应年份的数字，而不是回答"没有该年数据"。"""
-            _parts = []
-            for it in _citems:
-                _rows = [f"{k}={v}" for k, v in (it.get("raw") or {}).items()
-                         if isinstance(v, (int, float))]
-                _sc = it.get("scores") or {}
-                _at = _annual_table_txt(it.get("annual"))
-                _years = sorted({(_pipeline.year_of(r) or "") for r in (it.get("annual") or [])
-                                 if _pipeline is not None and _pipeline.year_of(r)}, reverse=True)
-                _blk = (
-                    f"【{it['name']}（{it.get('code') or '—'}）· {it.get('industry') or '—'} · "
-                    f"基准期 {it.get('period') or '—'} · 综合评分 {_sc.get('total_score', '—')}】\n"
-                    + "；".join(_rows[:24])
-                )
-                if _at:
-                    _blk += "\n【逐年年报指标（可直接引用，缺失年份不得编造）】\n" + _at
-                if _years:
-                    _blk += f"\n（可用年报年份：{'、'.join(_years)}）"
-                _parts.append(_blk)
-            return "\n\n".join(_parts)
+            def _cmp_context() -> str:
+                """把每家公司的指标与评分压成一段可引用的上下文（与评分表同一份取值）。
+                【v12 · 用户阶段四第 ④ 条】追加「逐年年报指标」：追问"2022 年谁更强"
+                这类跨年问题，模型必须能直接拿到对应年份的数字，而不是回答"没有该年数据"。"""
+                _parts = []
+                for it in _citems:
+                    _rows = [f"{k}={v}" for k, v in (it.get("raw") or {}).items()
+                             if isinstance(v, (int, float))]
+                    _sc = it.get("scores") or {}
+                    _at = _annual_table_txt(it.get("annual"))
+                    _years = sorted({(_pipeline.year_of(r) or "") for r in (it.get("annual") or [])
+                                     if _pipeline is not None and _pipeline.year_of(r)}, reverse=True)
+                    _blk = (
+                        f"【{it['name']}（{it.get('code') or '—'}）· {it.get('industry') or '—'} · "
+                        f"基准期 {it.get('period') or '—'} · 综合评分 {_sc.get('total_score', '—')}】\n"
+                        + "；".join(_rows[:24])
+                    )
+                    if _at:
+                        _blk += "\n【逐年年报指标（可直接引用，缺失年份不得编造）】\n" + _at
+                    if _years:
+                        _blk += f"\n（可用年报年份：{'、'.join(_years)}）"
+                    _parts.append(_blk)
+                return "\n\n".join(_parts)
 
-        if "cmp_messages" not in st.session_state:
-            st.session_state["cmp_messages"] = []
+            if "cmp_messages" not in st.session_state:
+                st.session_state["cmp_messages"] = []
 
-        # 1) 历史消息（问在上）
-        for _m in st.session_state["cmp_messages"]:
-            with st.chat_message(_m["role"]):
-                st.markdown(_m["content"])
+            # 1) 历史消息（问在上）
+            for _m in st.session_state["cmp_messages"]:
+                with st.chat_message(_m["role"]):
+                    st.markdown(_m["content"])
 
-        # 2) 本轮回答（答在中）
-        _cmp_pending = st.session_state.pop("_cmp_answer_pending", None)
-        if _cmp_pending:
-            with st.chat_message("assistant"):
-                box = st.empty()
-                with st.spinner("正在结合全部对比公司数据分析……"):
-                    try:
-                        _sys = system_prompt_with_kb(_citems[0].get("industry") or industry)
-                        _prompt = (
-                            "以下是本次对比的全部公司数据（系统联网取数 + 规则评分，可直接引用）：\n\n"
-                            + _cmp_context()
-                            + "\n\n请基于以上数据回答用户问题。涉及公司间比较时，"
-                              "注明每家公司使用的报告期与行业口径；数据中没有的不要编造。"
-                              "用户问某一年份（如 2022 年）时，优先引用「逐年年报指标」中"
-                              "该年的数据；该年不在可用年份里就如实说明并给出可用年份范围。"
-                        )
-                        _msgs = [{"role": "system", "content": _sys},
-                                 {"role": "user", "content": _prompt},
-                                 {"role": "assistant", "content": "好的，我已掌握全部对比公司数据，请提问。"}]
-                        _msgs.extend(st.session_state["cmp_messages"][:-1][-6:])
-                        _msgs.append({"role": "user", "content": _cmp_pending})
-                        _ans = llm_stream(_msgs, box, temperature=0.3, action="compare")
-                    except Exception as e:
-                        box.empty()
-                        st.error(f"调用失败：{e}")
-                        _ans = ""
-                if _ans:
-                    st.session_state["cmp_messages"].append(
-                        {"role": "assistant", "content": _ans})
+            # 2) 本轮回答（答在中）
+            _cmp_pending = st.session_state.pop("_cmp_answer_pending", None)
+            if _cmp_pending:
+                with st.chat_message("assistant"):
+                    box = st.empty()
+                    with st.spinner("正在结合全部对比公司数据分析……"):
+                        try:
+                            _sys = system_prompt_with_kb(_citems[0].get("industry") or industry)
+                            _prompt = (
+                                "以下是本次对比的全部公司数据（系统联网取数 + 规则评分，可直接引用）：\n\n"
+                                + _cmp_context()
+                                + "\n\n请基于以上数据回答用户问题。涉及公司间比较时，"
+                                  "注明每家公司使用的报告期与行业口径；数据中没有的不要编造。"
+                                  "用户问某一年份（如 2022 年）时，优先引用「逐年年报指标」中"
+                                  "该年的数据；该年不在可用年份里就如实说明并给出可用年份范围。"
+                            )
+                            _msgs = [{"role": "system", "content": _sys},
+                                     {"role": "user", "content": _prompt},
+                                     {"role": "assistant", "content": "好的，我已掌握全部对比公司数据，请提问。"}]
+                            _msgs.extend(st.session_state["cmp_messages"][:-1][-6:])
+                            _msgs.append({"role": "user", "content": _cmp_pending})
+                            _ans = llm_stream(_msgs, box, temperature=0.3, action="compare")
+                        except Exception as e:
+                            box.empty()
+                            st.error(f"调用失败：{e}")
+                            _ans = ""
+                    if _ans:
+                        st.session_state["cmp_messages"].append(
+                            {"role": "assistant", "content": _ans})
 
-        # 3) 推荐问题（按当前对比公司自动生成）
-        # 【v18 · 用户第 5 条】旧实现写死 _na, _nb = 前两家，选 3~5 家时推荐出来的
-        # 问题仍然只提这两家（"并没有说 5 个公司之间…"）—— 剩下几家在推荐区完全消失。
-        # 现在按**公司数**分流：2 家走两两对比口径，≥3 家一律生成覆盖**全部公司**的
-        # 横向问题（排序 / 分化 / 估值排队 / 只选一家 / 最稳与最险），
-        # 名字全部展开写出来，避免"其他几家呢"的困惑。
-        _cmp_sugs = []
-        _nv = len(_cnames)
-        if _nv >= 2:
-            _all = "、".join(_cnames)
-            if _nv == 2:
-                _na, _nb = _cnames[0], _cnames[1]
-                _cmp_sugs = [
-                    f"{_na} 和 {_nb} 哪家更值得投资？请从盈利、成长、偿债、营运四个维度比较后给出结论。",
-                    f"对比 {_na} 与 {_nb} 的营收与净利润，谁的增长质量更高？",
-                    f"{_na} 与 {_nb} 目前的估值（PE/PB）谁更便宜？结合基本面说明是否合理。",
-                    f"如果只能投资一家，你选 {_na} 还是 {_nb}？请给出理由与主要风险。",
-                    f"{_na} 相对 {_nb} 的主要优势与劣势分别是什么？",
-                    f"两家公司对比，哪个财务指标差异最大？这个差异说明什么？",
-                ]
-            else:
-                _cmp_sugs = [
-                    (f"{_all} 这 {_nv} 家公司，综合盈利、成长、偿债、营运四个维度，"
-                     f"哪家最值得投资？请给出从优到次的排序并说明 ranking 依据。"),
-                    (f"请横向对比 {_all} 的营业收入、净利润、ROE、毛利率、资产负债率，"
-                     f"指出规模体量与盈利质量分化最大的是哪几家。"),
-                    (f"把 {_all} 按估值（PE / PB）从便宜到贵排个序，"
-                     f"并逐一说明便宜的原因是基本面偏弱还是被市场错杀。"),
-                    (f"这 {_nv} 家公司里资金只能配置一家，你选谁？"
-                     f"给出核心理由、后续要盯的 2~3 个指标，以及最大的一个风险点。"),
-                    (f"{_all} 在四个维度上的分化最严重的是哪一个维度？"
-                     f"造成这种分化的经营模式差异是什么？"),
-                    (f"这 {_nv} 家里谁的成长性最好、谁的偿债压力最大？"
-                     f"请分别点名并引用具体指标数据，不要泛泛而谈。"),
-                ]
-                # ≥3 家时再加一条"评分最高 vs 最低"的捉对问题 —— 头部也常被问到，
-                # 但要基于真实评分动态取，不能又退化成"永远前两家"。
-                _ranked = sorted(
-                    (it for it in _citems
-                     if isinstance((it.get("scores") or {}).get("total_score"), (int, float))),
-                    key=lambda it: it["scores"]["total_score"], reverse=True)
-                if len(_ranked) >= 2:
-                    _hi, _lo = _ranked[0]["name"], _ranked[-1]["name"]
-                    _cmp_sugs.append(
-                        f"本次评分最高的是 {_hi}、最低的是 {_lo}，请对比这两家："
-                        f"分差主要来自哪些指标？落后的那家有没有追赶的可能？")
-        if _cmp_sugs:
-            with st.expander("🎯 推荐问题（按当前对比公司自动生成，点击即问；也可手动输入）",
-                             expanded=not st.session_state["cmp_messages"]):
-                st.caption(
-                    f"当前对比 {_nv} 家：{_all} —— 以下问题均围绕**这 {_nv} 家整体**展开。")
-                _qc = st.columns(2)
-                for _i, _sq in enumerate(_cmp_sugs[:6]):
-                    with _qc[_i % 2]:
-                        if st.button(_sq, key=f"cmp_suggest_{_i}", use_container_width=True):
-                            # 与输入框同一条入队逻辑：先 append 再 rerun（见单公司页注释）
-                            st.session_state["cmp_messages"].append({"role": "user", "content": _sq})
-                            st.session_state["_cmp_answer_pending"] = _sq
-                            st.rerun()
+            # 3) 推荐问题（按当前对比公司自动生成）
+            # 【v18 · 用户第 5 条】旧实现写死 _na, _nb = 前两家，选 3~5 家时推荐出来的
+            # 问题仍然只提这两家（"并没有说 5 个公司之间…"）—— 剩下几家在推荐区完全消失。
+            # 现在按**公司数**分流：2 家走两两对比口径，≥3 家一律生成覆盖**全部公司**的
+            # 横向问题（排序 / 分化 / 估值排队 / 只选一家 / 最稳与最险），
+            # 名字全部展开写出来，避免"其他几家呢"的困惑。
+            _cmp_sugs = []
+            _nv = len(_cnames)
+            if _nv >= 2:
+                _all = "、".join(_cnames)
+                if _nv == 2:
+                    _na, _nb = _cnames[0], _cnames[1]
+                    _cmp_sugs = [
+                        f"{_na} 和 {_nb} 哪家更值得投资？请从盈利、成长、偿债、营运四个维度比较后给出结论。",
+                        f"对比 {_na} 与 {_nb} 的营收与净利润，谁的增长质量更高？",
+                        f"{_na} 与 {_nb} 目前的估值（PE/PB）谁更便宜？结合基本面说明是否合理。",
+                        f"如果只能投资一家，你选 {_na} 还是 {_nb}？请给出理由与主要风险。",
+                        f"{_na} 相对 {_nb} 的主要优势与劣势分别是什么？",
+                        f"两家公司对比，哪个财务指标差异最大？这个差异说明什么？",
+                    ]
+                else:
+                    _cmp_sugs = [
+                        (f"{_all} 这 {_nv} 家公司，综合盈利、成长、偿债、营运四个维度，"
+                         f"哪家最值得投资？请给出从优到次的排序并说明 ranking 依据。"),
+                        (f"请横向对比 {_all} 的营业收入、净利润、ROE、毛利率、资产负债率，"
+                         f"指出规模体量与盈利质量分化最大的是哪几家。"),
+                        (f"把 {_all} 按估值（PE / PB）从便宜到贵排个序，"
+                         f"并逐一说明便宜的原因是基本面偏弱还是被市场错杀。"),
+                        (f"这 {_nv} 家公司里资金只能配置一家，你选谁？"
+                         f"给出核心理由、后续要盯的 2~3 个指标，以及最大的一个风险点。"),
+                        (f"{_all} 在四个维度上的分化最严重的是哪一个维度？"
+                         f"造成这种分化的经营模式差异是什么？"),
+                        (f"这 {_nv} 家里谁的成长性最好、谁的偿债压力最大？"
+                         f"请分别点名并引用具体指标数据，不要泛泛而谈。"),
+                    ]
+                    # ≥3 家时再加一条"评分最高 vs 最低"的捉对问题 —— 头部也常被问到，
+                    # 但要基于真实评分动态取，不能又退化成"永远前两家"。
+                    _ranked = sorted(
+                        (it for it in _citems
+                         if isinstance((it.get("scores") or {}).get("total_score"), (int, float))),
+                        key=lambda it: it["scores"]["total_score"], reverse=True)
+                    if len(_ranked) >= 2:
+                        _hi, _lo = _ranked[0]["name"], _ranked[-1]["name"]
+                        _cmp_sugs.append(
+                            f"本次评分最高的是 {_hi}、最低的是 {_lo}，请对比这两家："
+                            f"分差主要来自哪些指标？落后的那家有没有追赶的可能？")
+            if _cmp_sugs:
+                with st.expander("🎯 推荐问题（按当前对比公司自动生成，点击即问；也可手动输入）",
+                                 expanded=not st.session_state["cmp_messages"]):
+                    st.caption(
+                        f"当前对比 {_nv} 家：{_all} —— 以下问题均围绕**这 {_nv} 家整体**展开。")
+                    _qc = st.columns(2)
+                    for _i, _sq in enumerate(_cmp_sugs[:6]):
+                        with _qc[_i % 2]:
+                            if st.button(_sq, key=f"cmp_suggest_{_i}", use_container_width=True):
+                                # 与输入框同一条入队逻辑：先 append 再 rerun（见单公司页注释）
+                                st.session_state["cmp_messages"].append({"role": "user", "content": _sq})
+                                st.session_state["_cmp_answer_pending"] = _sq
+                                st.rerun()
 
         # 4) 输入框（最下）
         _cmp_q = st.chat_input("输入你想追问的问题", key="cmp_chat_q")
@@ -8808,13 +8830,13 @@ def _view_help():
                        fill: str = "#EDF3FC", stroke: str = "#1E40AF") -> str:
             """一个流程节点：圆角矩形 + 居中标题 + 可选小字副题。"""
             _cx = x + w / 2
-            _lines = [title] + ([sub] if sub else [])
+            _lines = [title] + (sub.splitlines() if sub else [])
             _tspans = ""
-            _base_y = y + (h / 2 - 6 if len(_lines) == 2 else h / 2 + 5)
+            _base_y = y + (20 if len(_lines) > 2 else h / 2 - 6 if len(_lines) == 2 else h / 2 + 5)
             for _i, _ln in enumerate(_lines):
                 _sz = 15 if _i == 0 else 11.5
                 _fill = "#0B1F3A" if _i == 0 else "#5B6B82"
-                _dy = 0 if _i == 0 else 20
+                _dy = 0 if _i == 0 else 18 + (_i - 1) * 14
                 _tspans += (f'<tspan x="{_cx}" y="{_base_y + _dy}" font-size="{_sz}" '
                             f'fill="{_fill}" font-weight="{700 if _i == 0 else 400}">'
                             f"{_ln}</tspan>")
@@ -8847,7 +8869,7 @@ def _view_help():
                ("② 在线取数", "巨潮+东财+新浪兜底", "#EDF3FC", "#1E40AF"),
                ("③ 解析年报 PDF", "按页建向量库（可选）", "#FFF7E6", "#B45309"),
                ("④ 结构化分析", "规则引擎四维评分", "#E7F6EC", "#16A34A"),
-               ("⑤ 看结果", "概览/时间轴/评分/研报/轨迹", "#EDF3FC", "#1E40AF"),
+               ("⑤ 看结果", "概览/时间轴/评分\n研报/轨迹", "#EDF3FC", "#1E40AF"),
                ("⑥ 继续追问", "自动检索原文·自动取对比", "#FFF7E6", "#B45309"),
                ("⑦ 生成研报", "Markdown 可下载", "#E7F6EC", "#16A34A")]
         _svg_row1 = ""
@@ -8867,20 +8889,24 @@ def _view_help():
             _svg_row2 += _flow_node(_x, _Y2, _NW, _NH, _tt, _ss, _ff, _cc)
             if _i < len(_c1) - 1:
                 _svg_row2 += _arrow(_x + _NW, _Y2 + _NH / 2, _x + _NW + _GAP)
-        # 虚线：从「开始对比分析」右端 → 拐向右上 → 汇入 ⑦ 底边
+        # A separate lane between the two rows avoids sharing node borders.
+        # The final arrow points UP into the report node's bottom edge.
         _c3x = _X0 + 2 * (_NW + _GAP) + _NW
         _s7x = _X0 + 6 * (_NW + _GAP) + _NW / 2
+        _lane_y = _Y1 + _NH + 30
+        _target_y = _Y1 + _NH
         _svg_row2 += (
-            f'<path d="M{_c3x} {_Y2 + _NH / 2} H{_c3x + 26} V{_Y1 + _NH} '
-            f'H{_s7x}" fill="none" stroke="#94A3B8" stroke-width="1.4" '
-            'stroke-dasharray="5 4"/>'
-            f'<path d="M{_s7x - 5} {_Y1 + _NH - 6} L{_s7x} {_Y1 + _NH + 1} '
-            f'L{_s7x + 5} {_Y1 + _NH - 6} Z" fill="#94A3B8"/>'
-            f'<text x="{_c3x + 40}" y="{_Y1 + _NH + 22}" font-size="11" '
+            f'<path class="wb-report-connector" d="M{_c3x} {_Y2 + _NH / 2} '
+            f'H{_c3x + 26} V{_lane_y} H{_s7x} V{_target_y + 8}" '
+            'fill="none" stroke="#94A3B8" stroke-width="1.4" '
+            'stroke-linejoin="round" stroke-dasharray="5 4"/>'
+            f'<path class="wb-report-arrow" d="M{_s7x - 4} {_target_y + 8} '
+            f'L{_s7x} {_target_y + 1} L{_s7x + 4} {_target_y + 8} Z" fill="#94A3B8"/>'
+            f'<text x="{_c3x + 40}" y="{_lane_y + 19}" font-size="11" '
             'fill="#64748B">对比报告同样可导出</text>'
         )
         st.markdown(
-            '<svg viewBox="0 0 1240 268" width="100%" style="min-width:720px;" '
+            '<div class="wb-help-diagram"><svg viewBox="0 0 1240 268" width="100%" style="min-width:720px;" '
             'xmlns="http://www.w3.org/2000/svg" role="img" aria-label="使用流程图">'
             '<text x="14" y="30" font-size="15" font-weight="700" fill="#0B1F3A">'
             "🏢 单公司深度分析主线</text>"
@@ -8888,7 +8914,7 @@ def _view_help():
             + '<text x="14" y="164" font-size="15" font-weight="700" fill="#0B1F3A">'
             "⚖️ 多公司对比支线</text>"
             + _svg_row2
-            + "</svg>",
+            + "</svg></div>",
             unsafe_allow_html=True,
         )
         st.caption(
@@ -8963,9 +8989,9 @@ def _view_help():
         for _i, (_ic, _tt, _ss) in enumerate(_ui):
             _A += _arch_box(40 + _i * 238, 376, 226, 62, _ic, _tt, _ss, "#16A34A")
         st.markdown(
-            '<svg viewBox="0 0 1240 470" width="100%" style="min-width:760px;" '
+            '<div class="wb-help-diagram"><svg viewBox="0 0 1240 470" width="100%" style="min-width:760px;" '
             'xmlns="http://www.w3.org/2000/svg" role="img" aria-label="系统架构图">'
-            + _A + "</svg>",
+            + _A + "</svg></div>",
             unsafe_allow_html=True,
         )
         st.caption(
@@ -9065,6 +9091,9 @@ else:
 # 在这里按**最新**状态重画顶栏（st.empty() 覆盖写入，位置仍在页面最上方），
 # 消除"取数成功后顶栏还显示『尚未选择 / 页码引用未启用』"的滞后。
 _topbar_slot.markdown(_topbar_html(), unsafe_allow_html=True)
+_quota_slot.markdown(wb.quota_html(_read_usage(), DAILY_LIMIT,
+    _budget.read(_budget.BUCKET_POLISH), _budget.read(_budget.BUCKET_EMBED)),
+    unsafe_allow_html=True)
 
 st.divider()
 # 【v19 · 用户第 7 条】登录后的页脚免责声明删除：用户在登录页已看过一次

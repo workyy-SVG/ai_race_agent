@@ -1,0 +1,299 @@
+/* Approved demo: quiet chrome, two-column company cards, theme-owned surfaces. */
+.stApp { background: var(--page-bg) !important; color-scheme: var(--color-scheme); }
+.stApp .block-container { max-width: 1440px; padding: 2rem 2.5rem 5rem; }
+.stApp [data-testid="stVerticalBlock"] { gap: 1rem; }
+.stApp [data-testid="stMarkdownContainer"] p { line-height: 1.65; }
+.stApp .stButton > button, .stApp [data-testid="stDownloadButton"] > button {
+  border-radius: 9px !important; box-shadow: none !important; min-height: 42px;
+  font-weight: 500 !important; transition: background-color .15s ease, border-color .15s ease;
+}
+.stApp .stButton > button p { font-weight: 500 !important; }
+:is(.stMain, [data-testid="stMain"]) .stButton > button[data-testid="stBaseButton-primary"],
+:is(.stMain, [data-testid="stMain"]) .stButton > button[data-testid="stBaseButton-primary"] * {
+  background: var(--accent-bg) !important; color: #FFFFFF !important;
+  border-color: var(--accent-bg) !important;
+}
+:is(.stMain, [data-testid="stMain"]) .stButton > button:disabled { opacity: .5; }
+.stApp [data-testid="stWidgetLabel"] p { font-size: 14px !important; font-weight: 500 !important; }
+.stApp [data-baseweb="select"] > div,
+.stApp [data-baseweb="select"] :is(input, span, div) {
+  font-size: 14px !important;
+  font-weight: 400 !important;
+}
+.stApp [data-baseweb="select"]:focus-within > div {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 2px var(--accent-tint);
+}
+/* Streamlit 1.57 renders both switches and checkboxes under stCheckbox. */
+.stApp [data-testid="stCheckbox"] label[data-baseweb="checkbox"] > div:first-child {
+  background-color: var(--brd) !important; border-color: var(--brd) !important;
+}
+.stApp [data-testid="stCheckbox"] label[data-baseweb="checkbox"]:has(input:checked) > div:first-child {
+  background-color: var(--accent-bg) !important; border-color: var(--accent-bg) !important;
+}
+.stApp [data-testid="stCheckbox"] label[data-baseweb="checkbox"] > div:first-child > div {
+  background-color: #FFFFFF !important;
+}
+.stApp [data-testid="stCheckbox"] label[data-baseweb="checkbox"]:has(input:focus-visible) > div:first-child {
+  outline: 2px solid var(--accent); outline-offset: 3px;
+}
+.stApp [data-testid="stCheckbox"] label[data-baseweb="checkbox"]:has(input:disabled) > div:first-child { opacity: .5; }
+.stApp [role="radiogroup"] label[data-baseweb="radio"]:has(input:checked) > div:first-child {
+  background: rgba(255, 255, 255, .22) !important;
+}
+.stApp [role="radiogroup"] label[data-baseweb="radio"]:has(input:checked) > div:first-child > div {
+  background: #FFFFFF !important;
+}
+.stApp button[aria-label^="Help"],
+.stApp button[aria-label^="Help"] svg,
+.stApp [data-testid="stTooltipIcon"] svg {
+  color: var(--tx-dim) !important;
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 1.7;
+}
+section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] button,
+section[data-testid="stSidebar"] [data-testid="stSidebarCollapseButton"] span {
+  color: var(--side-muted) !important;
+  -webkit-text-fill-color: var(--side-muted) !important;
+}
+.stApp [class*="st-key-kcard-"] {
+  background: var(--bg-card) !important; border: 1px solid var(--brd) !important;
+  border-radius: 14px !important; box-shadow: none !important; padding: 22px !important;
+  margin: 0 0 8px !important;
+}
+.stApp .step-head { gap: 10px; padding-bottom: 14px; margin-bottom: 8px; }
+.stApp .sh-title { font-size: 19px; font-weight: 600; }
+.stApp .sh-note { font-size: 13px; color: var(--tx-dim); }
+.stApp .step-head .sh-num { background: var(--bg-tint); color: var(--accent) !important; -webkit-text-fill-color: var(--accent) !important; box-shadow: none; border-radius: 7px; }
+.stApp .sec-head { border: 0; padding: 0; margin: 20px 0 12px; gap: 12px; }
+.stApp .sec-num { font-size: 14px; color: var(--accent); }
+.stApp .sec-title { font-size: 19px; font-weight: 600; }
+.stApp .sec-note { color: var(--tx-dim); font-size: 13px; }
+.stApp .wb-heading { margin: 10px 0 14px; }
+.stApp .wb-heading h1 { font-size: 30px; font-weight: 650; padding: 0 0 8px; letter-spacing: -.7px; }
+.stApp .wb-heading p { font-size: 15px; color: var(--tx-dim); margin: 0; }
+.stApp .topbar.wb-topbar { background: transparent; padding: 0; border: 0; border-radius: 0; box-shadow: none; margin-bottom: 22px; gap: 12px; }
+.stApp .wb-breadcrumb { color: var(--tx-dim); font-size: 14px; }
+.stApp .wb-topbar .tb-chip { background: transparent; border: 0; color: var(--tx-dim); font-size: 13px; font-weight: 400; }
+.stApp .topbar .tb-brand { font-size: 17px; }
+.stApp [data-testid="stExpander"] summary,
+.stApp [data-testid="stExpander"] summary * { font-weight: 500 !important; }
+.stApp [data-testid="stExpander"] details { border-color: var(--brd); border-radius: 11px; }
+.stApp .st-key-cmp-toolbar { background: var(--bg-card); border: 1px solid var(--brd); border-radius: 12px; padding: 16px 20px; }
+.stApp .st-key-cmp-toolbar [data-testid="stHorizontalBlock"] { align-items: center; }
+.stApp .st-key-cmp-controls [data-testid="stHorizontalBlock"] { align-items: center; gap: 12px; }
+.stApp .wb-company-count { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; min-height: 42px; }
+.stApp .wb-company-count strong { font-size: 18px; color: var(--tx-strong); font-weight: 600; }
+.stApp .wb-company-count span { color: var(--tx-dim); font-size: 13px; font-variant-numeric: tabular-nums; }
+.stApp .wb-company-count .wb-number { color: var(--accent); font-size: 13px; font-weight: 600; }
+.stApp [class*="st-key-cmp-row-"] > [data-testid="stHorizontalBlock"] { gap: 20px; align-items: flex-start; }
+.stApp [class*="st-key-cmp-row-"]:not(:has([data-testid="stExpander"])) { display: none; }
+.stApp :is([class*="st-key-cmp-card-"], [class*="st-key-cmp-card-"] > [data-testid="stExpander"]) > details { background: var(--bg-card) !important; border: 1px solid var(--brd); border-radius: 12px; overflow: hidden; }
+.stApp :is([class*="st-key-cmp-card-"], [class*="st-key-cmp-card-"] > [data-testid="stExpander"]) > details > summary,
+.stApp :is([class*="st-key-cmp-card-"], [class*="st-key-cmp-card-"] > [data-testid="stExpander"]) > details[open] > summary { background: var(--bg-card) !important; padding: 17px 20px; min-height: 64px; }
+.stApp :is([class*="st-key-cmp-card-"], [class*="st-key-cmp-card-"] > [data-testid="stExpander"]) > details > summary:hover { background: var(--bg-soft) !important; }
+.stApp :is([class*="st-key-cmp-card-"], [class*="st-key-cmp-card-"] > [data-testid="stExpander"]) > details > summary p { font-size: 17px !important; font-weight: 600 !important; }
+.stApp :is([class*="st-key-cmp-card-"], [class*="st-key-cmp-card-"] > [data-testid="stExpander"]) > details > [data-testid="stExpanderDetails"] { background: var(--bg-card) !important; padding: 10px 20px 20px; }
+.stApp [class*="st-key-cmp-card-"] .mini-head { display: none; }
+.stApp [class*="st-key-cmp-card-"] .stButton > button { white-space: nowrap; }
+.stApp [class*="st-key-cmp-card-"] .wb-company-state { color: var(--tx-dim); font-size: 13px; margin-bottom: 3px; }
+.stApp :is([class*="st-key-cmp-card-"].wb-company-added, [class*="st-key-cmp-card-"].wb-company-added > [data-testid="stExpander"]) > details { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
+.stApp :is([class*="st-key-cmp-card-"].wb-company-added, [class*="st-key-cmp-card-"].wb-company-added > [data-testid="stExpander"]) > details > summary { background: var(--bg-tint) !important; }
+.stApp .wb-added-badge { margin-left: auto; color: var(--accent) !important; font-size: 12px !important; white-space: nowrap; padding-left: 8px; }
+.stApp [data-testid="stElementContainer"]:has([data-testid="stHtml"] script):not(:has([data-testid="stHtml"] :not(script))) { display: none; }
+.stApp .st-key-cmp-basis { padding: 18px 20px; border: 1px solid var(--brd); border-radius: 12px; background: var(--bg-card); }
+.stApp .st-key-kcard-cmp-run { padding: 16px 20px !important; }
+.stApp .stTabs [data-baseweb="tab-list"] { gap: 8px; background: transparent; border-bottom: 1px solid var(--brd); }
+.stApp .stTabs button[role="tab"] {
+  color: var(--tx-body) !important; background: var(--bg-card) !important;
+  border: 1px solid var(--brd) !important; border-radius: 9px 9px 0 0;
+  padding: 9px 18px; min-height: 43px; font-weight: 500 !important;
+}
+.stApp .stTabs button[role="tab"] :is(p, span, div) {
+  color: inherit !important; -webkit-text-fill-color: currentColor !important;
+  font-size: 14px !important; font-weight: 500 !important;
+}
+.stApp .stTabs button[role="tab"]:hover { background: var(--bg-tint) !important; color: var(--accent) !important; }
+.stApp .stTabs button[role="tab"][aria-selected="true"] {
+  color: #FFFFFF !important; background: var(--accent-bg) !important; border-color: var(--accent-bg) !important;
+}
+.stApp .stTabs button[role="tab"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.stApp .stTabs button[role="tab"][aria-selected="true"]:focus-visible { outline-color: #FFFFFF; }
+.stApp .stTabs [data-baseweb="tab-highlight"] { background: var(--accent-bg); }
+.stApp .stTabs [data-baseweb="tab-panel"] { background: var(--bg-card); border-color: var(--brd); box-shadow: none; }
+.stApp .wb-empty { padding: 30px 0; color: var(--tx-dim); font-size: 14px; }
+
+/* Sidebar follows the active palette while staying one tone deeper than the workspace. */
+section[data-testid="stSidebar"] {
+  --tx-strong: var(--side-text); --tx-body: var(--side-text); --tx-soft: var(--side-text);
+  --tx-dim: var(--side-muted); --tx-cap: var(--side-muted);
+  --surface: var(--side-panel); --on-surface: var(--side-text); --brd: var(--side-line);
+  --bg-card: var(--side-panel); --bg-soft: var(--side-panel);
+  --bg-tint: var(--side-active); --accent: var(--side-accent);
+  --cyan: var(--side-accent);
+  background: var(--grad-side) !important; color: var(--side-text) !important; color-scheme: light;
+  border-right: 1px solid var(--side-line) !important; box-shadow: none !important;
+}
+/* Streamlit collapses via max-width:0. A permanent min-width overrides that
+   and leaves an invisible sidebar occupying space in the flex layout. */
+section[data-testid="stSidebar"][aria-expanded="true"] { min-width: min(248px, 85vw); }
+section[data-testid="stSidebar"][aria-expanded="false"] {
+  min-width: 0 !important; max-width: 0 !important; width: 0 !important;
+  border-right: 0 !important;
+}
+.stApp :is(.stMain, [data-testid="stMain"]) { min-width: 0; }
+.stApp:has([data-testid="stSidebar"][aria-expanded="false"]) :is([data-testid="stMainBlockContainer"], [data-testid="stBottomBlockContainer"]) {
+  max-width: none;
+}
+.stApp:has([data-testid="stSidebar"][aria-expanded="false"]) [data-testid="stMainBlockContainer"] {
+  padding-top: 4rem;
+}
+/* The native reopen button is INSIDE stToolbar in Streamlit 1.57.
+   Restore its parent only when needed; keep the existing product chrome quiet. */
+header[data-testid="stHeader"] [data-testid="stToolbar"]:has([data-testid="stExpandSidebarButton"]) {
+  display: flex !important; background: transparent !important; pointer-events: none;
+}
+header[data-testid="stHeader"] [data-testid="stToolbar"] button:not([data-testid="stExpandSidebarButton"]) { display: none !important; }
+header[data-testid="stHeader"] [data-testid="stExpandSidebarButton"] {
+  pointer-events: auto; color: var(--tx-strong) !important;
+  background: var(--bg-card) !important; border: 1px solid var(--brd) !important;
+  border-radius: 9px; padding: 8px 12px; gap: 6px;
+}
+header[data-testid="stHeader"] [data-testid="stExpandSidebarButton"] span {
+  color: var(--tx-strong) !important; -webkit-text-fill-color: var(--tx-strong) !important;
+}
+header[data-testid="stHeader"] [data-testid="stExpandSidebarButton"]::after {
+  content: "展开菜单"; font-size: 13px; font-weight: 500;
+}
+header[data-testid="stHeader"] [data-testid="stExpandSidebarButton"]:hover { border-color: var(--accent) !important; }
+header[data-testid="stHeader"] [data-testid="stExpandSidebarButton"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+section[data-testid="stSidebar"] [data-testid="stSidebarContent"] { background: transparent; }
+section[data-testid="stSidebar"] [data-testid="stSidebarUserContent"] { padding: 12px 18px 24px; }
+section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] { gap: 12px; }
+section[data-testid="stSidebar"] .sb-brand { background: transparent !important; border: 0 !important; padding: 0 4px 22px !important; margin: 0; box-shadow: none; color: var(--side-text) !important; display: flex; align-items: center; gap: 10px; font-size: 17px !important; font-weight: 600; }
+section[data-testid="stSidebar"] .wb-brandmark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: var(--accent-bg); color: #FFFFFF; font-size: 19px; }
+section[data-testid="stSidebar"] .sb-title,
+section[data-testid="stSidebar"] .hist-head { color: var(--side-text) !important; font-size: 14px !important; font-weight: 600 !important; margin: 0 0 4px; }
+section[data-testid="stSidebar"] p,
+section[data-testid="stSidebar"] [data-testid="stWidgetLabel"] p { color: var(--side-text) !important; font-size: 13px !important; font-weight: 400 !important; }
+section[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] p,
+section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] * { color: var(--side-muted) !important; font-size: 12px !important; font-weight: 400 !important; }
+section[data-testid="stSidebar"] [class*="st-key-nav_"] button,
+section[data-testid="stSidebar"] [class*="st-key-nav_"] button * { background: transparent !important; border: 0 !important; color: var(--side-muted) !important; font-size: 14px !important; font-weight: 500 !important; text-align: left; }
+section[data-testid="stSidebar"] [class*="st-key-nav_"] button { justify-content: flex-start; padding: 12px 14px !important; min-height: 46px; }
+section[data-testid="stSidebar"] [class*="st-key-nav_on_"] button { background: var(--side-active) !important; box-shadow: inset 3px 0 0 var(--side-accent) !important; }
+section[data-testid="stSidebar"] [class*="st-key-nav_on_"] button * { color: var(--side-accent) !important; font-weight: 600 !important; }
+section[data-testid="stSidebar"] [class*="st-key-nav_off_"] button:hover { background: var(--side-panel) !important; }
+section[data-testid="stSidebar"] [data-baseweb="select"] *,
+section[data-testid="stSidebar"] [data-baseweb="select"] > div { color: var(--side-text) !important; -webkit-text-fill-color: var(--side-text) !important; font-weight: 400 !important; font-size: 14px !important; }
+section[data-testid="stSidebar"] [data-baseweb="select"] > div { background: var(--side-panel) !important; border-color: var(--side-line) !important; }
+section[data-testid="stSidebar"] hr { border-color: var(--side-line); margin: 14px 0; }
+section[data-testid="stSidebar"] .wb-quota { color: var(--side-muted); font-size: 12px; }
+section[data-testid="stSidebar"] .wb-quota-value { margin: 4px 0 10px; font-variant-numeric: tabular-nums; }
+section[data-testid="stSidebar"] .wb-quota-value strong { color: var(--side-text); font-size: 28px; font-weight: 600; }
+section[data-testid="stSidebar"] .wb-quota-track { height: 6px; background: var(--side-line); border-radius: 4px; overflow: hidden; margin-bottom: 8px; }
+section[data-testid="stSidebar"] .wb-quota-track > div { height: 100%; background: var(--side-accent); border-radius: inherit; }
+section[data-testid="stSidebar"] .wb-quota dl { margin: 18px 0 8px; }
+section[data-testid="stSidebar"] .wb-quota dl > div { display: flex; justify-content: space-between; margin-top: 8px; }
+section[data-testid="stSidebar"] .wb-quota dd { margin: 0; color: var(--side-text); }
+section[data-testid="stSidebar"] .st-key-logout button { background: var(--side-panel) !important; border: 1px solid var(--side-line) !important; }
+section[data-testid="stSidebar"] .st-key-logout button * { color: var(--side-text) !important; font-size: 13px !important; font-weight: 400 !important; }
+section[data-testid="stSidebar"] .footer-note { color: var(--side-muted) !important; font-size: 11px !important; }
+@media (max-width: 900px) {
+  .stApp .block-container { padding: 1.5rem 1.25rem 5rem; }
+  .stApp :is([class*="st-key-cmp-card-"], [class*="st-key-cmp-card-"] > [data-testid="stExpander"]) > details > summary { padding: 14px; }
+  .stApp :is([class*="st-key-cmp-card-"], [class*="st-key-cmp-card-"] > [data-testid="stExpander"]) > details > [data-testid="stExpanderDetails"] { padding: 8px 14px 16px; }
+}
+@media (max-width: 680px) {
+  .stApp [class*="st-key-cmp-row-"] > [data-testid="stHorizontalBlock"] { flex-direction: column; }
+  .stApp [class*="st-key-cmp-row-"] > [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] { width: 100% !important; flex: 1 1 100% !important; }
+  .stApp .wb-heading h1 { font-size: 25px; }
+  .stApp .st-key-cmp-controls [data-testid="stHorizontalBlock"] { flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stApp .stButton > button { transition: none; }
+}
+
+/* Override inherited text-fill rules as well as color in native summaries. */
+.stApp [data-testid="stExpander"] summary .wb-added-badge {
+  color: var(--accent) !important; -webkit-text-fill-color: var(--accent) !important;
+  font-size: 12px !important;
+}
+.stApp [data-testid="stCaptionContainer"],
+.stApp [data-testid="stCaptionContainer"] * {
+  color: var(--tx-dim) !important;
+  -webkit-text-fill-color: var(--tx-dim) !important;
+  opacity: 1 !important;
+}
+section[data-testid="stSidebar"] [data-testid="stCaptionContainer"],
+section[data-testid="stSidebar"] [data-testid="stCaptionContainer"] * {
+  color: var(--side-muted) !important;
+  -webkit-text-fill-color: var(--side-muted) !important;
+}
+section[data-testid="stSidebar"] .hist-head { border-top: 0; padding-top: 0; }
+section[data-testid="stSidebar"] [class*="st-key-nav_"] button > div { width: 100%; text-align: left; }
+section[data-testid="stSidebar"] .sb-brand * { color: var(--side-text) !important; }
+section[data-testid="stSidebar"] .sb-brand .wb-brandmark { color: #FFFFFF !important; }
+section[data-testid="stSidebar"] [class*="st-key-khist-scroll"] {
+  padding: 10px; background: var(--side-panel) !important;
+  border: 1px solid var(--side-line) !important; border-radius: 10px;
+}
+section[data-testid="stSidebar"] [class*="st-key-khist-scroll"] button {
+  background: var(--bg-card) !important; color: var(--side-text) !important;
+  border: 1px solid var(--side-line) !important; min-height: 38px;
+}
+section[data-testid="stSidebar"] [class*="st-key-khist-scroll"] button:hover { background: var(--side-active) !important; }
+section[data-testid="stSidebar"] [class*="st-key-khist-scroll"] button p {
+  color: var(--side-text) !important; -webkit-text-fill-color: var(--side-text) !important;
+}
+
+/* Native headings retain anchors, with a quiet hover/focus affordance. */
+.stApp :is(h3, h4, h5, h6) {
+  color: var(--tx-strong) !important; border: 0 !important; padding: 0 !important;
+  margin: 12px 0 8px !important; line-height: 1.4 !important;
+  letter-spacing: 0 !important; font-weight: 600 !important;
+}
+.stApp h3 { font-size: 20px !important; }
+.stApp h4 { font-size: 18px !important; }
+.stApp :is(h5, h6) { font-size: 16px !important; }
+.stApp [data-testid="stHeaderActionElements"] a { opacity: 0; transition: opacity .12s ease; }
+.stApp :is(h1, h2, h3, h4, h5, h6):hover [data-testid="stHeaderActionElements"] a,
+.stApp [data-testid="stHeaderActionElements"]:focus-within a { opacity: 1; }
+.stApp [data-testid="stHeaderActionElements"] a:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
+
+/* Preserve the native help control/semantics; only its visual treatment changes. */
+.stApp button[aria-label^="Help"],
+.stApp [data-testid="stTooltipIcon"] {
+  color: var(--tx-dim) !important; border-radius: 50%; background: transparent;
+}
+.stApp button[aria-label^="Help"] { box-shadow: none !important; }
+.stApp button[aria-label^="Help"]:is(:hover, :focus-visible),
+.stApp button[aria-label^="Help"]:is(:hover, :focus-visible) svg,
+.stApp [data-testid="stTooltipIcon"]:is(:hover, :focus-within),
+.stApp [data-testid="stTooltipIcon"]:is(:hover, :focus-within) svg {
+  color: var(--accent) !important;
+}
+.stApp button[aria-label^="Help"]:focus-visible,
+.stApp [data-testid="stTooltipIcon"]:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/* Keep the original connected diagrams and their semantic color groups.
+   Small screens scroll inside the diagram instead of shrinking its labels. */
+.wb-help-diagram { overflow-x: auto; padding: 4px 0 12px; }
+.wb-help-diagram svg { display: block; }
+.wb-help-diagram :is(text, tspan)[fill="#0B1F3A"] { fill: var(--tx-strong); }
+.wb-help-diagram :is(text, tspan)[fill="#5B6B82"],
+.wb-help-diagram :is(text, tspan)[fill="#64748B"] { fill: var(--tx-dim); }
+.wb-help-diagram rect[fill="#FFFFFF"] { fill: var(--bg-card); }
+.wb-help-diagram rect:is([fill="#EDF3FC"], [fill="#F0F6FF"]) { fill: var(--diagram-blue-bg); }
+.wb-help-diagram rect:is([fill="#F3E8FD"], [fill="#F7F2FE"]) { fill: var(--diagram-purple-bg); }
+.wb-help-diagram rect:is([fill="#E7F6EC"], [fill="#F0FBF4"]) { fill: var(--diagram-green-bg); }
+.wb-help-diagram rect[fill="#FFF7E6"] { fill: var(--diagram-orange-bg); }
+.wb-help-diagram :is([fill="#2563EB"], [fill="#1E40AF"]) { fill: var(--diagram-blue); }
+.wb-help-diagram :is([stroke="#2563EB"], [stroke="#1E40AF"]) { stroke: var(--diagram-blue); }
+.wb-help-diagram [fill="#7C3AED"] { fill: var(--diagram-purple); }
+.wb-help-diagram [stroke="#7C3AED"] { stroke: var(--diagram-purple); }
+.wb-help-diagram [fill="#16A34A"] { fill: var(--diagram-green); }
+.wb-help-diagram [stroke="#16A34A"] { stroke: var(--diagram-green); }
+.wb-help-diagram [stroke="#B45309"] { stroke: var(--diagram-orange); }
