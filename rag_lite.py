@@ -47,6 +47,7 @@ from typing import Any, Dict, List, Optional
 from pypdf import PdfReader
 
 logger = logging.getLogger(__name__)
+CHUNK_VERSION = "lite-bm25-v1"
 
 # ⚠️ 不要在模块导入期 mkdir：受限环境（只读目录 / 沙箱 / 权限不足）会让
 # `import rag_lite` 直接抛 FileNotFoundError，进而把整个 RAG 链路拖垮
@@ -330,6 +331,7 @@ def retrieve(
     top_k: int = TOP_K,
     doc_tag: str = "",
     min_score: float = MIN_SCORE,
+    strict_errors: bool = False,
     **_ignored,
 ) -> List[Dict[str, Any]]:
     """词项覆盖 + IDF 加权检索，返回带 page 的 hits（结构与 rag_engine 一致）。"""
@@ -339,7 +341,7 @@ def retrieve(
     # 缓存：key 用 (路径, mtime, size)，索引重建后自动失效
     try:
         _st = p.stat()
-        _ck = f"{p}|{int(_st.st_mtime)}|{_st.st_size}"
+        _ck = f"{p}|{_st.st_mtime_ns}|{_st.st_size}"
     except Exception:
         _ck = str(p)
     d = _CACHE.get(_ck)
@@ -347,6 +349,8 @@ def retrieve(
         try:
             d = json.loads(p.read_text(encoding="utf-8"))
         except Exception:
+            if strict_errors:
+                raise
             return []
         if len(_CACHE) > 8:
             _CACHE.clear()
@@ -399,6 +403,8 @@ def retrieve(
             "chunk_idx": i,
             "page": int(c.get("page", 0) or 0),
             "doc_tag": d.get("doc_tag", doc_tag),
+            "index_fingerprint": d.get("fingerprint", ""),
+            "index_version": CHUNK_VERSION,
         })
     out.sort(key=lambda r: r["score"], reverse=True)
     return out[:max(int(top_k or TOP_K), 1)]

@@ -222,6 +222,16 @@ def analyze_core(
 
     # ---- 3) 输出校验（字段/类型/范围/口径）----
     analysis, v_issues = validate_analysis(analysis)
+    from financial_facts import guard_periods
+    analysis["summary"], _period_issues = guard_periods(analysis.get("summary", ""), raw_data)
+    v_issues.extend(_period_issues)
+    for _key in ("highlights", "risks"):
+        checked = []
+        for _sentence in analysis.get(_key) or []:
+            _sentence, _period_issues = guard_periods(_sentence, raw_data)
+            checked.append(_sentence)
+            v_issues.extend(_period_issues)
+        analysis[_key] = checked
 
     # ---- 4) 证据核对 + 证据卡 + 引用统计 ----
     _pg_range = (1, int(rag_pages)) if isinstance(rag_pages, int) and rag_pages > 0 else None
@@ -273,7 +283,7 @@ if __name__ == "__main__":  # pragma: no cover - 纯自检，不联网
         "summary": "见年报第 12 页",
         "risks": ["风险一"], "highlights": ["亮点一"],
     }
-    _hits = [{"page": 42, "text": "营业收入 6,058,908,000.00 元；营业成本 36,109,000,000.00 元"}]
+    _hits = [{"page": 42, "text": "2025年报营业收入 6,058,908,000.00 元；营业成本 36,109,000,000.00 元"}]
     _res = analyze_core(
         _ana, raw_data="营业收入 100.5 亿元", industry="消费",
         online=False, pdftext="", rag_hits=_hits, rag_pages=220,

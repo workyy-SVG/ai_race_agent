@@ -150,8 +150,8 @@ def pe_from(price, eps) -> Tuple[Optional[float], str]:
 _PRICE_RE = re.compile(r"最新价[：: ]*\s*(" + _NUM + r")\s*元")
 _PB_RE = re.compile(r"市净率\(PB\)[：:]\s*(" + _NUM + r")")
 _PE_RE = re.compile(r"市盈率\(PE-TTM\)[：:]\s*(" + _NUM + r")")
-_BPS_RE = re.compile(r"每股净资产\s*(" + r"[+-]?[\d,]+(?:\.\d+)?" + r")\s*元")
-_EPS_RE = re.compile(r"每股收益\s*(" + r"[+-]?[\d,]+(?:\.\d+)?" + r")\s*元")
+_BPS_RE = re.compile(r"每股净资产\s*[:：]?\s*(" + r"[+-]?[\d,]+(?:\.\d+)?" + r")\s*元")
+_EPS_RE = re.compile(r"每股收益\s*[:：]?\s*(" + r"[+-]?[\d,]+(?:\.\d+)?" + r")\s*元")
 
 
 def parse_valuation_inputs(text: str) -> dict:
@@ -171,12 +171,26 @@ def parse_valuation_inputs(text: str) -> dict:
     m = _PE_RE.search(t)
     if m:
         out["pe_ttm"] = to_f(m.group(1))
-    # 每股净资产 / 每股收益取**最近一次**出现（摘要按报告期倒序排列时最近期在前，
-    # 正序时最近期在后；估值口径统一取"最新一期财报"，故这里取最后一处匹配）
-    for m in _BPS_RE.finditer(t):
-        out["bps"] = to_f(m.group(1))
-    for m in _EPS_RE.finditer(t):
-        out["eps"] = to_f(m.group(1))
+    from financial_facts import extract_facts, period_rank
+    facts = extract_facts(t)
+    for key, metric, pattern in (("bps", "每股净资产", _BPS_RE), ("eps", "每股收益", _EPS_RE)):
+        candidates = [f for f in facts if f["metric"] == metric]
+        out[key + "_period"] = "未注明报告期"
+        if candidates:
+            latest = max(candidates, key=lambda f: period_rank(f["period"]))["period"]
+            values = {f["value"] for f in candidates if f["period"] == latest}
+            if len(values) == 1:
+                out[key] = values.pop()
+                out[key + "_period"] = latest
+            else:
+                out[key + "_period"] = latest + "（数值冲突，未采用）"
+        else:
+            values = {to_f(m[1]) for m in pattern.finditer(t)}
+            if len(values) == 1:
+                out[key] = values.pop()
+    out["valuation_basis_period"] = out["bps_period"]
+    snapshot = re.search(r"(?:摘要生成时间|行情时间|取数时间)[：:]\s*([^\n]+)", t)
+    out["price_as_of"] = snapshot[1].strip() if snapshot else "材料未提供行情时间"
     return out
 
 
@@ -196,7 +210,7 @@ def valuation_block(text: str) -> str:
         lines.append(f"· PB：{pb_msg}")
     else:
         lines.append(
-            f"· PB = {pb_msg}（口径：股价取行情接口最新价，每股净资产取最新一期财报）"
+            f"· PB = {pb_msg}（口径：股价取本次材料行情快照；{inp['price_as_of']}；每股净资产采用 {inp['bps_period']}）"
         )
     if inp["pe_ttm"] is not None:
         lines.append(
@@ -207,7 +221,7 @@ def valuation_block(text: str) -> str:
         if pe_v is None:
             lines.append(f"· PE：{pe_msg}（其中动态 PE 还需全年 EPS 预测，本次材料未提供）")
         else:
-            lines.append(f"· PE = {pe_msg}")
+            lines.append(f"· 股价/EPS（{inp['eps_period']}，未年化）= {pe_msg}；该值不等于 PE-TTM 或动态 PE")
     lines.append(
         "· 口径限制：以上只完成**指标计算**；是否便宜还需历史分位与同业对比，"
         "本次材料未提供分位数据时不得给出高低判断。"

@@ -670,6 +670,7 @@ def retrieve(
     embedding_model: str = EMBED_MODEL_DEFAULT,
     doc_tag: str = "",
     min_score: float = MIN_SCORE,
+    strict_errors: bool = False,
 ) -> List[Dict[str, Any]]:
     """检索 Top-K 片段, 返回 [{text, score, cos, overlap, code, year, chunk_idx, page}, ...].
 
@@ -682,7 +683,7 @@ def retrieve(
     """
     if backend_available() != "chroma" and rag_lite is not None:
         return rag_lite.retrieve(query, code, year, top_k=top_k,
-                                 doc_tag=doc_tag, min_score=rag_lite.MIN_SCORE)
+                                 doc_tag=doc_tag, min_score=rag_lite.MIN_SCORE, strict_errors=strict_errors)
     try:
         client = _get_chroma_client()
         cname = _collection_name(code, year, doc_tag)
@@ -718,6 +719,8 @@ def retrieve(
                 "chunk_idx": m.get("chunk_idx", -1),
                 "page": m.get("page", 0),
                 "doc_tag": m.get("doc_tag", doc_tag),
+                "index_fingerprint": m.get("doc_fp", ""),
+                "index_version": CHUNK_VERSION,
             })
         out.sort(key=lambda r: r["score"], reverse=True)
         return out[:max(int(top_k or TOP_K), 1)]
@@ -727,9 +730,11 @@ def retrieve(
         if rag_lite is not None:
             try:
                 return rag_lite.retrieve(query, code, year, top_k=top_k,
-                                         doc_tag=doc_tag, min_score=rag_lite.MIN_SCORE)
+                                         doc_tag=doc_tag, min_score=rag_lite.MIN_SCORE, strict_errors=strict_errors)
             except Exception:
                 pass
+        if strict_errors:
+            raise RuntimeError("年报检索后端及降级检索失败") from e
         return []
 
 

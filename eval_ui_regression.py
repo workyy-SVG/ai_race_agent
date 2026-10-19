@@ -303,7 +303,7 @@ _res = _pl.analyze_core(
     {"metrics": [{"item": "2025年报营业收入", "value": 60.59}],
      "summary": "见年报第 12 页", "risks": [], "highlights": []},
     raw_data="营业收入 100.5 亿元", industry="消费", online=False,
-    rag_hits=[{"page": 42, "text": "营业收入 6,058,908,000.00 元"}], rag_pages=220,
+    rag_hits=[{"page": 42, "text": "2025年报营业收入 6,058,908,000.00 元"}], rag_pages=220,
 )
 _check("pipeline 端到端：证据核对通过", _res["evidence_issues"] == [], str(_res["evidence_issues"]))
 _check("pipeline 端到端：证据卡定位到第 42 页",

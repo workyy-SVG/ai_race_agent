@@ -40,7 +40,7 @@ os.chdir(_HERE)
 
 import data_source as ds  # noqa: E402
 import pipeline as pl  # noqa: E402
-from analysis_validate import number_has_source  # noqa: E402
+from evidence_integrity import match_metric  # noqa: E402
 
 OUT_DIR = os.path.join(_HERE, "eval_results")
 try:
@@ -116,13 +116,13 @@ ds.get_financial_indicators = lambda code, periods=8, annual_only=False: list(
     FIXTURES.get(str(code), [])
 )
 ds.build_summary_text = lambda code, name="", periods=8: (
-    f"{name or code} 财务摘要：营业收入 1,741.00 亿元，同比增长 15.0%；"
+    f"{name or code} 2024年报财务摘要：营业收入 1,741.00 亿元，同比增长 15.0%；"
     f"归母净利润 862.00 亿元；ROE 34.0%；毛利率 91.5%。"
 )
 
 # 模拟年报正文片段：单位刻意写成「元」，与模型常用的「亿元」不同 —— 考验单位换算链
 PDF_TEXT = (
-    "第三节 主要会计数据和财务指标\n"
+    "2024年报 第三节 主要会计数据和财务指标\n"
     "营业收入 6,058,908,000.00 元，同比增长 15.0%。\n"
     "归属于上市公司股东的净利润 3,400,000,000.00 元。\n"
 )
@@ -179,7 +179,7 @@ def case_normal() -> Case:
     # 用来验证"模型写亿元、年报写元"时证据卡仍能正向定位到页码。
     hits = [{
         "page": 42,
-        "text": "本期营业收入 174,100,000,000.00 元，同比增长 15.00%；毛利率 91.50%。",
+        "text": "2024年报本期营业收入 174,100,000,000.00 元，同比增长 15.00%；毛利率 91.50%。",
     }]
     core: Dict[str, Any] = {}
 
@@ -209,7 +209,7 @@ def case_normal() -> Case:
 
     # —— 单位准确率：模型写「亿元」、年报写「元」，换算链必须能配上 ——
     c.check(CAT_UNIT, "亿元↔元 单位换算链命中（60.59 亿元 vs 6,058,908,000 元）",
-            number_has_source(60.59, PDF_TEXT), "")
+            bool(match_metric({"item": "2024年报营业收入", "value": 60.59, "unit": "亿元"}, PDF_TEXT)), "")
     c.check(CAT_UNIT, "正常数值不误报为编造（证据核对无疑点）",
             not core.get("evidence_issues"), str(core.get("evidence_issues"))[:200])
 

@@ -35,6 +35,8 @@ import data_source as ds
 import workbench_ui as wb
 import login_session as login
 import followup_charts as fcharts
+import research_evidence as rev
+import financial_facts as facts
 
 # 统一预算计数（原子写入 + 分桶：llm / polish / embed）
 try:
@@ -5053,9 +5055,10 @@ def _panel_clear(key_prefix: str) -> None:
     """
     for _k in ("online", "online_name", "online_code", "online_org",
                "auto_industry", "cands", "pdftext", "pdf_path", "pdf_year",
-               "pdf_tag", "pdf_title", "rag_status", "reports"):
+               "pdf_tag", "pdf_title", "pdf_code", "pdf_hash", "pdf_text_hash", "rag_status", "reports"):
         st.session_state.pop(f"{key_prefix}_{_k}", None)
     if key_prefix == "single":
+        rev.clear_document(st.session_state)
         # 单公司页：旧分析 / 旧研报 / 旧对话 / 旧证据卡都必须一起失效
         for _k in ("analysis", "analysis_data", "report", "messages", "data_sig",
                    "evidence_items_last", "timeline_rows", "timeline_code"):
@@ -5085,6 +5088,7 @@ def _panel_store(key_prefix: str, code: str, name: str, org: str, periods: int):
     st.session_state[f"{key_prefix}_online_name"] = name
     st.session_state[f"{key_prefix}_online_code"] = code
     st.session_state[f"{key_prefix}_online_org"] = org or ""
+    st.session_state.pop(f"{key_prefix}_last_err", None)
     # 自动匹配行业财务基准库（不直接改已渲染的 industry radio，
     # 而是存进 session_state，由顶部 radio 在下一轮渲染时读取）
     # 【Agent 轨迹 · 决策点】"按公司名猜行业"是 Agent 自己做的判断，
@@ -5357,12 +5361,7 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
         原始数据与年报 PDF 解析收在明确标注的展开区，所有功能保留。
         取数逻辑、防"猜代码"逻辑与完整模式完全一致。
     """
-    # BUG-02（外部测试报告）：报错后输入框残留旧值，用户接着输入会拼接在一起
-    # （自动化实测出现「999999999600000」）。失败路径置 _clear_kw 标志并 rerun，
-    # 这里在**控件实例化之前**消费标志清空输入框 —— 控件实例化之后再改它的
-    # session key 会抛 StreamlitAPIException，所以必须放在函数最顶部。
-    if st.session_state.pop(f"{key_prefix}_clear_kw", False):
-        st.session_state[f"{key_prefix}_kw"] = ""
+    # 失败时保留用户输入，错误持续显示至重试成功。
     if not compact:
         step_head("3", "在线取数",
                   "从交易所公开披露数据自动获取（行情 · 多期财务指标 · 年报原文）",
@@ -5468,11 +5467,9 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
 
     # ---- 取数主流程（手动按钮与热门下拉自动触发共用，v11 抽成函数）----
     def _fail_fetch(msg: str) -> None:
-        """取数失败的统一出口：清空输入框 + 持久化错误信息 + rerun。
-        （BUG-02/03：旧实现只打一条 st.error 就结束，输入框残留旧值，
-        用户接着输入会拼接；超长输入还会把 alert 撑破布局。）"""
+        """清除旧结果，保留本轮输入和失败原因，方便纠正与重试。"""
+        _panel_clear(key_prefix)
         st.session_state[f"{key_prefix}_last_err"] = msg
-        st.session_state[f"{key_prefix}_clear_kw"] = True
         st.rerun()
 
     def _fetch_by_kw(kw_val: str, p: int) -> None:
@@ -5527,8 +5524,8 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
         else:
             _fetch_by_kw(_kw, periods)
 
-    # BUG-02：rerun 后在这里回放上一轮失败的错误信息（输入框已被清空，可直接重输）
-    _last_err = st.session_state.pop(f"{key_prefix}_last_err", "")
+    # 错误持续显示至成功取数，保留输入供用户纠正。
+    _last_err = st.session_state.get(f"{key_prefix}_last_err", "")
     if _last_err:
         st.error(f"❌ {_last_err}")
 
@@ -5607,12 +5604,18 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
             _tag = rag.doc_tag_for(_r.get("date"), _rtype)
         except Exception:
             _tag = ""
-        _pdf_path = Path(tempfile.gettempdir()) / f"{code}_{_yr}_{_rtype}.pdf"
+        import hashlib
+        _pdf_hash = hashlib.sha256(pdf).hexdigest()
+        _tag = f"{_tag}_{_pdf_hash[:16]}"
+        _pdf_path = Path(tempfile.gettempdir()) / f"{code}_{_yr}_{_pdf_hash[:20]}.pdf"
         try:
             _pdf_path.write_bytes(pdf)
         except Exception:
             return False, "PDF 保存到临时目录失败（磁盘不可写）。"
 
+        st.session_state[f"{key_prefix}_pdf_code"] = code
+        st.session_state[f"{key_prefix}_pdf_hash"] = _pdf_hash
+        st.session_state[f"{key_prefix}_pdf_text_hash"] = rev.digest(ptxt)
         st.session_state[f"{key_prefix}_pdftext"] = ptxt
         st.session_state[f"{key_prefix}_pdf_title"] = _r.get("title", "")
         st.session_state[f"{key_prefix}_pdf_year"] = _yr
@@ -5656,7 +5659,7 @@ def online_fetch_panel(key_prefix: str, default_name: str = "", compact: bool = 
             return True, (
                 f"✅ 已解析《{_r.get('title', '')}》并建立**{_be}索引**："
                 f"{_st.get('chunks', 0)} 个文本块 · 覆盖 {_st.get('pages', 0)} 页；"
-                f"后续分析 / 研报 / 追问将自动检索原文并标注「见年报第X页」。"
+                f"后续分析 / 研报 / 追问将检索当前文档；引用是否完整以成稿检查为准。"
                 + (f"（{_st.get('msg', '')}）" if "⚠️" in str(_st.get("msg", "")) else "")
             )
         return False, f"索引未建立：{_st.get('msg') or '未知原因'}"
@@ -6225,6 +6228,8 @@ def _render_history_list() -> None:
                         actx.set_online(_snap.get("name", ""), _snap.get("code", ""))
                     if isinstance(_h.get("analysis"), dict):
                         actx.sync_from_analysis(_h["analysis"])
+                rev.restore_document(st.session_state, _snap, _snap.get("code", ""), extract_pdf_bytes)
+                st.session_state["main_view"] = "🏢"
                 st.session_state["hist_active"] = _h.get("id")
                 st.rerun()
             # 【B11】缺失的综合评分不能显示成 "None"：
@@ -6532,7 +6537,7 @@ def _view_single():
             online_text, online_name, online_pdftext = online_fetch_panel("single")
     else:
         with card("manual", "3", "手动输入 / 上传",
-                  "可粘贴财报摘要，或上传 PDF / txt / md（上传的年报会按页进入检索库）",
+                  "可粘贴财报摘要，或上传 PDF / txt / md；本轮仅使用当前材料",
                   tag="二选一", col=_single_grid[2]):
             # ⚠️ 这一栏只有主区的 ~1/3 宽 —— 再分成左右两栏会把输入框挤成
             #    ~180px，所以两个控件改成上下堆叠。
@@ -6603,8 +6608,13 @@ def _view_single():
     parts = []
     if online_text:
         parts.append(online_text)
-    if online_pdftext:
-        parts.append("【年报原文 · 开头摘录（全文已入向量库，可按问题检索）】\n" + online_pdftext[:3000])
+    _online_doc = rev.document_binding(st.session_state, {
+        "source": "online" if src_mode.startswith("🌐") else "manual",
+        "code": st.session_state.get("single_online_code", "")})
+    if src_mode.startswith("🌐") and online_pdftext and not _online_doc:
+        st.caption("📚 当前年报缺少可验证的版本关联，请重新解析；本轮暂不引用旧索引。")
+    if online_pdftext and _online_doc:
+        parts.append("【当前年报原文 · 开头摘录（仅为概况，不代表全文证据）】\n" + online_pdftext[:3000])
     if data_text and data_text.strip():
         parts.append(data_text.strip())
     if uploaded_text:
@@ -6732,16 +6742,21 @@ def _view_single():
             # 【B01/B02】身份片段走**统一上下文**：手动材料会把 code 置空，
             # 于是切到手动模式本身就构成一次数据版本变化 → 旧结果必然失效，
             # 不会再出现"手动材料套用上一次在线公司指标"的串台。
-            (actx.signature_part() if actx is not None
+            (f"{_ctx_now.get('source')}|{_ctx_now.get('code')}" if actx is not None
              else st.session_state.get("single_online_code", "")),
             st.session_state.get("single_online_name", ""),
             str(st.session_state.get("single_periods", "")),
             st.session_state.get("single_pdf_title", ""),
+            st.session_state.get("single_pdf_hash", ""),
+            st.session_state.get("single_pdf_tag", ""),
             industry,
             "hasdata" if raw_data else "nodata",
             _content_hash(raw_data),
         ])
 
+    if _ctx_now.get("source") != "online":
+        rev.clear_document(st.session_state, keep_unbound_report=True)
+    _document = rev.document_binding(st.session_state, _ctx_now)
     _sig_now = _data_sig()
     _sig_old = st.session_state.get("data_sig")
     if _sig_old and _sig_old != _sig_now:
@@ -6763,36 +6778,14 @@ def _view_single():
     # 【RAG 按问题检索】不再把年报当"开头几千字"硬塞给模型，
     # 而是针对"财务数据/经营讨论/风险"检索最相关的章节（带页码）
     def _rag_retrieve(query, top_k=8):
-        _code = st.session_state.get("single_online_code", "")
-        _year = st.session_state.get("single_pdf_year", "")
-        _tag = st.session_state.get("single_pdf_tag", "")
-        _tr = get_tracer()
-        if rag is None or not _code or not _year or not st.session_state.get("single_pdftext"):
-            # 【Agent 轨迹】没建索引也要如实记一步「未执行」：
-            # 台账里凭空少一步，比记录"这步没做"更容易让人误以为检索过了。
-            _tr.hit("年报 RAG", "检索年报相关章节", inp=str(query)[:36],
-                    out="未执行", note="尚未解析年报 PDF，无向量索引", status="skipped")
-            return []
-        if not rag.has_index(_code, _year, _tag):
-            # 兼容老会话：索引可能是按"无 doc_tag"的老命名建的
-            _tag = rag.find_index_tag(_code, _year) or _tag
-            if not rag.has_index(_code, _year, _tag):
-                _tr.hit("年报 RAG", "检索年报相关章节", inp=str(query)[:36],
-                        out="未执行", note=f"{_code} {_year} 年报索引不存在", status="skipped")
-                return []
-        try:
-            with _tr.span("年报 RAG", "检索年报相关章节",
-                          inp=f"top_k={top_k} · {str(query)[:36]}") as _s:
-                _hits = rag.retrieve(query, _code, _year, top_k=top_k, doc_tag=_tag)
-                _pgs = sorted({int(h.get("page") or 0) for h in (_hits or [])
-                               if str(h.get("page") or "").isdigit()})
-                _s.out = f"命中 {len(_hits or [])} 个章节" + (
-                    f" · 页码 {_pgs[:6]}" if _pgs else "")
-            return _hits
-        except Exception as e:
-            _tr.hit("年报 RAG", "检索年报相关章节", out="检索失败", status="failed",
-                    note=f"{type(e).__name__}: {e}")
-            return []
+        _hits, _diagnostic = rev.retrieve_scoped(rag, _document, query, top_k)
+        st.session_state["rag_diagnostic"] = _diagnostic
+        get_tracer().hit(
+            "年报 RAG", "检索当前材料相关章节", inp=str(query)[:80],
+            out=f"{_diagnostic['status']} · 命中 {len(_hits)} 个片段 · 页码 {_diagnostic['pages']}",
+            note=_diagnostic.get("reason", ""),
+            status="ok" if _hits else "failed" if _diagnostic["status"] == "error" else "skipped")
+        return _hits
 
     if run_btn and raw_data and DEEPSEEK_API_KEY:
         with st.spinner("正在提取关键指标并评分……（约 10-30 秒）"):
@@ -6828,6 +6821,8 @@ def _view_single():
                     f"行业：{industry}\n\n财务数据：\n"
                 )
                 _ctx = json_instruction + raw_data[:MAX_CHARS]
+                _ctx += facts.facts_prompt(raw_data)
+                _ctx += rev.retrieval_prompt(st.session_state.get("rag_diagnostic") or {})
                 if rag_hits:
                     _ctx += (
                         "\n\n【年报相关章节 · RAG 检索（引用时请注明页码）】\n"
@@ -6868,7 +6863,8 @@ def _view_single():
                     )
                     return parse_json_loose(_mj) or {}
 
-                _pg_count = (st.session_state.get("single_rag_status") or {}).get("pages")
+                _pg_count = ((st.session_state.get("single_rag_status") or {}).get("pages")
+                             if _document else None)
                 _core = _pipeline.analyze_core(
                     analysis,
                     raw_data,
@@ -6877,12 +6873,16 @@ def _view_single():
                     periods=int(st.session_state.get("single_periods", 4) or 4),
                     online=bool(_oc),
                     finance_kind=(st.session_state.get("single_finance_kind") or None),
-                    pdftext=st.session_state.get("single_pdftext") or "",
+                    pdftext=(st.session_state.get("single_pdftext") or "") if _document else "",
                     rag_hits=rag_hits,
                     rag_pages=_pg_count if isinstance(_pg_count, int) else None,
                     metrics_extractor=_llm_extract,
                 )
                 analysis = _core["analysis"]
+                if _ctx_now.get("source") != "online":
+                    _name_from_model = str(analysis.get("company") or "").strip()
+                    if _name_from_model and _name_from_model not in raw_data:
+                        analysis["company"] = "目标公司（材料未明确名称）"
 
                 # 【Agent 轨迹】规则评分 / 输出校验 / 证据核对都在 pipeline 内部完成
                 # （页面与离线评测共用同一条链路），所以只能在调用**之后**回填台账。
@@ -6934,7 +6934,7 @@ def _view_single():
                 _cit_now = _core.get("citation") or {}
                 if _cit_now.get("rate") is not None:
                     _agent_tr.hit(
-                        "引用核验", "正文页码引用正确率",
+                        "引用核验", "正文页码范围有效率",
                         inp=(f"合法页码区间 1~{_pg_count}"
                              if isinstance(_pg_count, int) and _pg_count > 0
                              else "无年报索引，无法核验"),
@@ -6970,7 +6970,7 @@ def _view_single():
                         st.caption(
                             "下列数值未能在「在线取数摘要 / 年报检索片段 / 年报全文」中匹配到出处，"
                             "可能由模型换算或推算而来，建议以年报原文为准。"
-                            "（已放宽千分位、单位换算与两位小数舍入，仅保留确实对不上的条目。）"
+                            "（按科目、报告期、单位及带符号数值作保守匹配；未匹配不等于数据必然错误。）"
                         )
                         for _iss in _ev_issues[:12]:
                             st.markdown(f"- {_iss}")
@@ -6990,8 +6990,8 @@ def _view_single():
                         )
                     else:
                         st.caption(
-                            "✅ 证据核对通过：指标与图表数值均可在"
-                            "「在线取数摘要 / 年报检索片段」中找到出处。"
+                            "✅ 数值规则初检通过：已找到科目、期别、单位和数值相符的候选来源。"
+                            "这不代表已完成全文语义核验，请结合原文核对。"
                         )
 
                 # 4c) 证据卡：把每个数值**正向**定位回它的出处（页码 + 原文片段）。
@@ -7007,7 +7007,7 @@ def _view_single():
                     ):
                         if _ev_located:
                             st.caption(
-                                "数值与它在年报中的出处（页码 + 原文片段）一一对应；"
+                                "以下为按科目、报告期、单位与数值匹配的候选原文，供逐项核对；"
                                 "未建年报向量索引时只能定位到取数摘要，无法给出页码。"
                             )
                         else:
@@ -7015,7 +7015,7 @@ def _view_single():
                                 "当前**未定位到任何年报页码** —— 多为尚未建立年报向量索引（属"
                                 "「证据不足，无法判断」的明确说明，而不是假装引用有效）。"
                                 "在上方「📄 一键获取并解析年报 PDF」里下载解析一份年报后再分析，"
-                                "即可获得「第X页 + 原文片段」级别的引用核验。"
+                                "可尝试定位「第X页 + 原文片段」；未命中时会如实提示。"
                             )
                         _ev_df = pd.DataFrame([
                             {
@@ -7036,9 +7036,9 @@ def _view_single():
                 _cit = _core.get("citation") or {}
                 if _cit.get("rate") is not None:
                     st.caption(
-                        f"🧭 页码引用正确率：{_cit.get('ok', 0)}/{_cit.get('refs', 0)}"
+                        f"🧭 页码范围有效率：{_cit.get('ok', 0)}/{_cit.get('refs', 0)}"
                         f"（{_cit['rate'] * 100:.0f}%）"
-                        "—— 指正文引用的「第X页」落在年报真实页数范围内的比例。"
+                        "—— 仅检查页码是否越界，不代表原文支持结论。"
                     )
 
                 st.session_state["analysis"] = analysis
@@ -7108,6 +7108,7 @@ def _view_single():
                             "source": (_ctx_now.get("source") if actx is not None else ""),
                             "org": st.session_state.get("single_online_org", ""),
                             "periods": st.session_state.get("single_periods", 3),
+                            "document": rev.pdf_snapshot(st.session_state) if _document else {},
                             "report": (st.session_state.get("report") or "")[:60000],
                             "messages": (st.session_state.get("messages") or [])[-12:],
                         },
@@ -7560,7 +7561,8 @@ def _view_single():
                 )
                 st.caption(
                     f"口径：{_pb_msg if _pb_v is not None else 'PB 缺少输入值，未计算'}"
-                    "；每股净资产取最新一期财报。"
+                    f"；股价快照：{_vin['price_as_of']}"
+                    f"；每股净资产报告期：{_vin['bps_period']}。"
                     "动态 PE 需全年 EPS 预测，本次材料未提供 → 单独不计算，"
                     "**不影响 PB 的计算结果**。是否便宜还需历史分位与同业对比，"
                     "本次材料未提供分位数据，故不给出高低判断。"
@@ -7624,32 +7626,17 @@ def _view_single():
         # ⚠️ 检索【不再绑定】"双模型润色"开关：那个开关只控制千问润色（花钱的步骤），
         #    若把检索也绑上去，会出现"关掉开关后：结构化分析与追问仍在用年报证据、
         #    研报却不用"的入口不一致 —— 同一份报告，证据口径必须一致。
-        _rag_hits: list = []
-        if rag is not None:
-            _code = st.session_state.get("single_online_code", "")
-            _yr = st.session_state.get("single_pdf_year", "")
-            _tag = st.session_state.get("single_pdf_tag", "")
-            _pdf_path = st.session_state.get("single_pdf_path", "")
-            if st.session_state.get("single_pdftext") and _code and _yr:
-                # 兜底：如果索引还没建（如旧会话数据），现场补建一次
-                if not rag.has_index(_code, _yr, _tag) and _pdf_path and Path(_pdf_path).exists():
-                    with st.spinner("正在补建年报向量索引……"):
-                        _built = rag.build_index_from_pdf(_pdf_path, _code, _yr, doc_tag=_tag)
-                        st.session_state["single_rag_status"] = _built
-                if rag.has_index(_code, _yr, _tag):
-                    with st.spinner("正在从年报全文检索相关章节……"):
-                        _rag_hits = rag.retrieve(
-                            f"{online_name or '目标公司'} 财务表现 经营讨论 业务亮点 风险因素 未来展望",
-                            _code, _yr, top_k=6, doc_tag=_tag,
-                        )
-                    st.session_state["rag_build_status"] = (
-                        st.session_state.get("single_rag_status")
-                        or {"ok": True, "chunks": len(_rag_hits), "pages": 0, "msg": "复用已有索引"}
-                    )
+        with st.spinner("正在检索当前文档的经营与风险章节……"):
+            _rag_hits = _rag_retrieve(
+                f"{_ctx_now.get('name') or '目标公司'} 财务表现 经营讨论 业务亮点 风险因素 未来展望", top_k=8)
+        _report_stage = st.empty()
+        _report_stage.info("研报阶段 1/3：检索完成，正在生成初稿……")
         box = st.empty()
         with st.spinner("正在生成完整研报……"):
             try:
                 context = f"行业：{industry}\n\n财务数据：\n{raw_data[:MAX_CHARS]}"
+                context += facts.facts_prompt(raw_data)
+                context += rev.retrieval_prompt(st.session_state.get("rag_diagnostic") or {})
                 # 【B08】估值比率由**程序**先算好再交给模型。
                 # PB = 股价 / 每股净资产，只要这两项齐备就能算，**与 EPS 预测无关**；
                 # 旧实现让模型自己判断"能不能算"，它于是拿"缺少全年 EPS 预测和
@@ -7695,6 +7682,7 @@ def _view_single():
                 #   ② 修掉落单的 ** 标记；
                 #   ③ 方向写反的句子按数值改回来（B07）；
                 #   ④ 只要新增了初稿里没有的数值或统计口径 → **退回初稿**。
+                _report_stage.info("研报阶段 2/3：初稿已生成，正在校验或润色……")
                 if use_dual_model and lq is not None and lq.is_available():
                     _refined = lq.refine_answer(
                         report,
@@ -7712,8 +7700,11 @@ def _view_single():
                                 report, _refined, allowed=_allow)
                         else:
                             _final, _pstat, _pissues = _refined, "pass", []
+                        if not rev.preserve_citations(report, _final):
+                            _final, _pstat = report, "keep_draft"
+                            _pissues.append("润色稿丢失初稿页码引用，保留初稿。")
                         report = _final
-                        st.session_state["dual_model_refined"] = True
+                        st.session_state["dual_model_refined"] = _pstat != "keep_draft"
                         if _pstat != "pass" or _pissues:
                             st.session_state["polish_guard"] = {
                                 "status": _pstat,
@@ -7726,13 +7717,26 @@ def _view_single():
                 # 无论有没有润色，成稿都要清一遍加工前言与落单的 **（B10）
                 if fc is not None:
                     report = fc.fix_markdown(fc.strip_polish_preface(report))
+                _report_stage.info("研报阶段 3/3：正在检查报告期与最终引用……")
+                report, _period_issues = facts.guard_periods(report, raw_data)
+                _audit = rev.citation_audit(report, _rag_hits, _document)
+                _audit["retrieval"] = st.session_state.get("rag_diagnostic") or {}
+                _audit["issues"].extend(_period_issues)
+                if _audit["issues"]:
+                    _audit["status"] = "limited"
+                st.session_state["report_evidence"] = _audit
+                if _audit["issues"]:
+                    report += "\n\n---\n**证据与口径核查限制**\n\n" + "\n".join("- " + issue for issue in _audit["issues"])
+                report += rev.source_appendix(_audit)
                 st.session_state["report"] = report
+                _report_stage.empty()
                 # 关键：清掉流式初稿占位区，交给下方统一渲染【最终稿】。
                 # 否则这次点击里页面显示的是润色前初稿，而下载按钮给的是润色后终稿，
                 # 同一个按钮触发的"看到的内容"和"下载的内容"不一致。
                 box.empty()
             except Exception as e:
                 box.empty()
+                _report_stage.empty()
                 st.error(f"研报生成失败：{e}")
 
     def _tab4():
@@ -7756,17 +7760,21 @@ def _view_single():
                 '<span class="dual-badge">🤖 双模型协同 · DeepSeek 分析 + 千问润色</span>',
                 unsafe_allow_html=True,
             )
-        _rstatus = st.session_state.get("rag_build_status")
-        if _rstatus and _rstatus.get("ok"):
-            st.caption(
-                f"📚 RAG 检索增强已启用：{_rstatus.get('chunks', 0)} chunks"
-                + (f" · 覆盖 {_rstatus.get('pages', 0)} 页" if _rstatus.get("pages") else "")
-                + " · 研报中的年报内容均来自全文检索并标注页码"
-            )
+        _audit = st.session_state.get("report_evidence") or {}
+        if _audit:
+            st.caption(f"📚 成稿正文引用检查：{_audit.get('refs', 0)} 处页码引用，"
+                       f"其中 {_audit.get('matched', 0)} 处页码在本轮证据中。此检查不代表语义核验通过。")
+        else:
+            st.caption("📚 当前为历史研报，尚无本次引用检查记录；可重新生成以核查当前材料。")
+        if _audit.get("sources"):
+            with st.expander("查看本轮年报检索证据与文档版本"):
+                for _source in _audit["sources"]:
+                    st.caption(f"{_source.get('title')} · 第 {_source.get('page')} 页 · 材料 {_source.get('source_id')}")
+                    st.write(_source.get("text") or "")
         # 【B06/B10】润色守卫记录：让"润色不改事实"这件事可被核查
         _pgd = st.session_state.get("polish_guard") or {}
         if _pgd.get("issues"):
-            with st.expander("🛡️ 润色守卫记录（自动生成 · 保证润色阶段不改事实）",
+            with st.expander("🛡️ 润色守卫记录（自动检查）",
                              expanded=False):
                 if _pgd.get("status") == "keep_draft":
                     st.caption(
@@ -7808,6 +7816,9 @@ def _view_single():
                 _tab4()
             else:
                 _tab5_agent_trace()
+    elif st.session_state.get("report"):
+        # “直接出稿”也可独立使用；没有结构化评分时仍显示最终研报与下载入口。
+        _tab4()
 
     # ---- 追问对话（多轮，上下文实时更新） ----
     # 【顺序很关键 · 为什么这么排】
@@ -7853,6 +7864,9 @@ def _view_single():
     if question:
         # 1) 组装上下文：数据 + 结构化评分 + RAG 检索 + 历史对话
         base_context = f"【行业】{industry}\n\n【财务数据】\n{raw_data[:MAX_CHARS]}"
+        base_context += facts.facts_prompt(raw_data)
+        if fc is not None:
+            base_context += "\n\n" + fc.valuation_block(raw_data)
         if analysis:
             base_context += f"\n\n【已生成的结构化评分与结论】\n{json.dumps(analysis, ensure_ascii=False)[:2000]}"
 
@@ -7874,9 +7888,11 @@ def _view_single():
             )
 
         # 【RAG 接通】按用户问题实时检索年报相关章节（含页码）
-        _q_hits = []
-        if rag is not None:
-            _q_hits = _rag_retrieve(question, top_k=6)
+        _q_hits = _rag_retrieve(question, top_k=6)
+        _diag = st.session_state.get("rag_diagnostic") or {}
+        base_context += rev.retrieval_prompt(_diag)
+        if not _q_hits:
+            st.caption("📚 " + _diag.get("reason", "本轮未取得年报证据。"))
         if _q_hits:
             base_context += (
                 "\n\n【年报相关章节 · 按问题检索（回答时请注明引用页码，"
@@ -7918,10 +7934,18 @@ def _view_single():
                             "🧭 已由程序校验修正：" + "；".join(_a_fixes[:3])
                             + "（数值变化方向按程序计算，不依赖模型表述）"
                         )
+                answer, _period_issues = facts.guard_periods(answer, raw_data)
+                _answer_audit = rev.citation_audit(answer, _q_hits, _document)
+                if _answer_audit["issues"]:
+                    answer += "\n\n**引用核查限制**：" + "；".join(_answer_audit["issues"])
+                box.markdown(answer)
+                if _period_issues:
+                    st.caption("报告期核查：已暂缓采用与材料冲突的表述。")
                 _render_followup_charts(_chart_bundle)
             st.session_state["messages"].append(
                 {"role": "assistant", "content": answer,
-                 "chart_bundle": _chart_bundle}
+                 "chart_bundle": _chart_bundle,
+                 "retrieval": _diag, "citation_audit": _answer_audit}
             )
         except Exception as e:
             st.error(f"调用失败：{e}")

@@ -1020,6 +1020,7 @@ def build_summary_text(code: str, name: str = "", periods: int = 4) -> str:
     # —— 行情 ——
     if quote:
         lines.append(f"## 一、市场表现（{quote.get('source', '最新')}）")
+        lines.append(f"- 摘要生成时间：{datetime.datetime.now().astimezone().isoformat(timespec='seconds')}（行情可能来自接口缓存）")
         lines.append(f"- 最新价：{quote.get('price')} 元")
         if quote.get("change_pct") is not None:
             lines.append(f"- 当日涨跌幅：{quote.get('change_pct')}%")
